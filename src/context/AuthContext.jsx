@@ -49,6 +49,18 @@ export function AuthProvider({ children }) {
 
     // Listen for login, logout, and token refresh events
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // PASSWORD_RECOVERY fires when the user clicks a password reset email link.
+      // We set the user so updateUser() will work on the reset page, then make sure
+      // they are on the reset page (in case Supabase redirected them to the site root
+      // instead of /reset-password because the URL wasn't in the Supabase allowlist).
+      if (event === 'PASSWORD_RECOVERY') {
+        setUser(session?.user ?? null)
+        if (window.location.pathname !== '/reset-password') {
+          window.location.replace('/reset-password')
+        }
+        return // Don't load profile or change loading state — not needed for password reset
+      }
+
       setUser(session?.user ?? null)
       // On sign-in (signup or login), show loading until the profile is fetched.
       // Without this, ProtectedRoute renders with profile=null before the DB row is

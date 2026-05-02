@@ -2,11 +2,15 @@
  * LoginPage — email and password login with a "remember me" checkbox.
  */
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../../services/supabase'
 
 export default function LoginPage() {
   const navigate = useNavigate()
+  // Check if the user just finished resetting their password — show them a success message
+  const [searchParams] = useSearchParams()
+  const justResetPassword = searchParams.get('passwordReset') === 'true'
+
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [rememberMe, setRememberMe] = useState(false)
@@ -44,6 +48,12 @@ export default function LoginPage() {
           <p className="text-amber font-semibold text-sm mt-1">Essentials</p>
           <p className="text-gray-500 text-sm mt-3">Log in to your account</p>
         </div>
+
+        {justResetPassword && (
+          <div className="bg-green-50 border border-success text-success rounded-lg px-4 py-3 text-sm mb-4">
+            Password updated successfully! Log in with your new password.
+          </div>
+        )}
 
         {error && (
           <div className="bg-red-50 border border-danger text-danger rounded-lg px-4 py-3 text-sm mb-4">
