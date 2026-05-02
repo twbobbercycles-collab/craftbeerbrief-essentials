@@ -1,0 +1,39 @@
+/* Tailwind v4 — import the full library, then define custom design tokens below */
+@import "tailwindcss";
+
+/*
+  Custom design tokens for The Craft Beer Brief Essentials.
+  These become Tailwind utility classes like bg-amber, text-navy, etc.
+*/
+@theme {
+  --color-amber: #C8871A;
+  --color-amber-dark: #a06e14;
+  --color-navy: #1A2744;
+  --color-navy-light: #253660;
+  --color-success: #2D7A4F;
+  --color-warning: #E07A12;
+  --color-danger: #C0392B;
+  --color-gray-light: #F8F8F8;
+}
+
+/* Global base styles — reset Vite defaults and apply our design system */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  background-color: #F8F8F8;
+  color: #1A2744;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  width: 100%;
+  min-height: 100vh;
+}

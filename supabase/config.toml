@@ -1,0 +1,46 @@
+# Supabase local development configuration
+# Run "supabase start" to spin up a local Supabase instance for development
+# Run "supabase db push" to apply migrations to your remote project
+
+[api]
+# Port for the local Supabase API
+port = 54321
+
+[db]
+# Port for the local Postgres database
+port = 54322
+
+[studio]
+# Port for the local Supabase Studio (web UI)
+port = 54323
+
+[inbucket]
+# Port for the local email testing server (catches all outbound emails in dev)
+port = 54324
+
+[auth]
+site_url = "http://localhost:5173"
+additional_redirect_urls = ["http://localhost:5173"]
+jwt_expiry = 3600
+enable_email_confirmations = false  # Set to true in production
+
+[functions]
+# Edge functions are automatically picked up from supabase/functions/
+# Each folder becomes a function endpoint at /functions/v1/<folder-name>
+
+# =============================================================================
+# Cron job: runs the grants-sync function every 24 hours
+# This is set in the Supabase dashboard under Database → Cron Jobs, not here.
+# SQL to add the cron job (run in Supabase SQL editor):
+#
+# select cron.schedule(
+#   'grants-sync-daily',          -- job name
+#   '0 6 * * *',                  -- cron expression: every day at 6:00 AM UTC
+#   $$
+#     select net.http_post(
+#       url := 'https://<your-project>.supabase.co/functions/v1/grants-sync',
+#       headers := '{"Authorization": "Bearer <your-anon-key>"}'::jsonb
+#     )
+#   $$
+# );
+# =============================================================================
