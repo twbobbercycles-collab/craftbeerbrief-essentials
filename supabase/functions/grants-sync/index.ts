@@ -1,12 +1,15 @@
 /**
  * grants-sync Edge Function
- * Runs automatically every 24 hours (scheduled via Supabase cron) and can be triggered manually.
- * Fetches brewery-relevant grants from Grants.gov API and inserts/updates them in our database.
- * Uses the service role key so it bypasses RLS and can write to the grants table as admin.
+ * Runs every 24 hours via Supabase cron and can be triggered manually.
+ *
+ * Primary API: Simpler.Grants.gov (https://api.simpler.grants.gov/v1) — requires GRANTS_GOV_API_KEY.
+ * Fallback API: Legacy Grants.gov v2 (https://api.grants.gov/v2/api/search2) — no auth needed.
+ *
+ * Each keyword is searched separately. Results from all keywords are deduplicated by
+ * opportunity_id / external_id before any database writes occur.
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
-// Keywords to search Grants.gov — rotated across syncs to find the most relevant opportunities
 const SEARCH_KEYWORDS = [
   'brewery',
   'craft beer',
@@ -17,140 +20,244 @@ const SEARCH_KEYWORDS = [
   'value-added producer',
 ]
 
-// Grants.gov API endpoint
-const GRANTS_GOV_URL = 'https://api.grants.gov/v1/api/search'
+const SIMPLER_GRANTS_URL = 'https://api.simpler.grants.gov/v1/opportunities/search'
+const LEGACY_GRANTS_URL  = 'https://api.grants.gov/v1/api/search2'
 
-// The response structure from Grants.gov search API
-interface GrantsGovOpportunity {
-  id: string
-  number: string
-  title: string
-  agency: string
-  openDate: string
-  closeDate: string
-  oppStatus: string
-  synopsis?: string
-  description?: string
-  awardCeiling?: number
-  awardFloor?: number
-  applicantTypes?: string[]
+// ── Response shape from Simpler.Grants.gov ──────────────────────────────────
+interface SimplerOpportunity {
+  opportunity_id:    string | number
+  opportunity_title: string
+  summary: {
+    description?:         string
+    agency_name?:         string
+    post_date?:           string
+    close_date?:          string
+    award_floor?:         number | null
+    award_ceiling?:       number | null
+    opportunity_status?:  string
+  }
 }
 
-Deno.serve(async (req) => {
-  // Create a Supabase client with the service role key — this bypasses RLS
+// ── Common shape used for all DB writes regardless of source API ─────────────
+interface NormalizedGrant {
+  external_id:  string
+  title:        string
+  description:  string | null
+  status:       string
+  deadline:     string | null
+  amount_min:   number | null
+  amount_max:   number | null
+}
+
+// ── Status mapping for the new API ──────────────────────────────────────────
+const SIMPLER_STATUS_MAP: Record<string, string> = {
+  posted:     'open',
+  closed:     'closed',
+  forecasted: 'upcoming',
+  archived:   'closed',
+}
+
+Deno.serve(async (_req: Request) => {
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL') ?? '',
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
   )
 
-  let totalAdded = 0
-  let totalUpdated = 0
-  const errors: string[] = []
+  const apiKey    = Deno.env.get('GRANTS_GOV_API_KEY') ?? ''
+  const useSimpler = apiKey.length > 0
 
-  // Search Grants.gov once for each keyword
+  console.log(`grants-sync: using ${useSimpler ? 'Simpler.Grants.gov (authenticated)' : 'legacy Grants.gov v2 (fallback)'}`)
+
+  // Collect all results across every keyword, deduplicating by external_id
+  const seen      = new Set<string>()
+  const allGrants: NormalizedGrant[] = []
+  const errors:    string[] = []
+
   for (const keyword of SEARCH_KEYWORDS) {
     try {
-      const result = await searchGrantsGov(keyword)
-      const { added, updated } = await upsertGrants(supabase, result)
-      totalAdded += added
-      totalUpdated += updated
+      const opps = useSimpler
+        ? await searchSimplerGrants(keyword, apiKey)
+        : await searchLegacyGrants(keyword)
+
+      for (const opp of opps) {
+        if (!seen.has(opp.external_id)) {
+          seen.add(opp.external_id)
+          allGrants.push(opp)
+        }
+      }
     } catch (err) {
-      // Log the error but keep going — one failed keyword shouldn't stop the whole sync
       const message = err instanceof Error ? err.message : 'Unknown error'
       errors.push(`Keyword "${keyword}": ${message}`)
       console.error(`grants-sync error for keyword "${keyword}":`, message)
     }
   }
 
-  console.log(`grants-sync complete: ${totalAdded} added, ${totalUpdated} updated, ${errors.length} errors`)
+  const { added, updated } = await upsertGrants(supabase, allGrants)
+
+  console.log(`grants-sync complete: ${added} added, ${updated} updated, ${allGrants.length} total unique, ${errors.length} keyword errors`)
 
   return new Response(
-    JSON.stringify({ added: totalAdded, updated: totalUpdated, errors }),
+    JSON.stringify({ added, updated, total_unique: allGrants.length, errors }),
     { headers: { 'Content-Type': 'application/json' } }
   )
 })
 
-/**
- * Calls the Grants.gov API with a single keyword and returns matching opportunities.
- */
-async function searchGrantsGov(keyword: string): Promise<GrantsGovOpportunity[]> {
+// ── Simpler.Grants.gov (primary, authenticated) ──────────────────────────────
+
+async function searchSimplerGrants(keyword: string, apiKey: string): Promise<NormalizedGrant[]> {
   const body = {
-    keyword,
-    oppStatuses: 'posted', // Only open/active opportunities
-    rows: 50,
-    startRecordNum: 0,
-    sortBy: 'openDate|desc',
+    filters: {
+      opportunity_status: { one_of: ['posted'] },
+      keywords: [keyword],
+    },
+    pagination: {
+      page_offset: 1,
+      page_size:   25,
+      sort_by:     'post_date',
+      order_by:    'desc',
+    },
   }
 
-  const response = await fetch(GRANTS_GOV_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  const response = await fetch(SIMPLER_GRANTS_URL, {
+    method:  'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
     body: JSON.stringify(body),
   })
 
   if (!response.ok) {
-    throw new Error(`Grants.gov API returned ${response.status}: ${await response.text()}`)
+    throw new Error(`Simpler.Grants.gov ${response.status}: ${await response.text()}`)
   }
 
   const data = await response.json()
-  // Grants.gov nests results in data.oppHits.oppHit
-  return data?.data?.oppHits?.oppHit ?? []
+  // API may wrap results under `data` or `opportunities` depending on version
+  const opps: SimplerOpportunity[] = data?.data ?? data?.opportunities ?? []
+
+  return opps
+    .filter(o => o.opportunity_id && o.opportunity_title)
+    .map(normalizeSimpler)
 }
 
+function normalizeSimpler(o: SimplerOpportunity): NormalizedGrant {
+  const rawStatus = (o.summary?.opportunity_status ?? '').toLowerCase()
+  const status    = SIMPLER_STATUS_MAP[rawStatus] ?? 'open'
+
+  // Prefix description with agency name so it appears in keyword searches
+  const agencyLine = o.summary?.agency_name
+    ? `Funding Agency: ${o.summary.agency_name}\n\n`
+    : ''
+
+  const deadline = o.summary?.close_date
+    ? new Date(o.summary.close_date).toISOString().split('T')[0]
+    : null
+
+  return {
+    external_id: String(o.opportunity_id),
+    title:       o.opportunity_title,
+    description: o.summary?.description ? agencyLine + o.summary.description : null,
+    status,
+    deadline,
+    amount_min:  o.summary?.award_floor   ?? null,
+    amount_max:  o.summary?.award_ceiling ?? null,
+  }
+}
+
+// ── Legacy Grants.gov v2 (fallback, no auth) ─────────────────────────────────
+
+async function searchLegacyGrants(keyword: string): Promise<NormalizedGrant[]> {
+  const body = {
+    keyword,
+    oppStatuses:      'posted',
+    rows:             25,
+    startRecordNum:   0,
+    sortBy:           'openDate|desc',
+  }
+
+  const response = await fetch(LEGACY_GRANTS_URL, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(body),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Grants.gov v2 ${response.status}: ${await response.text()}`)
+  }
+
+  const data = await response.json()
+  // Legacy API nests results in data.oppHits.oppHit
+  const opps: any[] = data?.data?.oppHits?.oppHit ?? data?.opportunities ?? []
+
+  return opps
+    .filter(o => (o.id ?? o.number) && o.title)
+    .map(o => {
+      const agencyLine = o.agency ? `Funding Agency: ${o.agency}\n\n` : ''
+      return {
+        external_id: String(o.id ?? o.number),
+        title:       o.title,
+        description: (o.synopsis ?? o.description)
+          ? agencyLine + (o.synopsis ?? o.description)
+          : null,
+        status:      (o.oppStatus ?? '').toLowerCase() === 'posted' ? 'open' : 'closed',
+        deadline:    o.closeDate
+          ? new Date(o.closeDate).toISOString().split('T')[0]
+          : null,
+        amount_min:  o.awardFloor   ?? null,
+        amount_max:  o.awardCeiling ?? null,
+      } satisfies NormalizedGrant
+    })
+}
+
+// ── Database upsert ───────────────────────────────────────────────────────────
+
 /**
- * Takes a list of Grants.gov opportunities and inserts new ones / updates existing ones.
- * Uses external_id (the Grants.gov opportunity ID) to detect duplicates.
+ * Inserts new grants and updates the status of existing ones if it has changed.
+ * Only status is updated on existing records — title and description are not overwritten
+ * to avoid clobbering any manual edits made in the admin panel.
  */
 async function upsertGrants(
   supabase: ReturnType<typeof createClient>,
-  opportunities: GrantsGovOpportunity[]
+  grants: NormalizedGrant[]
 ): Promise<{ added: number; updated: number }> {
-  let added = 0
+  let added   = 0
   let updated = 0
 
-  for (const opp of opportunities) {
-    const externalId = opp.id ?? opp.number
-
-    if (!externalId || !opp.title) continue // Skip malformed entries
-
-    // Check if this grant already exists in our database
+  for (const grant of grants) {
     const { data: existing } = await supabase
       .from('grants')
       .select('id, status')
-      .eq('external_id', externalId)
+      .eq('external_id', grant.external_id)
       .maybeSingle()
 
-    // Map Grants.gov status to our simplified status
-    const status = opp.oppStatus?.toLowerCase() === 'posted' ? 'open' : 'closed'
-
-    const grantData = {
-      title: opp.title,
-      description: opp.synopsis ?? opp.description ?? null,
-      eligibility_summary: opp.applicantTypes ? opp.applicantTypes.join(', ') : null,
-      funding_type: 'Grant',
-      amount_min: opp.awardFloor ?? null,
-      amount_max: opp.awardCeiling ?? null,
-      states_eligible: ['All States'],  // Federal grants are nationwide
-      status,
-      application_deadline: opp.closeDate ? new Date(opp.closeDate).toISOString().split('T')[0] : null,
-      application_url: `https://www.grants.gov/search-results-detail/${externalId}`,
-      is_federal: true,
-      source_url: `https://www.grants.gov/search-results-detail/${externalId}`,
-      grant_source: 'grants_gov',
-      external_id: externalId,
-      last_synced_at: new Date().toISOString(),
-      approved: true,  // Federal grants from Grants.gov are auto-approved
-    }
-
     if (existing) {
-      // Update the existing record if status has changed
-      if (existing.status !== status) {
-        await supabase.from('grants').update({ status, last_synced_at: new Date().toISOString() }).eq('id', existing.id)
+      // Only touch the row if the status has actually changed
+      if (existing.status !== grant.status) {
+        await supabase
+          .from('grants')
+          .update({ status: grant.status, last_synced_at: new Date().toISOString() })
+          .eq('id', existing.id)
         updated++
       }
     } else {
-      // Insert as a new grant
-      await supabase.from('grants').insert(grantData)
+      await supabase.from('grants').insert({
+        title:                grant.title,
+        description:          grant.description,
+        eligibility_summary:  null,
+        funding_type:         'federal_grant',
+        amount_min:           grant.amount_min,
+        amount_max:           grant.amount_max,
+        states_eligible:      ['All States'],
+        status:               grant.status,
+        application_deadline: grant.deadline,
+        application_url:      `https://www.grants.gov/search-results-detail/${grant.external_id}`,
+        source_url:           `https://www.grants.gov/search-results-detail/${grant.external_id}`,
+        is_federal:           true,
+        grant_source:         'grants_gov',
+        external_id:          grant.external_id,
+        last_synced_at:       new Date().toISOString(),
+        approved:             true,
+      })
       added++
     }
   }

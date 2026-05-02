@@ -22,7 +22,9 @@ port = 54324
 site_url = "http://localhost:5173"
 additional_redirect_urls = ["http://localhost:5173"]
 jwt_expiry = 3600
-enable_email_confirmations = false  # Set to true in production
+
+[auth.email]
+enable_confirmations = false  # Set to true in production
 
 [functions]
 # Edge functions are automatically picked up from supabase/functions/
