@@ -86,14 +86,14 @@ export default function UpgradePage() {
         <div className="border-2 border-amber rounded-xl p-6 mb-6 text-center">
           {billing === 'monthly' ? (
             <>
-              <p className="text-3xl font-bold text-navy">$14<span className="text-lg font-normal text-gray-500">/mo</span></p>
+              <p className="text-3xl font-bold text-navy">$14.99<span className="text-lg font-normal text-gray-500">/mo</span></p>
               <p className="text-gray-500 text-sm mt-1">Billed monthly</p>
             </>
           ) : (
             <>
-              <p className="text-3xl font-bold text-navy">$140<span className="text-lg font-normal text-gray-500">/yr</span></p>
-              <p className="text-success font-semibold text-sm mt-1">💰 Save $28 — get two months free</p>
-              <p className="text-gray-500 text-xs mt-0.5">That's just $11.67/month</p>
+              <p className="text-3xl font-bold text-navy">$149.99<span className="text-lg font-normal text-gray-500">/yr</span></p>
+              <p className="text-success font-semibold text-sm mt-1">💰 Save $30 — get two months free</p>
+              <p className="text-gray-500 text-xs mt-0.5">That's just $12.50/month</p>
             </>
           )}
 
@@ -125,7 +125,7 @@ export default function UpgradePage() {
           disabled={loading}
           className="w-full bg-amber hover:bg-amber-dark text-white font-semibold py-3 rounded-lg text-sm transition-colors disabled:opacity-60"
         >
-          {loading ? 'Redirecting to checkout...' : `Subscribe ${billing === 'monthly' ? '— $14/mo' : '— $140/yr'}`}
+          {loading ? 'Redirecting to checkout...' : `Subscribe ${billing === 'monthly' ? '— $14.99/mo' : '— $149.99/yr'}`}
         </button>
 
         <p className="text-center text-gray-400 text-xs mt-3">
