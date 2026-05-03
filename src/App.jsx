@@ -28,6 +28,7 @@ const LocalPermitsPage = lazy(() => import('./pages/permits/LocalPermitsPage'))
 const TtbPage         = lazy(() => import('./pages/ttb/TtbPage'))
 const GrantsPage      = lazy(() => import('./pages/grants/GrantsPage'))
 const AccountPage     = lazy(() => import('./pages/account/AccountPage'))
+const HelpPage        = lazy(() => import('./pages/help/HelpPage'))
 const AdminPage       = lazy(() => import('./pages/admin/AdminPage'))
 
 // Suspense fallback wraps all lazy pages — shows a spinner during code loading
@@ -75,6 +76,7 @@ export default function App() {
           <Route path="ttb"        element={<TtbPage />} />
           <Route path="grants" element={<GrantsPage />} />
           <Route path="account" element={<AccountPage />} />
+          <Route path="help"    element={<HelpPage />} />
 
           {/* Admin-only route — only visible to VITE_ADMIN_EMAIL */}
           <Route

@@ -18,6 +18,7 @@ const NAV_ITEMS = [
   { path: '/permits',    label: 'Local Permits',       icon: '📍' },
   { path: '/ttb',        label: 'TTB Tracker',         icon: '📊' },
   { path: '/grants',     label: 'Grant Finder',        icon: '💰' },
+  { path: '/help',       label: 'Help & FAQ',          icon: '❓' },
   { path: '/account',    label: 'Account Settings',    icon: '⚙️' },
 ]
 
