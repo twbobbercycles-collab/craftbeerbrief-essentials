@@ -103,7 +103,7 @@ function SectionDivider() {
 
 export default function OnboardingPage() {
   const navigate = useNavigate()
-  const { brewery, refreshProfile } = useAuth()
+  const { user, profile, brewery, refreshProfile } = useAuth()
 
   const [productionLicenseType, setProductionLicenseType] = useState('')
   const [onPremiseLicenses, setOnPremiseLicenses] = useState([])
@@ -167,6 +167,21 @@ export default function OnboardingPage() {
         .eq('id', brewery?.id)
 
       if (breweryError) throw breweryError
+
+      // Fire welcome email — intentionally NOT awaited.
+      // If this call fails for any reason the user is never blocked or shown an error.
+      fetch('https://orjekijkixswvnzenilb.supabase.co/functions/v1/send-welcome-email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({
+          email:            user?.email ?? '',
+          brewery_name:     brewery?.name ?? '',
+          trial_expires_at: profile?.trial_expires_at ?? '',
+        }),
+      }).catch(() => {}) // Swallow silently — email must never block the user
 
       await refreshProfile()
       navigate('/dashboard')
