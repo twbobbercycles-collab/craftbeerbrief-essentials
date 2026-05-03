@@ -11,6 +11,7 @@ import DismissibleDisclaimer from '../../components/DismissibleDisclaimer'
 import ModalShell from '../../components/ModalShell'
 import { useModalDraft } from '../../hooks/useModalDraft'
 import DraftNoticeBar from '../../components/DraftNoticeBar'
+import { useReadOnly } from '../../hooks/useReadOnly'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -71,6 +72,7 @@ function formatDate(dateStr) {
 
 export default function DocumentsPage() {
   const { brewery } = useAuth()
+  const { isReadOnly, ReadOnlyTooltip } = useReadOnly()
   const fileInputRef = useRef(null)
   const { loadDraft, saveDraft, clearDraft, draftRestored, dismissDraftBanner, hasDraft } = useModalDraft('modal_draft_document')
 
@@ -323,16 +325,18 @@ export default function DocumentsPage() {
       {/* Page header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h2 className="text-xl font-bold text-navy">📂 License & Permit Documents</h2>
-        <button
-          onClick={() => openUploadModal(!hasDraft)}
-          title={hasDraft ? "You have an unsaved draft — click to continue where you left off" : undefined}
-          className="bg-amber hover:bg-amber-dark text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors relative"
-        >
-          {hasDraft && (
-            <span className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-amber rounded-full border-2 border-white" />
-          )}
-          {hasDraft ? 'Continue Draft' : '+ Upload Document'}
-        </button>
+        <ReadOnlyTooltip isReadOnly={isReadOnly}>
+          <button
+            onClick={() => openUploadModal(!hasDraft)}
+            title={hasDraft ? "You have an unsaved draft — click to continue where you left off" : undefined}
+            className="bg-amber hover:bg-amber-dark text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors relative"
+          >
+            {hasDraft && (
+              <span className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-amber rounded-full border-2 border-white" />
+            )}
+            {hasDraft ? 'Continue Draft' : '+ Upload Document'}
+          </button>
+        </ReadOnlyTooltip>
       </div>
 
       {/* Draft notice — shown when an unsaved upload draft exists */}

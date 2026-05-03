@@ -3,10 +3,12 @@
  * Renders the sidebar navigation and top bar, then places page content in the main area.
  * On mobile (< 768px) the sidebar collapses to a hamburger menu.
  */
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { NavLink, Outlet, useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../services/supabase'
+import ReadOnlyBanner from '../components/ReadOnlyBanner'
+import PastDueBanner from '../components/PastDueBanner'
 
 // Navigation items — each has a path, label, and emoji icon for easy reading
 const NAV_ITEMS = [
@@ -23,9 +25,15 @@ const NAV_ITEMS = [
 ]
 
 export default function AppLayout() {
-  const { user, brewery, isAdmin, profile } = useAuth()
+  const { user, brewery, isAdmin, profile, refreshProfile } = useAuth()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const navigate = useNavigate()
+
+  // Re-fetch the profile once on mount so subscription_status is always current.
+  // AuthContext only loads the profile on auth events (login/logout), which means
+  // a subscription cancelled externally (e.g. via Stripe) won't be reflected until
+  // the user re-opens the app — this one DB read closes that gap.
+  useEffect(() => { refreshProfile() }, [])
 
   // Log the user out and redirect to the login page
   async function handleSignOut() {
@@ -140,6 +148,11 @@ export default function AppLayout() {
             </span>
           )}
         </header>
+
+        {/* Subscription status banners — only one shows at a time, never for active/trial users */}
+        {console.log('[AppLayout] profile?.subscription_status:', profile?.subscription_status)}
+        {profile?.subscription_status === 'cancelled' && <ReadOnlyBanner />}
+        {profile?.subscription_status === 'past_due'  && <PastDueBanner />}
 
         {/* Page content scrolls independently */}
         <main className="flex-1 overflow-y-auto p-4 md:p-6">

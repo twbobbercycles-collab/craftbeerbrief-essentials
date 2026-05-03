@@ -13,6 +13,7 @@ import { useModalDraft } from '../../hooks/useModalDraft'
 import GrantCard from './GrantCard'
 import SubmitGrantModal from './SubmitGrantModal'
 import { getDisplayStatus, matchesAmountFilter, isAvailableInState, FUNDING_TYPES } from './grantsUtils'
+import { useReadOnly } from '../../hooks/useReadOnly'
 
 // ── Small helper components used only on this page ──────────────────────────
 
@@ -71,6 +72,7 @@ function SkeletonGrid() {
 
 export default function GrantsPage() {
   const { brewery } = useAuth()
+  const { isReadOnly, ReadOnlyTooltip } = useReadOnly()
 
   // Draft persistence — survives tab switches and accidental closes
   const { loadDraft, saveDraft, clearDraft, draftRestored, dismissDraftBanner, hasDraft } =
@@ -267,17 +269,19 @@ export default function GrantsPage() {
       {/* Page title + Submit a Grant button */}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <h2 className="text-xl font-bold text-navy">💰 Grant & Funding Finder</h2>
-        <button
-          onClick={() => openSubmitModal(!hasDraft)}
-          title={hasDraft ? 'You have an unsaved draft — click to continue where you left off' : undefined}
-          className="relative bg-amber hover:bg-amber-dark text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors shrink-0"
-        >
-          {/* Amber dot indicator when a draft exists */}
-          {hasDraft && (
-            <span className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-amber rounded-full border-2 border-white" />
-          )}
-          {hasDraft ? '📝 Continue Draft' : '+ Submit a Grant'}
-        </button>
+        <ReadOnlyTooltip isReadOnly={isReadOnly}>
+          <button
+            onClick={() => openSubmitModal(!hasDraft)}
+            title={hasDraft ? 'You have an unsaved draft — click to continue where you left off' : undefined}
+            className="relative bg-amber hover:bg-amber-dark text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors shrink-0"
+          >
+            {/* Amber dot indicator when a draft exists */}
+            {hasDraft && (
+              <span className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-amber rounded-full border-2 border-white" />
+            )}
+            {hasDraft ? '📝 Continue Draft' : '+ Submit a Grant'}
+          </button>
+        </ReadOnlyTooltip>
       </div>
 
       {/* Draft notice bar — shown when a draft exists and the modal is not yet open */}

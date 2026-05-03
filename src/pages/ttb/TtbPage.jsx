@@ -18,6 +18,7 @@ import EmptyState from '../../components/EmptyState'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import DraftNoticeBar from '../../components/DraftNoticeBar'
 import { useModalDraft } from '../../hooks/useModalDraft'
+import { useReadOnly } from '../../hooks/useReadOnly'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -826,6 +827,7 @@ function FrequencySetupPrompt({ breweryId, onSaved }) {
 
 export default function TtbPage() {
   const { brewery } = useAuth()
+  const { isReadOnly, ReadOnlyTooltip } = useReadOnly()
 
   // Data
   const [filings,       setFilings]       = useState([])
@@ -1175,10 +1177,12 @@ export default function TtbPage() {
         )}
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex gap-2">
-            <button onClick={openAddPayment}
-              className="bg-amber hover:bg-amber-dark text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
-              + Add Payment
-            </button>
+            <ReadOnlyTooltip isReadOnly={isReadOnly}>
+              <button onClick={openAddPayment}
+                className="bg-amber hover:bg-amber-dark text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
+                + Add Payment
+              </button>
+            </ReadOnlyTooltip>
             {filings.length > 0 && (
               <button onClick={exportPaymentsCsv}
                 className="border border-gray-300 text-gray-600 text-sm px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors">
@@ -1288,10 +1292,12 @@ export default function TtbPage() {
               <option key={s} value={s} className="capitalize">{s.charAt(0).toUpperCase() + s.slice(1)}</option>
             ))}
           </select>
-          <button onClick={openAddCola}
-            className="bg-amber hover:bg-amber-dark text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
-            + Add COLA
-          </button>
+          <ReadOnlyTooltip isReadOnly={isReadOnly}>
+            <button onClick={openAddCola}
+              className="bg-amber hover:bg-amber-dark text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
+              + Add COLA
+            </button>
+          </ReadOnlyTooltip>
         </div>
 
         {filtered.length === 0 ? (
@@ -1354,10 +1360,12 @@ export default function TtbPage() {
           />
         )}
         <div className="flex justify-end">
-          <button onClick={openAddReport}
-            className="bg-amber hover:bg-amber-dark text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
-            + Add Report
-          </button>
+          <ReadOnlyTooltip isReadOnly={isReadOnly}>
+            <button onClick={openAddReport}
+              className="bg-amber hover:bg-amber-dark text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
+              + Add Report
+            </button>
+          </ReadOnlyTooltip>
         </div>
 
         {reportLogs.length === 0 ? (

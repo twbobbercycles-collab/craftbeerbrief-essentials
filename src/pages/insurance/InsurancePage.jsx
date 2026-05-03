@@ -12,6 +12,7 @@ import DismissibleDisclaimer from '../../components/DismissibleDisclaimer'
 import ModalShell from '../../components/ModalShell'
 import { useModalDraft } from '../../hooks/useModalDraft'
 import DraftNoticeBar from '../../components/DraftNoticeBar'
+import { useReadOnly } from '../../hooks/useReadOnly'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -111,6 +112,7 @@ function toNumericOrNull(str) {
 
 export default function InsurancePage() {
   const { brewery } = useAuth()
+  const { isReadOnly, ReadOnlyTooltip } = useReadOnly()
   const { loadDraft, saveDraft, clearDraft, draftRestored, dismissDraftBanner, hasDraft } = useModalDraft('modal_draft_insurance')
 
   // ── Data state ──
@@ -333,16 +335,18 @@ export default function InsurancePage() {
       {/* Page header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h2 className="text-xl font-bold text-navy">🛡️ Insurance Policies</h2>
-        <button
-          onClick={() => openAddModal(!hasDraft)}
-          title={hasDraft ? "You have an unsaved draft — click to continue where you left off" : undefined}
-          className="bg-amber hover:bg-amber-dark text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors relative"
-        >
-          {hasDraft && (
-            <span className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-amber rounded-full border-2 border-white" />
-          )}
-          {hasDraft ? 'Continue Draft' : '+ Add Policy'}
-        </button>
+        <ReadOnlyTooltip isReadOnly={isReadOnly}>
+          <button
+            onClick={() => openAddModal(!hasDraft)}
+            title={hasDraft ? "You have an unsaved draft — click to continue where you left off" : undefined}
+            className="bg-amber hover:bg-amber-dark text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors relative"
+          >
+            {hasDraft && (
+              <span className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-amber rounded-full border-2 border-white" />
+            )}
+            {hasDraft ? 'Continue Draft' : '+ Add Policy'}
+          </button>
+        </ReadOnlyTooltip>
       </div>
 
       {/* Draft notice — shown when an unsaved policy draft exists */}

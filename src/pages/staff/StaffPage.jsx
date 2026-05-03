@@ -11,6 +11,7 @@ import DismissibleDisclaimer from '../../components/DismissibleDisclaimer'
 import ModalShell from '../../components/ModalShell'
 import DraftNoticeBar from '../../components/DraftNoticeBar'
 import { useModalDraft } from '../../hooks/useModalDraft'
+import { useReadOnly } from '../../hooks/useReadOnly'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -93,6 +94,7 @@ function getCertTypeLabel(value) {
 
 export default function StaffPage() {
   const { brewery } = useAuth()
+  const { isReadOnly, ReadOnlyTooltip } = useReadOnly()
 
   const {
     loadDraft: loadStaffDraft, saveDraft: saveStaffDraft,
@@ -475,27 +477,31 @@ export default function StaffPage() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h2 className="text-xl font-bold text-navy">👥 Staff &amp; Certifications</h2>
         {activeTab === 'staff' ? (
-          <button
-            onClick={() => openAddStaffModal(!hasDraftStaff)}
-            title={hasDraftStaff ? "You have an unsaved draft — click to continue where you left off" : undefined}
-            className="bg-amber hover:bg-amber-dark text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors relative"
-          >
-            {hasDraftStaff && (
-              <span className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-amber rounded-full border-2 border-white" />
-            )}
-            {hasDraftStaff ? 'Continue Draft' : '+ Add Staff Member'}
-          </button>
+          <ReadOnlyTooltip isReadOnly={isReadOnly}>
+            <button
+              onClick={() => openAddStaffModal(!hasDraftStaff)}
+              title={hasDraftStaff ? "You have an unsaved draft — click to continue where you left off" : undefined}
+              className="bg-amber hover:bg-amber-dark text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors relative"
+            >
+              {hasDraftStaff && (
+                <span className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-amber rounded-full border-2 border-white" />
+              )}
+              {hasDraftStaff ? 'Continue Draft' : '+ Add Staff Member'}
+            </button>
+          </ReadOnlyTooltip>
         ) : (
-          <button
-            onClick={() => openAddCertModal(!hasDraftCert)}
-            title={hasDraftCert ? "You have an unsaved draft — click to continue where you left off" : undefined}
-            className="bg-amber hover:bg-amber-dark text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors relative"
-          >
-            {hasDraftCert && (
-              <span className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-amber rounded-full border-2 border-white" />
-            )}
-            {hasDraftCert ? 'Continue Draft' : '+ Add Certification'}
-          </button>
+          <ReadOnlyTooltip isReadOnly={isReadOnly}>
+            <button
+              onClick={() => openAddCertModal(!hasDraftCert)}
+              title={hasDraftCert ? "You have an unsaved draft — click to continue where you left off" : undefined}
+              className="bg-amber hover:bg-amber-dark text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors relative"
+            >
+              {hasDraftCert && (
+                <span className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-amber rounded-full border-2 border-white" />
+              )}
+              {hasDraftCert ? 'Continue Draft' : '+ Add Certification'}
+            </button>
+          </ReadOnlyTooltip>
         )}
       </div>
 

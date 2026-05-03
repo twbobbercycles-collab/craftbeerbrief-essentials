@@ -74,6 +74,8 @@ export default function AccountPage() {
   // ── Subscription / billing state ──
   const [portalLoading, setPortalLoading] = useState(false)
   const [cancelModalOpen, setCancelModalOpen] = useState(false)
+  // Shows the data-retention confirmation step after the user clicks "Cancel Subscription"
+  const [cancelConfirmed, setCancelConfirmed] = useState(false)
 
   // ── Team invite state ──
   const [inviteEmail, setInviteEmail] = useState('')
@@ -282,35 +284,60 @@ export default function AccountPage() {
       {cancelModalOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
-          onClick={() => setCancelModalOpen(false)}
+          onClick={() => { setCancelModalOpen(false); setCancelConfirmed(false) }}
         >
           <div
             className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 space-y-4"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-lg font-bold text-navy">Are you sure you want to cancel?</h3>
-            <p className="text-sm text-gray-600 leading-relaxed">
-              You will lose access to all compliance tracking, grant finder, and TTB tracking tools
-              at the end of your current billing period. Your data will be retained for 30 days
-              after cancellation in case you choose to resubscribe.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-3 pt-1">
-              <button
-                onClick={() => {
-                  setCancelModalOpen(false)
-                  openBillingPortal()
-                }}
-                className="flex-1 bg-danger hover:bg-red-700 text-white font-semibold py-2.5 rounded-lg text-sm transition-colors"
-              >
-                Cancel Subscription
-              </button>
-              <button
-                onClick={() => setCancelModalOpen(false)}
-                className="flex-1 bg-amber hover:bg-amber-dark text-white font-semibold py-2.5 rounded-lg text-sm transition-colors"
-              >
-                Keep My Subscription
-              </button>
-            </div>
+            {cancelConfirmed ? (
+              /* ── Step 2: data-retention success message ── */
+              <>
+                <div className="text-center">
+                  <p className="text-3xl mb-3">✅</p>
+                  <h3 className="text-lg font-bold text-navy mb-3">Subscription Cancelled</h3>
+                </div>
+                <p className="text-sm text-gray-600 leading-relaxed">
+                  Your subscription has been cancelled. You will retain full read access to all
+                  your data indefinitely. Nothing will be deleted. If you change your mind you
+                  can resubscribe at any time and pick up exactly where you left off.
+                </p>
+                <button
+                  onClick={() => { setCancelModalOpen(false); setCancelConfirmed(false) }}
+                  className="w-full bg-amber hover:bg-amber-dark text-white font-semibold py-2.5 rounded-lg text-sm transition-colors"
+                >
+                  Close
+                </button>
+              </>
+            ) : (
+              /* ── Step 1: confirmation with data-retention assurance ── */
+              <>
+                <h3 className="text-lg font-bold text-navy">Are you sure you want to cancel?</h3>
+                <p className="text-sm text-gray-600 leading-relaxed">
+                  You will lose the ability to add or edit data at the end of your current billing
+                  period. <strong>Your data is never deleted</strong> — everything is preserved
+                  indefinitely so you can resubscribe at any time and pick up exactly where you
+                  left off.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-3 pt-1">
+                  <button
+                    onClick={() => {
+                      setCancelConfirmed(true)
+                      openBillingPortal()
+                    }}
+                    className="flex-1 bg-danger hover:bg-red-700 text-white font-semibold py-2.5 rounded-lg text-sm transition-colors"
+                  >
+                    Cancel Subscription
+                  </button>
+                  <button
+                    onClick={() => setCancelModalOpen(false)}
+                    className="flex-1 bg-amber hover:bg-amber-dark text-white font-semibold py-2.5 rounded-lg text-sm transition-colors"
+                  >
+                    Keep My Subscription
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

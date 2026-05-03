@@ -19,6 +19,7 @@ import DismissibleDisclaimer from '../../components/DismissibleDisclaimer'
 import DraftNoticeBar from '../../components/DraftNoticeBar'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import { useModalDraft } from '../../hooks/useModalDraft'
+import { useReadOnly } from '../../hooks/useReadOnly'
 import {
   getDueDate, getDeadlineName, getDeadlineCategory, daysUntilDue,
   CATEGORIES, toYearMonth,
@@ -40,6 +41,7 @@ function lsSet(key, val) {
 
 export default function CompliancePage() {
   const { brewery } = useAuth()
+  const { isReadOnly, ReadOnlyTooltip } = useReadOnly()
 
   // ── Persistent view + filter state ──────────────────────────────────────────
   const [view,         setView]         = useState(() => lsGet('compliance_active_view', 'list'))
@@ -345,11 +347,13 @@ export default function CompliancePage() {
           </button>
 
           {/* Add Deadline button — shows amber dot when a draft exists */}
-          <button onClick={openAdd}
-            className="bg-amber hover:bg-amber-dark text-white text-sm font-semibold px-4 py-1.5 rounded-lg transition-colors flex items-center gap-1.5">
-            {addDraft.hasDraft && <span className="w-2 h-2 rounded-full bg-white opacity-80" />}
-            {addDraft.hasDraft ? 'Continue Draft' : '+ Add Deadline'}
-          </button>
+          <ReadOnlyTooltip isReadOnly={isReadOnly}>
+            <button onClick={openAdd}
+              className="bg-amber hover:bg-amber-dark text-white text-sm font-semibold px-4 py-1.5 rounded-lg transition-colors flex items-center gap-1.5">
+              {addDraft.hasDraft && <span className="w-2 h-2 rounded-full bg-white opacity-80" />}
+              {addDraft.hasDraft ? 'Continue Draft' : '+ Add Deadline'}
+            </button>
+          </ReadOnlyTooltip>
         </div>
       </div>
 
