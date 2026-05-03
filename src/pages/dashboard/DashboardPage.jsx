@@ -11,6 +11,9 @@ import LoadingSpinner from '../../components/LoadingSpinner'
 import TrialBanner from './TrialBanner'
 import IncompleteProfileBanner from './IncompleteProfileBanner'
 import ComplianceAlertBanner from './ComplianceAlertBanner'
+import OnboardingTour from '../../components/OnboardingTour'
+
+const TOUR_KEY = 'onboarding_tour_completed'
 
 export default function DashboardPage() {
   const { profile, brewery } = useAuth()
@@ -18,11 +21,20 @@ export default function DashboardPage() {
   const [upcomingDeadlines, setUpcomingDeadlines] = useState([])
   const [openGrantsCount, setOpenGrantsCount] = useState(0)
   const [ttbStatus, setTtbStatus] = useState(null)  // 'open' | 'due_soon' | 'overdue' | 'filed' | null
+  const [showTour, setShowTour] = useState(false)
 
   useEffect(() => {
     if (!brewery?.id) return
     loadDashboardData()
   }, [brewery?.id])
+
+  // Show the tour once, 1 second after data finishes loading, for first-time users
+  useEffect(() => {
+    if (loading) return
+    if (localStorage.getItem(TOUR_KEY)) return
+    const timer = setTimeout(() => setShowTour(true), 1000)
+    return () => clearTimeout(timer)
+  }, [loading])
 
   async function loadDashboardData() {
     setLoading(true)
@@ -113,13 +125,19 @@ export default function DashboardPage() {
     return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)))
   }
 
+  function completeTour() {
+    localStorage.setItem(TOUR_KEY, 'true')
+    setShowTour(false)
+  }
+
   if (loading) return <LoadingSpinner message="Loading your dashboard..." />
 
   const trialDaysLeft = daysUntilTrialExpires()
 
   return (
     <div className="space-y-6">
-      <h2 className="text-xl font-bold text-navy">
+      {showTour && <OnboardingTour onComplete={completeTour} />}
+      <h2 data-tour="dashboard-heading" className="text-xl font-bold text-navy">
         Welcome back{brewery?.name ? `, ${brewery.name}` : ''}! 👋
       </h2>
 
