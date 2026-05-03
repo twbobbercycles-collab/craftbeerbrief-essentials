@@ -5,7 +5,7 @@
  * popover opens the full detail panel.
  *
  * Bug fixes applied here:
- *  - Nav arrows use ← / → (proper Unicode arrows) with 44 px min tap targets
+ *  - Nav arrows use ← / → (proper Unicode arrows) with 36 px min tap targets
  *  - Dot background color is set via inline style (not just Tailwind class) so
  *    the color renders even if Tailwind's scanner misses utility-file class strings
  *  - Completed deadlines show a faded dot + ✓ prefix + strikethrough name
@@ -14,7 +14,7 @@
 import { useMemo, useState } from 'react'
 import {
   getDueDate, getDeadlineName, getDeadlineColor,
-  CATEGORY_COLORS, CUSTOM_COLOR, normalizeDateStr,
+  CATEGORY_COLORS, CUSTOM_COLOR,
 } from './complianceUtils'
 
 const DAY_LABELS   = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
