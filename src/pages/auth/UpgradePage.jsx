@@ -51,7 +51,7 @@ export default function UpgradePage() {
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 w-full max-w-lg p-8">
         {/* Header */}
         <div className="text-center mb-6">
-          <h1 className="text-2xl font-bold text-navy">🍺 Craft Beer Brief Essentials</h1>
+          <h1 className="text-2xl font-bold text-navy">🍺 The Craft Beer Brief Essentials</h1>
           {isCancelled ? (
             <p className="text-gray-600 mt-2">Welcome back! Reactivate your subscription to regain full access.</p>
           ) : (

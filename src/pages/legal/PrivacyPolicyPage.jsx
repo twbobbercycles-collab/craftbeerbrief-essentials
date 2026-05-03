@@ -68,7 +68,7 @@ export default function PrivacyPolicyPage() {
           {/* 3 */}
           <section>
             <h2 className="text-lg font-bold text-navy mb-3">3. How We Use Your Data</h2>
-            <p>We use your data solely to provide and improve the Craft Beer Brief Essentials service. Specifically:</p>
+            <p>We use your data solely to provide and improve The Craft Beer Brief Essentials service. Specifically:</p>
             <ul className="list-disc list-inside mt-3 space-y-2">
               <li>To authenticate you and secure your account.</li>
               <li>To display your brewery's compliance deadlines, TTB filings, and grant matches.</li>

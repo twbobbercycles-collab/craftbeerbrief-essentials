@@ -87,7 +87,7 @@ export default function SignupPage() {
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 w-full max-w-md p-8">
         {/* Header */}
         <div className="mb-6 text-center">
-          <h1 className="text-2xl font-bold text-navy">🍺 Craft Beer Brief</h1>
+          <h1 className="text-2xl font-bold text-navy">🍺 The Craft Beer Brief</h1>
           <p className="text-amber font-semibold text-sm mt-1">Essentials</p>
           <p className="text-gray-500 text-sm mt-3">
             Start your free 14-day trial — no credit card required.

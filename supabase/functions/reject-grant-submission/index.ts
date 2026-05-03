@@ -50,16 +50,16 @@ Deno.serve(async (req) => {
     if (submitterEmail) {
       await supabase.auth.admin.sendRawEmail({
         to: submitterEmail,
-        subject: 'Update on your grant submission — Craft Beer Brief Essentials',
+        subject: 'Update on your grant submission — The Craft Beer Brief Essentials',
         body: `Hi there,
 
-Thank you for submitting a grant opportunity to the Craft Beer Brief Essentials platform — we appreciate the effort!
+Thank you for submitting a grant opportunity to The Craft Beer Brief Essentials platform — we appreciate the effort!
 
 After reviewing your submission ("${grant?.title ?? 'your submission'}"), our team has determined it does not currently meet our listing criteria. This may be because it falls outside the beverage/brewery industry scope, is no longer active, or lacks the required public application information.
 
 If you believe this is an error, please feel free to reply to this email or reach out to support.
 
-Thanks again for being part of the Craft Beer Brief community!
+Thanks again for being part of The Craft Beer Brief community!
 
 — The Craft Beer Brief Team`,
       })

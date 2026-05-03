@@ -61,7 +61,7 @@ export default function AppLayout() {
       {/* Logo / brand */}
       <div className="px-4 py-5 border-b border-navy-light">
         <h1 className="text-white font-bold text-base leading-tight">
-          🍺 Craft Beer Brief
+          🍺 The Craft Beer Brief
         </h1>
         <p className="text-amber text-xs mt-0.5">Essentials</p>
       </div>
