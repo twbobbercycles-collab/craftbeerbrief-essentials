@@ -19,22 +19,42 @@ const supabase = createClient(
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
 )
 
+// IMPORTANT: this function must be deployed with --no-verify-jwt so Supabase's
+// API gateway does not reject Stripe's requests for missing an Authorization header.
+// Auth is handled here by validating the stripe-signature header instead.
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, stripe-signature',
+}
+
 Deno.serve(async (req) => {
+  // Respond to CORS preflight requests
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: CORS_HEADERS })
+  }
+
+  if (req.method !== 'POST') {
+    return new Response('Method Not Allowed', { status: 405, headers: CORS_HEADERS })
+  }
+
   const signature = req.headers.get('stripe-signature')
   const body = await req.text()
 
-  // Verify the webhook came from Stripe — prevents forged events
+  // Validate the Stripe signature — this is the sole auth mechanism for this endpoint.
+  // Returns 401 (not 400) so the error is clearly an auth failure, not a bad request.
+  // constructEventAsync is required in Deno's SubtleCrypto context (synchronous constructEvent throws).
   let event: Stripe.Event
   try {
-    event = stripe.webhooks.constructEvent(
+    event = await stripe.webhooks.constructEventAsync(
       body,
       signature ?? '',
       Deno.env.get('STRIPE_WEBHOOK_SECRET') ?? ''
     )
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Webhook verification failed'
-    console.error('Stripe webhook verification failed:', message)
-    return new Response(`Webhook Error: ${message}`, { status: 400 })
+    console.error('Stripe webhook signature verification failed:', message)
+    return new Response(`Unauthorized: ${message}`, { status: 401, headers: CORS_HEADERS })
   }
 
   console.log(`Stripe webhook received: ${event.type}`)
@@ -67,7 +87,7 @@ Deno.serve(async (req) => {
   }
 
   return new Response(JSON.stringify({ received: true }), {
-    headers: { 'Content-Type': 'application/json' },
+    headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
   })
 })
 
