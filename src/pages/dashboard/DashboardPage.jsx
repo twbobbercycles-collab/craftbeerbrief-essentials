@@ -17,7 +17,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [upcomingDeadlines, setUpcomingDeadlines] = useState([])
   const [openGrantsCount, setOpenGrantsCount] = useState(0)
-  const [latestFiling, setLatestFiling] = useState(null)
+  const [ttbStatus, setTtbStatus] = useState(null)  // 'open' | 'due_soon' | 'overdue' | 'filed' | null
 
   useEffect(() => {
     if (!brewery?.id) return
@@ -31,7 +31,7 @@ export default function DashboardPage() {
     const thirtyDaysFromNow = new Date()
     thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30)
 
-    const [deadlinesResult, grantsResult, filingResult] = await Promise.all([
+    const [deadlinesResult, grantsResult, periodsResult] = await Promise.all([
       supabase
         .from('brewery_deadlines')
         .select('*, compliance_deadlines(*)')
@@ -48,19 +48,62 @@ export default function DashboardPage() {
         .eq('status', 'open')
         .or(`states_eligible.cs.{"${brewery?.state}"},states_eligible.cs.{"All States"}`),
 
+      // Fetch the current period row (if the brewery has marked it as filed)
       supabase
-        .from('ttb_filings')
-        .select('*')
+        .from('ttb_filing_periods')
+        .select('status, period_start, period_end')
         .eq('brewery_id', brewery.id)
-        .order('created_at', { ascending: false })
+        .order('period_start', { ascending: false })
         .limit(1)
         .maybeSingle(),
     ])
 
     setUpcomingDeadlines(deadlinesResult.data ?? [])
     setOpenGrantsCount(grantsResult.count ?? 0)
-    setLatestFiling(filingResult.data)
+    setTtbStatus(computeTtbStatus(brewery, periodsResult.data))
     setLoading(false)
+  }
+
+  // Derives a simple status string for the dashboard TTB card.
+  // Uses the brewery's filing frequency to compute the current period due date,
+  // then checks whether that period has been marked as filed.
+  function computeTtbStatus(bry, latestPeriod) {
+    const freq = bry?.ttb_filing_frequency
+    if (!freq) return null
+
+    const now = new Date()
+    const y   = now.getFullYear()
+    const m   = now.getMonth()
+
+    let dueDate
+    let periodStart, periodEnd
+
+    if (freq === 'quarterly') {
+      const q  = Math.floor(m / 3)
+      const qs = q * 3
+      periodStart = new Date(y, qs, 1)
+      periodEnd   = new Date(y, qs + 3, 0)
+      dueDate     = new Date(y, qs + 3, 14)
+    } else if (freq === 'monthly') {
+      periodStart = new Date(y, m, 1)
+      periodEnd   = new Date(y, m + 1, 0)
+      dueDate     = new Date(y, m + 1, 14)
+    } else {
+      periodStart = new Date(y, 0, 1)
+      periodEnd   = new Date(y, 11, 31)
+      dueDate     = new Date(y + 1, 1, 14)
+    }
+
+    // Check if the latest filed period covers the current period
+    if (latestPeriod?.status === 'filed') {
+      const filedEnd = new Date(latestPeriod.period_end)
+      if (filedEnd >= periodEnd) return 'filed'
+    }
+
+    const daysLeft = Math.ceil((dueDate - now) / 86400000)
+    if (daysLeft < 0)   return 'overdue'
+    if (daysLeft <= 14) return 'due_soon'
+    return 'open'
   }
 
   // Calculate how many days until trial expires
@@ -110,8 +153,20 @@ export default function DashboardPage() {
         <SummaryCard
           icon="📊"
           title="TTB Filing"
-          value={latestFiling ? latestFiling.status : 'No filings yet'}
-          subtitle={latestFiling ? `Period: ${latestFiling.period_start}` : 'Start tracking your excise tax'}
+          value={
+            ttbStatus === 'filed'    ? 'Filed ✓' :
+            ttbStatus === 'due_soon' ? 'Due Soon' :
+            ttbStatus === 'overdue'  ? 'Overdue' :
+            ttbStatus === 'open'     ? 'Open' :
+            'Setup needed'
+          }
+          subtitle={
+            ttbStatus === 'filed'    ? 'Current period filed' :
+            ttbStatus === 'due_soon' ? 'Due within 14 days' :
+            ttbStatus === 'overdue'  ? 'Past due — file now' :
+            ttbStatus === 'open'     ? 'Current period open' :
+            'Set your filing frequency'
+          }
           linkTo="/ttb"
           linkLabel="View TTB tracker →"
         />

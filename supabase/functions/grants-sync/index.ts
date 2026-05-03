@@ -2,11 +2,16 @@
  * grants-sync Edge Function
  * Runs every 24 hours via Supabase cron and can be triggered manually.
  *
- * Primary API: Simpler.Grants.gov (https://api.simpler.grants.gov/v1) — requires GRANTS_GOV_API_KEY.
- * Fallback API: Legacy Grants.gov v2 (https://api.grants.gov/v2/api/search2) — no auth needed.
+ * Primary API:  Simpler.Grants.gov — POST https://api.simpler.grants.gov/v1/opportunities/search
+ *               Requires GRANTS_GOV_API_KEY secret (sent as Bearer token).
  *
- * Each keyword is searched separately. Results from all keywords are deduplicated by
- * opportunity_id / external_id before any database writes occur.
+ * Fallback API: Legacy Grants.gov   — POST https://api.grants.gov/v1/api/search2
+ *               Public, no auth. Used when the primary API is unavailable or returns an error.
+ *
+ * Strategy: each keyword is tried against the primary API first. If that call fails for
+ * any reason (401, 5xx, network error, etc.) the same keyword is immediately retried
+ * against the legacy endpoint. Results across all keywords are deduplicated by
+ * external_id before any database writes occur.
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -28,28 +33,39 @@ interface SimplerOpportunity {
   opportunity_id:    string | number
   opportunity_title: string
   summary: {
-    description?:         string
-    agency_name?:         string
-    post_date?:           string
-    close_date?:          string
-    award_floor?:         number | null
-    award_ceiling?:       number | null
-    opportunity_status?:  string
+    description?:        string
+    agency_name?:        string
+    post_date?:          string
+    close_date?:         string
+    award_floor?:        number | null
+    award_ceiling?:      number | null
+    opportunity_status?: string
   }
+}
+
+// ── Response shape from legacy Grants.gov search2 ───────────────────────────
+interface LegacyOpportunity {
+  id:            string
+  title:         string
+  agencyName?:   string
+  openDate?:     string
+  closeDate?:    string
+  awardFloor?:   string | number | null
+  awardCeiling?: string | number | null
 }
 
 // ── Common shape used for all DB writes regardless of source API ─────────────
 interface NormalizedGrant {
-  external_id:  string
-  title:        string
-  description:  string | null
-  status:       string
-  deadline:     string | null
-  amount_min:   number | null
-  amount_max:   number | null
+  external_id: string
+  title:       string
+  description: string | null
+  status:      string
+  deadline:    string | null
+  amount_min:  number | null
+  amount_max:  number | null
 }
 
-// ── Status mapping for the new API ──────────────────────────────────────────
+// ── Status mapping for Simpler.Grants.gov ───────────────────────────────────
 const SIMPLER_STATUS_MAP: Record<string, string> = {
   posted:     'open',
   closed:     'closed',
@@ -58,15 +74,14 @@ const SIMPLER_STATUS_MAP: Record<string, string> = {
 }
 
 Deno.serve(async (_req: Request) => {
+  // Log API key presence so it's visible in Edge Function logs for debugging
+  const apiKey = Deno.env.get('GRANTS_GOV_API_KEY') ?? ''
+  console.log('GRANTS_GOV_API_KEY present:', apiKey.length > 0)
+
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL') ?? '',
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
   )
-
-  const apiKey    = Deno.env.get('GRANTS_GOV_API_KEY') ?? ''
-  const useSimpler = apiKey.length > 0
-
-  console.log(`grants-sync: using ${useSimpler ? 'Simpler.Grants.gov (authenticated)' : 'legacy Grants.gov v2 (fallback)'}`)
 
   // Collect all results across every keyword, deduplicating by external_id
   const seen      = new Set<string>()
@@ -74,27 +89,48 @@ Deno.serve(async (_req: Request) => {
   const errors:    string[] = []
 
   for (const keyword of SEARCH_KEYWORDS) {
-    try {
-      const opps = useSimpler
-        ? await searchSimplerGrants(keyword, apiKey)
-        : await searchLegacyGrants(keyword)
+    let opps: NormalizedGrant[] | null = null
 
-      for (const opp of opps) {
-        if (!seen.has(opp.external_id)) {
-          seen.add(opp.external_id)
-          allGrants.push(opp)
-        }
+    // ── Step 1: try Simpler.Grants.gov if an API key is available ─────────
+    if (apiKey.length > 0) {
+      try {
+        opps = await searchSimplerGrants(keyword, apiKey)
+        console.log(`[simpler] "${keyword}": ${opps.length} results`)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        console.warn(`[simpler] "${keyword}" failed — ${message} — retrying with legacy endpoint`)
+        // opps stays null, triggers fallback below
       }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error'
-      errors.push(`Keyword "${keyword}": ${message}`)
-      console.error(`grants-sync error for keyword "${keyword}":`, message)
+    }
+
+    // ── Step 2: fall back to legacy endpoint if primary failed or no key ──
+    if (opps === null) {
+      try {
+        opps = await searchLegacyGrants(keyword)
+        console.log(`[legacy] "${keyword}": ${opps.length} results`)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        errors.push(`"${keyword}": both APIs failed — last error: ${message}`)
+        console.error(`[legacy] "${keyword}" also failed:`, message)
+        continue // skip to next keyword
+      }
+    }
+
+    // ── Deduplicate and collect ────────────────────────────────────────────
+    for (const opp of opps) {
+      if (!seen.has(opp.external_id)) {
+        seen.add(opp.external_id)
+        allGrants.push(opp)
+      }
     }
   }
 
   const { added, updated } = await upsertGrants(supabase, allGrants)
 
-  console.log(`grants-sync complete: ${added} added, ${updated} updated, ${allGrants.length} total unique, ${errors.length} keyword errors`)
+  console.log(
+    `grants-sync complete: ${added} added, ${updated} updated,`,
+    `${allGrants.length} total unique, ${errors.length} keyword errors`
+  )
 
   return new Response(
     JSON.stringify({ added, updated, total_unique: allGrants.length, errors }),
@@ -102,7 +138,7 @@ Deno.serve(async (_req: Request) => {
   )
 })
 
-// ── Simpler.Grants.gov (primary, authenticated) ──────────────────────────────
+// ── Simpler.Grants.gov (primary) ─────────────────────────────────────────────
 
 async function searchSimplerGrants(keyword: string, apiKey: string): Promise<NormalizedGrant[]> {
   const body = {
@@ -128,7 +164,8 @@ async function searchSimplerGrants(keyword: string, apiKey: string): Promise<Nor
   })
 
   if (!response.ok) {
-    throw new Error(`Simpler.Grants.gov ${response.status}: ${await response.text()}`)
+    // Throw so the caller can fall back to the legacy endpoint
+    throw new Error(`HTTP ${response.status}: ${await response.text()}`)
   }
 
   const data = await response.json()
@@ -144,7 +181,6 @@ function normalizeSimpler(o: SimplerOpportunity): NormalizedGrant {
   const rawStatus = (o.summary?.opportunity_status ?? '').toLowerCase()
   const status    = SIMPLER_STATUS_MAP[rawStatus] ?? 'open'
 
-  // Prefix description with agency name so it appears in keyword searches
   const agencyLine = o.summary?.agency_name
     ? `Funding Agency: ${o.summary.agency_name}\n\n`
     : ''
@@ -164,15 +200,13 @@ function normalizeSimpler(o: SimplerOpportunity): NormalizedGrant {
   }
 }
 
-// ── Legacy Grants.gov v2 (fallback, no auth) ─────────────────────────────────
+// ── Legacy Grants.gov search2 (fallback, no auth) ────────────────────────────
 
 async function searchLegacyGrants(keyword: string): Promise<NormalizedGrant[]> {
+  // Minimal body — the legacy endpoint only needs keyword + status filter
   const body = {
     keyword,
-    oppStatuses:      'posted',
-    rows:             25,
-    startRecordNum:   0,
-    sortBy:           'openDate|desc',
+    oppStatuses: 'posted',
   }
 
   const response = await fetch(LEGACY_GRANTS_URL, {
@@ -182,29 +216,37 @@ async function searchLegacyGrants(keyword: string): Promise<NormalizedGrant[]> {
   })
 
   if (!response.ok) {
-    throw new Error(`Grants.gov v2 ${response.status}: ${await response.text()}`)
+    throw new Error(`HTTP ${response.status}: ${await response.text()}`)
   }
 
   const data = await response.json()
-  // Legacy API nests results in data.oppHits.oppHit
-  const opps: any[] = data?.data?.oppHits?.oppHit ?? data?.opportunities ?? []
+  // Legacy response: { data: { oppHits: [ { id, title, agencyName, closeDate, ... } ] } }
+  const opps: LegacyOpportunity[] = data?.data?.oppHits ?? []
 
   return opps
-    .filter(o => (o.id ?? o.number) && o.title)
+    .filter(o => o.id && o.title)
     .map(o => {
-      const agencyLine = o.agency ? `Funding Agency: ${o.agency}\n\n` : ''
+      const agencyLine = o.agencyName ? `Funding Agency: ${o.agencyName}\n\n` : ''
+
+      const deadline = o.closeDate
+        ? new Date(o.closeDate).toISOString().split('T')[0]
+        : null
+
+      // awardFloor/awardCeiling may come back as strings — coerce to number
+      const toNum = (v: string | number | null | undefined): number | null => {
+        if (v == null || v === '') return null
+        const n = Number(v)
+        return isNaN(n) ? null : n
+      }
+
       return {
-        external_id: String(o.id ?? o.number),
+        external_id: String(o.id),
         title:       o.title,
-        description: (o.synopsis ?? o.description)
-          ? agencyLine + (o.synopsis ?? o.description)
-          : null,
-        status:      (o.oppStatus ?? '').toLowerCase() === 'posted' ? 'open' : 'closed',
-        deadline:    o.closeDate
-          ? new Date(o.closeDate).toISOString().split('T')[0]
-          : null,
-        amount_min:  o.awardFloor   ?? null,
-        amount_max:  o.awardCeiling ?? null,
+        description: agencyLine || null,
+        status:      'open', // we only request posted opportunities
+        deadline,
+        amount_min:  toNum(o.awardFloor),
+        amount_max:  toNum(o.awardCeiling),
       } satisfies NormalizedGrant
     })
 }
@@ -212,9 +254,8 @@ async function searchLegacyGrants(keyword: string): Promise<NormalizedGrant[]> {
 // ── Database upsert ───────────────────────────────────────────────────────────
 
 /**
- * Inserts new grants and updates the status of existing ones if it has changed.
- * Only status is updated on existing records — title and description are not overwritten
- * to avoid clobbering any manual edits made in the admin panel.
+ * Inserts new grants; updates status + last_synced_at on existing ones if the status changed.
+ * Title and description are never overwritten — manual admin edits are preserved.
  */
 async function upsertGrants(
   supabase: ReturnType<typeof createClient>,
@@ -231,7 +272,6 @@ async function upsertGrants(
       .maybeSingle()
 
     if (existing) {
-      // Only touch the row if the status has actually changed
       if (existing.status !== grant.status) {
         await supabase
           .from('grants')
