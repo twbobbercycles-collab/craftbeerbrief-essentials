@@ -150,7 +150,6 @@ export default function AppLayout() {
         </header>
 
         {/* Subscription status banners — only one shows at a time, never for active/trial users */}
-        {console.log('[AppLayout] profile?.subscription_status:', profile?.subscription_status)}
         {profile?.subscription_status === 'cancelled' && <ReadOnlyBanner />}
         {profile?.subscription_status === 'past_due'  && <PastDueBanner />}
 
