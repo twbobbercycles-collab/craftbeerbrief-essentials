@@ -13,7 +13,7 @@
 import { useState } from 'react'
 import {
   getDisplayStatus, getStatusColor, getStatusLabel,
-  formatAmount, formatDeadline, isNationwide, getFundingTypeLabel,
+  formatAmount, formatDeadline, isNationwide,
 } from './grantsUtils'
 
 export default function GrantCard({ grant, saved, onToggleBookmark, onToggleAlert, showRemoveBookmark }) {
@@ -29,6 +29,13 @@ export default function GrantCard({ grant, saved, onToggleBookmark, onToggleAler
   const visibleStates = states.slice(0, 4)
   const extraCount    = states.length - 4
 
+  // Format last_reviewed_at as "Month Day, Year"
+  const reviewedDate = grant.last_reviewed_at
+    ? new Date(grant.last_reviewed_at).toLocaleDateString('en-US', {
+        month: 'long', day: 'numeric', year: 'numeric',
+      })
+    : null
+
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-5 transition-shadow hover:shadow-sm">
 
@@ -36,11 +43,15 @@ export default function GrantCard({ grant, saved, onToggleBookmark, onToggleAler
       <div className="flex items-start gap-3">
         <div className="flex-1 min-w-0">
 
-          {/* Badge row: funding type (label from db key) + status */}
+          {/* Badge row: Loan/Grant type badge + status badge */}
           <div className="flex flex-wrap gap-2 mb-2">
-            {grant.funding_type && (
-              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber/10 text-amber">
-                {getFundingTypeLabel(grant.funding_type)}
+            {grant.is_loan ? (
+              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                Loan
+              </span>
+            ) : (
+              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">
+                Grant
               </span>
             )}
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${getStatusColor(displayStatus)}`}>
@@ -189,17 +200,32 @@ export default function GrantCard({ grant, saved, onToggleBookmark, onToggleAler
             </p>
           )}
 
-          {/* Last updated date + auto-sync or community source badge */}
+          {/* Last reviewed / synced timestamp + source badges */}
           <div className="flex flex-wrap items-center gap-2 pt-1">
-            <p className="text-xs text-gray-400">
-              Updated:{' '}
-              {new Date(grant.updated_at).toLocaleDateString('en-US', {
-                month: 'short', day: 'numeric', year: 'numeric',
-              })}
-            </p>
+            {reviewedDate ? (
+              <p className="text-xs text-gray-400">
+                {grant.grant_source === 'grants_gov'
+                  ? `Last synced from Grants.gov: ${reviewedDate}`
+                  : `Last reviewed by The Craft Beer Brief team: ${reviewedDate}`
+                }
+              </p>
+            ) : (
+              <p className="text-xs text-gray-400">
+                Updated:{' '}
+                {new Date(grant.updated_at).toLocaleDateString('en-US', {
+                  month: 'short', day: 'numeric', year: 'numeric',
+                })}
+              </p>
+            )}
+
             {grant.grant_source === 'grants_gov' && (
               <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium">
                 Auto-synced from Grants.gov
+              </span>
+            )}
+            {grant.is_manually_curated && (
+              <span className="text-xs px-2 py-0.5 rounded-full bg-amber/10 text-amber font-medium">
+                Verified by The Craft Beer Brief
               </span>
             )}
             {grant.grant_source === 'user_submitted' && (

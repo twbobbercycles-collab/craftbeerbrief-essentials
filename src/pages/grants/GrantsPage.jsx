@@ -1,8 +1,8 @@
 /**
  * GrantsPage — Grant & Funding Finder module.
  * Loads all approved grants from Supabase, then filters and sorts them client-side.
- * Supports full-text search, type/status/amount/state filtering, bookmarking,
- * deadline alerts, and user grant submissions with persistent draft support.
+ * Supports full-text search, type/status/amount/state/category/loan filtering,
+ * bookmarking, deadline alerts, and user grant submissions with persistent draft support.
  */
 import { useEffect, useState, useMemo } from 'react'
 import { supabase } from '../../services/supabase'
@@ -17,7 +17,7 @@ import { useReadOnly } from '../../hooks/useReadOnly'
 
 // ── Small helper components used only on this page ──────────────────────────
 
-// A styled <select> element used for all four filter dropdowns
+// A styled <select> element used for all filter dropdowns
 function FilterSelect({ value, onChange, options }) {
   return (
     <select value={value} onChange={e => onChange(e.target.value)}
@@ -93,12 +93,14 @@ export default function GrantsPage() {
   const [draftDataForModal, setDraftDataForModal] = useState(null)
 
   // Filter + sort state
-  const [searchRaw, setSearchRaw]       = useState('')   // Raw input — debounced below
-  const [search, setSearch]             = useState('')   // Debounced — used for filtering
-  const [typeFilter, setTypeFilter]     = useState('all')
-  const [statusFilter, setStatusFilter] = useState('all')
-  const [amountFilter, setAmountFilter] = useState('all')
-  const [sortBy, setSortBy]             = useState('relevance')
+  const [searchRaw, setSearchRaw]           = useState('')   // Raw input — debounced below
+  const [search, setSearch]                 = useState('')   // Debounced — used for filtering
+  const [typeFilter, setTypeFilter]         = useState('all')
+  const [statusFilter, setStatusFilter]     = useState('all')
+  const [amountFilter, setAmountFilter]     = useState('all')
+  const [loanFilter, setLoanFilter]         = useState('all')   // 'all' | 'grants_only' | 'loans_only'
+  const [categoryFilter, setCategoryFilter] = useState('all')
+  const [sortBy, setSortBy]                 = useState('relevance')
   // Read the saved preference from localStorage on mount.
   // null means no value has ever been saved (first visit) — will be set from brewery data below.
   const [myStateOnly, setMyStateOnly] = useState(() => {
@@ -212,6 +214,17 @@ export default function GrantsPage() {
     setSubmitSuccess(true)
   }
 
+  // Most recent last_reviewed_at across all grants — shown below the search bar
+  const dbLastUpdated = useMemo(() => {
+    const dates = grants
+      .map(g => g.last_reviewed_at)
+      .filter(Boolean)
+      .map(d => new Date(d))
+    if (dates.length === 0) return null
+    const maxDate = new Date(Math.max(...dates))
+    return maxDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+  }, [grants])
+
   // Applies every active filter and the selected sort order to the full grants list
   const filteredGrants = useMemo(() => {
     let result = grants
@@ -226,9 +239,14 @@ export default function GrantsPage() {
     }
 
     // Funding type filter — compares snake_case db value to filter value
-    if (typeFilter   !== 'all') result = result.filter(g => g.funding_type === typeFilter)
-    if (statusFilter !== 'all') result = result.filter(g => getDisplayStatus(g) === statusFilter)
-    if (amountFilter !== 'all') result = result.filter(g => matchesAmountFilter(g, amountFilter))
+    if (typeFilter     !== 'all') result = result.filter(g => g.funding_type === typeFilter)
+    if (statusFilter   !== 'all') result = result.filter(g => getDisplayStatus(g) === statusFilter)
+    if (amountFilter   !== 'all') result = result.filter(g => matchesAmountFilter(g, amountFilter))
+    if (categoryFilter !== 'all') result = result.filter(g => g.program_category === categoryFilter)
+
+    // Loan / Grant filter
+    if (loanFilter === 'grants_only') result = result.filter(g => !g.is_loan)
+    if (loanFilter === 'loans_only')  result = result.filter(g => !!g.is_loan)
 
     // Keyword search across title, description, and eligibility_summary
     if (search.trim()) {
@@ -257,7 +275,7 @@ export default function GrantsPage() {
       // Default (relevance): open grants first, closing_soon next, then rolling, then closed
       return (statusOrder[getDisplayStatus(a)] ?? 5) - (statusOrder[getDisplayStatus(b)] ?? 5)
     })
-  }, [grants, savedMap, activeTab, myStateOnly, brewery?.state, typeFilter, statusFilter, amountFilter, search, sortBy])
+  }, [grants, savedMap, activeTab, myStateOnly, brewery?.state, typeFilter, statusFilter, amountFilter, loanFilter, categoryFilter, search, sortBy])
 
   return (
     <div className="space-y-4">
@@ -297,13 +315,21 @@ export default function GrantsPage() {
         placeholder="Search grants by keyword, program name, or funding agency"
         className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber" />
 
-      {/* Filter bar — My State Only toggle hidden on Bookmarked tab */}
+      {/* Database last updated indicator */}
+      {!loading && dbLastUpdated && (
+        <p className="text-xs text-gray-400 -mt-2">
+          Grant database last updated: {dbLastUpdated}
+        </p>
+      )}
+
+      {/* Filter bar — row 1: type, status, amount, loan/grant */}
       <div className="flex flex-wrap gap-2 items-center">
-        {/* Funding Type — uses snake_case values that match the database */}
+        {/* Funding Type */}
         <FilterSelect value={typeFilter} onChange={setTypeFilter} options={[
           { value: 'all', label: 'All Types' },
           ...FUNDING_TYPES,
         ]} />
+
         <FilterSelect value={statusFilter} onChange={setStatusFilter} options={[
           { value: 'all',          label: 'All Status' },
           { value: 'open',         label: 'Open Now' },
@@ -312,14 +338,42 @@ export default function GrantsPage() {
           { value: 'rolling',      label: 'Rolling (no deadline)' },
           { value: 'closed',       label: 'Closed' },
         ]} />
+
         <FilterSelect value={amountFilter} onChange={setAmountFilter} options={[
-          { value: 'all',       label: 'Any Amount' },
-          { value: 'under_10k', label: 'Under $10,000' },
-          { value: '10k_50k',   label: '$10K – $50K' },
-          { value: '50k_100k',  label: '$50K – $100K' },
-          { value: '100k_500k', label: '$100K – $500K' },
-          { value: 'over_500k', label: 'Over $500,000' },
+          { value: 'all',        label: 'Any Amount' },
+          { value: 'under_10k',  label: 'Under $10,000' },
+          { value: '10k_50k',    label: '$10K – $50K' },
+          { value: '50k_100k',   label: '$50K – $100K' },
+          { value: '100k_500k',  label: '$100K – $500K' },
+          { value: 'over_500k',  label: 'Over $500,000' },
+          { value: 'no_amount',  label: 'Amount not specified' },
         ]} />
+
+        {/* Loans vs Grants toggle */}
+        <FilterSelect value={loanFilter} onChange={setLoanFilter} options={[
+          { value: 'all',         label: 'Grants & Loans' },
+          { value: 'grants_only', label: 'Grants Only' },
+          { value: 'loans_only',  label: 'Loans Only' },
+        ]} />
+      </div>
+
+      {/* Filter bar — row 2: program category + sort + my state toggle */}
+      <div className="flex flex-wrap gap-2 items-center">
+        {/* Program Category filter */}
+        <FilterSelect value={categoryFilter} onChange={setCategoryFilter} options={[
+          { value: 'all',                  label: 'All Categories' },
+          { value: 'federal_sba',          label: 'Federal — SBA Programs' },
+          { value: 'federal_usda',         label: 'Federal — USDA Programs' },
+          { value: 'federal_other',        label: 'Federal — Other' },
+          { value: 'economic_development', label: 'State — Economic Development' },
+          { value: 'agriculture',          label: 'State — Agriculture' },
+          { value: 'tourism',              label: 'State — Tourism' },
+          { value: 'manufacturing',        label: 'State — Manufacturing' },
+          { value: 'rural_development',    label: 'State — Rural Development' },
+          { value: 'local_redevelopment',  label: 'Local — Redevelopment' },
+          { value: 'energy_utility',       label: 'Energy and Utility Programs' },
+        ]} />
+
         <FilterSelect value={sortBy} onChange={setSortBy} options={[
           { value: 'relevance', label: 'Sort: Relevance' },
           { value: 'deadline',  label: 'Sort: Deadline (soonest)' },

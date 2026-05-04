@@ -90,9 +90,9 @@ export function getStatusLabel(status) {
   return labels[status] ?? status
 }
 
-// Formats amount_min / amount_max into a readable string like "$10,000 – $50,000"
+// Formats amount_min / amount_max into a readable string
 export function formatAmount(grant) {
-  if (!grant.amount_min && !grant.amount_max) return 'Amount varies'
+  if (!grant.amount_min && !grant.amount_max) return 'Amount varies — see program details'
   const fmt = (n) => '$' + Number(n).toLocaleString()
   if (grant.amount_min && grant.amount_max) return `${fmt(grant.amount_min)} – ${fmt(grant.amount_max)}`
   if (grant.amount_min) return `From ${fmt(grant.amount_min)}`
@@ -114,10 +114,13 @@ export function formatDeadline(deadline) {
   return { text: formatted, isUrgent: daysUntil >= 0 && daysUntil <= 30, isPast: daysUntil < 0 }
 }
 
-// Returns true if the grant is available nationwide (empty states list, or contains "All States")
+// Returns true if the grant is available nationwide (empty states list, or contains a nationwide marker)
 export function isNationwide(grant) {
   const states = grant.states_eligible ?? []
-  return states.length === 0 || states.includes('All States') || states.includes('Nationwide')
+  return states.length === 0 || states.some(s => {
+    const lower = s.toLowerCase()
+    return lower === 'all states' || lower === 'nationwide'
+  })
 }
 
 // Returns true if the grant is available in the given state (or is nationwide)
@@ -127,16 +130,25 @@ export function isAvailableInState(grant, state) {
   return (
     states.length === 0 ||
     states.includes(state) ||
-    states.includes('All States') ||
-    states.includes('Nationwide')
+    states.some(s => {
+      const lower = s.toLowerCase()
+      return lower === 'all states' || lower === 'nationwide'
+    })
   )
 }
 
-// Returns true if the grant's dollar amount falls within the selected filter bucket
+/**
+ * Returns true if the grant's dollar amount falls within the selected filter bucket.
+ * Specific range filters (under_10k, 10k_50k, etc.) only match grants that have
+ * amount data — grants with no amount data are excluded from range filters.
+ * Use 'no_amount' to show only grants with unspecified amounts.
+ */
 export function matchesAmountFilter(grant, filter) {
   if (filter === 'all') return true
   const { amount_min: min, amount_max: max } = grant
-  if (min == null && max == null) return true   // No amount data — always show
+  if (filter === 'no_amount') return min == null && max == null
+  // Range filters: grants without amount data do NOT appear (they belong in 'no_amount')
+  if (min == null && max == null) return false
   const value = max ?? min
   switch (filter) {
     case 'under_10k':  return value < 10_000
