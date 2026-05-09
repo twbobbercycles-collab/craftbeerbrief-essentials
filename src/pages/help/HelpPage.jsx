@@ -192,7 +192,7 @@ const CATEGORIES = [
       },
       {
         q: 'Can I get a refund?',
-        a: 'We do not offer refunds for partial billing periods. If you cancel your subscription you retain access until the end of the period you paid for. If you experience a technical issue that prevented you from using the app please contact us at craftbeerbrief@gmail.com and we will review your situation on a case by case basis.',
+        a: 'We do not offer refunds for partial billing periods. If you cancel your subscription you retain access until the end of the period you paid for. If you experience a technical issue that prevented you from using the app please contact us at hello@thecraftbeerbrief.com and we will review your situation on a case by case basis.',
       },
       {
         q: 'How do I update my payment method?',
@@ -222,11 +222,11 @@ const CATEGORIES = [
       },
       {
         q: 'I found a bug or something is not working — how do I report it?',
-        a: 'Please email us at craftbeerbrief@gmail.com with a description of what happened, what page you were on, and what you expected to happen versus what actually happened. Screenshots are helpful if you can include them. We take bug reports seriously and aim to respond within 24 hours.',
+        a: 'Please email us at hello@thecraftbeerbrief.com with a description of what happened, what page you were on, and what you expected to happen versus what actually happened. Screenshots are helpful if you can include them. We take bug reports seriously and aim to respond within 24 hours.',
       },
       {
         q: 'How do I contact support?',
-        a: 'Email us at craftbeerbrief@gmail.com for any questions, feedback, or support needs. We are a small team and aim to respond within 24 business hours. For urgent billing issues you can also manage your subscription directly through the Stripe customer portal accessible from Account Settings.',
+        a: 'Email us at hello@thecraftbeerbrief.com for any questions, feedback, or support needs. We are a small team and aim to respond within 24 business hours. For urgent billing issues you can also manage your subscription directly through the Stripe customer portal accessible from Account Settings.',
       },
     ],
   },
@@ -438,13 +438,13 @@ export default function HelpPage() {
         <p className="text-base font-bold text-navy mb-1">Still have questions?</p>
         <p className="text-sm text-gray-500 mb-5">We are here to help.</p>
         <a
-          href="mailto:craftbeerbrief@gmail.com"
+          href="mailto:hello@thecraftbeerbrief.com"
           className="inline-block bg-amber hover:bg-amber-dark text-white font-semibold text-sm px-6 py-2.5 rounded-lg transition-colors"
         >
           Email Support
         </a>
         <p className="text-xs text-gray-400 mt-4">
-          craftbeerbrief@gmail.com &middot; We aim to respond within 24 business hours
+          hello@thecraftbeerbrief.com &middot; We aim to respond within 24 business hours
         </p>
       </div>
     </div>

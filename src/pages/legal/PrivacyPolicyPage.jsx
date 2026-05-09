@@ -31,8 +31,8 @@ export default function PrivacyPolicyPage() {
             <p className="mt-3">
               If you have any questions about this Privacy Policy or how we handle your data, you
               can reach us at{' '}
-              <a href="mailto:craftbeerbrief@gmail.com" className="text-amber hover:underline">
-                craftbeerbrief@gmail.com
+              <a href="mailto:hello@thecraftbeerbrief.com" className="text-amber hover:underline">
+                hello@thecraftbeerbrief.com
               </a>.
             </p>
           </section>
@@ -169,8 +169,8 @@ export default function PrivacyPolicyPage() {
               <p><strong>The Craft Beer Brief</strong></p>
               <p>
                 Email:{' '}
-                <a href="mailto:craftbeerbrief@gmail.com" className="text-amber hover:underline">
-                  craftbeerbrief@gmail.com
+                <a href="mailto:hello@thecraftbeerbrief.com" className="text-amber hover:underline">
+                  hello@thecraftbeerbrief.com
                 </a>
               </p>
             </div>

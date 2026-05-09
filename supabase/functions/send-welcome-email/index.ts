@@ -203,8 +203,8 @@ function buildEmailHtml(breweryName: string, trialEndsFormatted: string): string
               <p style="margin:0 0 6px;color:#9ca3af;font-size:12px;line-height:1.6;">
                 You are receiving this because you signed up for The Craft Beer Brief Essentials.
                 Questions? Reply to this email or contact us at
-                <a href="mailto:craftbeerbrief@gmail.com" style="color:#9ca3af;text-decoration:underline;">
-                  craftbeerbrief@gmail.com
+                <a href="mailto:hello@thecraftbeerbrief.com" style="color:#9ca3af;text-decoration:underline;">
+                  hello@thecraftbeerbrief.com
                 </a>
               </p>
               <p style="margin:0;color:#9ca3af;font-size:12px;">
@@ -268,7 +268,7 @@ Deno.serve(async (req) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          from: 'The Craft Beer Brief Essentials <onboarding@resend.dev>',
+          from: 'The Craft Beer Brief Essentials <hello@thecraftbeerbrief.com>',
           to: [email],
           subject,
           html: htmlBody,
