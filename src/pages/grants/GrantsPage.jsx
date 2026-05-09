@@ -12,19 +12,34 @@ import DraftNoticeBar from '../../components/DraftNoticeBar'
 import { useModalDraft } from '../../hooks/useModalDraft'
 import GrantCard from './GrantCard'
 import SubmitGrantModal from './SubmitGrantModal'
-import { getDisplayStatus, matchesAmountFilter, isAvailableInState, FUNDING_TYPES } from './grantsUtils'
+import { getDisplayStatus, matchesAmountFilter, isAvailableInState, getStateCode, FUNDING_TYPES } from './grantsUtils'
 import { useReadOnly } from '../../hooks/useReadOnly'
 
 // ── Small helper components used only on this page ──────────────────────────
 
-// A styled <select> element used for all filter dropdowns
+// A styled <select> element used for all filter dropdowns.
+// Options with disabled:true render as unselectable separators/headings.
 function FilterSelect({ value, onChange, options }) {
   return (
     <select value={value} onChange={e => onChange(e.target.value)}
       className="border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-amber">
-      {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+      {options.map(o => (
+        <option key={o.value} value={o.value} disabled={!!o.disabled}>{o.label}</option>
+      ))}
     </select>
   )
+}
+
+// Returns true when a grant should be treated as federal / nationwide.
+// Used by the Source filter to distinguish federal from state-specific programs.
+function isFederalOrNationwide(grant) {
+  if (grant.is_federal) return true
+  const states = grant.states_eligible ?? []
+  if (states.length === 0) return true
+  return states.some(s => {
+    const lower = s.toLowerCase()
+    return lower === 'nationwide' || lower === 'all states'
+  })
 }
 
 // Tab button for "All Grants" / "Bookmarked" tab switcher
@@ -100,6 +115,9 @@ export default function GrantsPage() {
   const [amountFilter, setAmountFilter]     = useState('all')
   const [loanFilter, setLoanFilter]         = useState('all')   // 'all' | 'grants_only' | 'loans_only'
   const [categoryFilter, setCategoryFilter] = useState('all')
+  const [sourceFilter, setSourceFilter]     = useState(         // 'all' | 'federal_only' | 'state_only' | 'my_state_federal'
+    () => localStorage.getItem('grants_source_filter') ?? 'all'
+  )
   const [sortBy, setSortBy]                 = useState('relevance')
   // Read the saved preference from localStorage on mount.
   // null means no value has ever been saved (first visit) — will be set from brewery data below.
@@ -109,12 +127,16 @@ export default function GrantsPage() {
     return saved === 'true'
   })
 
-  // Persist the toggle preference to localStorage whenever the user changes it.
-  // Skip null — that is the "not yet initialized" sentinel, not a real user choice.
+  // Persist filter preferences to localStorage whenever they change.
+  // Skip myStateOnly null — that is the "not yet initialized" sentinel, not a real user choice.
   useEffect(() => {
     if (myStateOnly === null) return
     localStorage.setItem('grants_my_state_only', String(myStateOnly))
   }, [myStateOnly])
+
+  useEffect(() => {
+    localStorage.setItem('grants_source_filter', sourceFilter)
+  }, [sourceFilter])
 
   // On first load: fetch grants and set the toggle default for brand-new visitors
   useEffect(() => {
@@ -232,10 +254,26 @@ export default function GrantsPage() {
     // Tab filter: bookmarked tab shows only starred grants
     if (activeTab === 'bookmarked') result = result.filter(g => savedMap.has(g.id))
 
-    // My State Only filter applies ONLY on the All Grants tab.
-    // Bookmarked grants always show regardless of state — the user saved them intentionally.
-    if (activeTab === 'all' && myStateOnly && brewery?.state) {
-      result = result.filter(g => isAvailableInState(g, brewery.state))
+    // Source filter — federal vs state separation, applied only on the All Grants tab.
+    // When active it supersedes the My State Only toggle.
+    // Bookmarked grants always show regardless of source — the user saved them intentionally.
+    // Normalise brewery.state once — handles both 'Pennsylvania' and 'PA' stored values
+    const breweryStateCode = brewery?.state ? getStateCode(brewery.state) : null
+
+    if (activeTab === 'all' && sourceFilter !== 'all') {
+      if (sourceFilter === 'federal_only') {
+        result = result.filter(g => isFederalOrNationwide(g))
+      } else if (sourceFilter === 'state_only') {
+        result = result.filter(g => !isFederalOrNationwide(g))
+      } else if (sourceFilter === 'my_state_federal') {
+        result = result.filter(g =>
+          isFederalOrNationwide(g) ||
+          (breweryStateCode ? isAvailableInState(g, breweryStateCode) : false)
+        )
+      }
+    } else if (activeTab === 'all' && myStateOnly && breweryStateCode) {
+      // My State Only only runs when Source filter is set to All Sources
+      result = result.filter(g => isAvailableInState(g, breweryStateCode))
     }
 
     // Funding type filter — compares snake_case db value to filter value
@@ -275,7 +313,7 @@ export default function GrantsPage() {
       // Default (relevance): open grants first, closing_soon next, then rolling, then closed
       return (statusOrder[getDisplayStatus(a)] ?? 5) - (statusOrder[getDisplayStatus(b)] ?? 5)
     })
-  }, [grants, savedMap, activeTab, myStateOnly, brewery?.state, typeFilter, statusFilter, amountFilter, loanFilter, categoryFilter, search, sortBy])
+  }, [grants, savedMap, activeTab, myStateOnly, sourceFilter, brewery?.state, typeFilter, statusFilter, amountFilter, loanFilter, categoryFilter, search, sortBy])
 
   return (
     <div className="space-y-4">
@@ -324,7 +362,6 @@ export default function GrantsPage() {
 
       {/* Filter bar — row 1: type, status, amount, loan/grant */}
       <div className="flex flex-wrap gap-2 items-center">
-        {/* Funding Type */}
         <FilterSelect value={typeFilter} onChange={setTypeFilter} options={[
           { value: 'all', label: 'All Types' },
           ...FUNDING_TYPES,
@@ -349,7 +386,6 @@ export default function GrantsPage() {
           { value: 'no_amount',  label: 'Amount not specified' },
         ]} />
 
-        {/* Loans vs Grants toggle */}
         <FilterSelect value={loanFilter} onChange={setLoanFilter} options={[
           { value: 'all',         label: 'Grants & Loans' },
           { value: 'grants_only', label: 'Grants Only' },
@@ -357,14 +393,24 @@ export default function GrantsPage() {
         ]} />
       </div>
 
-      {/* Filter bar — row 2: program category + sort + my state toggle */}
+      {/* Filter bar — row 2: source, category, sort, my state toggle */}
       <div className="flex flex-wrap gap-2 items-center">
-        {/* Program Category filter */}
+        {/* Source filter — separates federal from state programs */}
+        <FilterSelect value={sourceFilter} onChange={setSourceFilter} options={[
+          { value: 'all',              label: 'All Sources' },
+          { value: 'federal_only',     label: 'Federal Programs Only' },
+          { value: 'state_only',       label: 'State Programs Only' },
+          { value: 'my_state_federal', label: 'My State + Federal' },
+        ]} />
+
+        {/* Program Category filter with visual grouping */}
         <FilterSelect value={categoryFilter} onChange={setCategoryFilter} options={[
           { value: 'all',                  label: 'All Categories' },
+          { value: '_sep_fed',             label: '── Federal Programs ──', disabled: true },
           { value: 'federal_sba',          label: 'Federal — SBA Programs' },
           { value: 'federal_usda',         label: 'Federal — USDA Programs' },
           { value: 'federal_other',        label: 'Federal — Other' },
+          { value: '_sep_state',           label: '── State Programs ──', disabled: true },
           { value: 'economic_development', label: 'State — Economic Development' },
           { value: 'agriculture',          label: 'State — Agriculture' },
           { value: 'tourism',              label: 'State — Tourism' },
@@ -381,9 +427,9 @@ export default function GrantsPage() {
           { value: 'newest',    label: 'Sort: Recently Added' },
         ]} />
 
-        {/* My State Only toggle — hidden on the Bookmarked tab because bookmarks
-            always show regardless of state (user saved them intentionally) */}
-        {activeTab === 'all' && (
+        {/* My State Only toggle — hidden when Source filter is active (it already handles
+            state filtering) and hidden on the Bookmarked tab (bookmarks show regardless) */}
+        {activeTab === 'all' && sourceFilter === 'all' && (
           <button onClick={() => setMyStateOnly(v => !v)}
             className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
               myStateOnly

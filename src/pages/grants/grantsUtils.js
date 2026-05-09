@@ -27,6 +27,37 @@ export function getFundingTypeLabel(dbValue) {
   return FUNDING_TYPE_LABELS[dbValue] ?? dbValue ?? ''
 }
 
+// Maps full state names to two-letter codes. Used to normalise brewery.state
+// (which may be stored as a full name) before comparing to states_eligible
+// values in the grants table (which are stored as two-letter codes).
+export const STATE_NAME_TO_CODE = {
+  'Alabama': 'AL', 'Alaska': 'AK', 'Arizona': 'AZ', 'Arkansas': 'AR',
+  'California': 'CA', 'Colorado': 'CO', 'Connecticut': 'CT', 'Delaware': 'DE',
+  'District of Columbia': 'DC', 'Florida': 'FL', 'Georgia': 'GA', 'Hawaii': 'HI',
+  'Idaho': 'ID', 'Illinois': 'IL', 'Indiana': 'IN', 'Iowa': 'IA',
+  'Kansas': 'KS', 'Kentucky': 'KY', 'Louisiana': 'LA', 'Maine': 'ME',
+  'Maryland': 'MD', 'Massachusetts': 'MA', 'Michigan': 'MI', 'Minnesota': 'MN',
+  'Mississippi': 'MS', 'Missouri': 'MO', 'Montana': 'MT', 'Nebraska': 'NE',
+  'Nevada': 'NV', 'New Hampshire': 'NH', 'New Jersey': 'NJ', 'New Mexico': 'NM',
+  'New York': 'NY', 'North Carolina': 'NC', 'North Dakota': 'ND', 'Ohio': 'OH',
+  'Oklahoma': 'OK', 'Oregon': 'OR', 'Pennsylvania': 'PA', 'Rhode Island': 'RI',
+  'South Carolina': 'SC', 'South Dakota': 'SD', 'Tennessee': 'TN', 'Texas': 'TX',
+  'Utah': 'UT', 'Vermont': 'VT', 'Virginia': 'VA', 'Washington': 'WA',
+  'West Virginia': 'WV', 'Wisconsin': 'WI', 'Wyoming': 'WY',
+}
+
+/**
+ * Normalises a state value to a two-letter uppercase code.
+ * Accepts either a two-letter code ('pa' → 'PA') or a full name ('Pennsylvania' → 'PA').
+ * Returns the original value unchanged when no match is found.
+ */
+export function getStateCode(stateValue) {
+  if (!stateValue) return stateValue
+  const trimmed = stateValue.trim()
+  if (trimmed.length === 2) return trimmed.toUpperCase()
+  return STATE_NAME_TO_CODE[trimmed] ?? trimmed
+}
+
 // All 50 US state abbreviations (used in filters and the submission form checklist)
 export const US_STATES = [
   'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA',
@@ -123,18 +154,19 @@ export function isNationwide(grant) {
   })
 }
 
-// Returns true if the grant is available in the given state (or is nationwide)
+// Returns true if the grant is available in the given state (or is nationwide).
+// Normalises both the incoming state value and each entry in states_eligible to
+// two-letter codes before comparing, so 'Pennsylvania' == 'PA' works correctly.
 export function isAvailableInState(grant, state) {
   if (!state) return true
+  const stateCode = getStateCode(state)
   const states = grant.states_eligible ?? []
-  return (
-    states.length === 0 ||
-    states.includes(state) ||
-    states.some(s => {
-      const lower = s.toLowerCase()
-      return lower === 'all states' || lower === 'nationwide'
-    })
-  )
+  if (states.length === 0) return true
+  return states.some(s => {
+    const lower = s.toLowerCase()
+    if (lower === 'all states' || lower === 'nationwide') return true
+    return getStateCode(s) === stateCode
+  })
 }
 
 /**
