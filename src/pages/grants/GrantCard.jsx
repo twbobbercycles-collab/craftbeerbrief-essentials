@@ -33,6 +33,20 @@ const CONFIDENCE_STYLES = {
   'Low':    'bg-red-100 text-red-600',
 }
 
+const RELEVANCE_TOOLTIPS = {
+  5: 'Highly Relevant — This program is specifically designed for or frequently used by craft breweries',
+  4: 'Very Relevant — Strong fit for most craft breweries. Verify eligibility details.',
+  3: 'Relevant — Moderate fit for breweries. Eligibility depends on your specific situation.',
+  2: 'Potentially Relevant — May apply to some breweries in specific circumstances. Review carefully.',
+  1: 'Low Relevance — Rarely applicable to breweries but included for completeness.',
+}
+
+const CONFIDENCE_TOOLTIPS = {
+  'High':   'High Confidence — Program details verified directly from official government sources. Information is current and accurate.',
+  'Medium': 'Medium Confidence — Program exists and is active but some details like amounts or deadlines require verification directly with the agency.',
+  'Low':    'Low Confidence — Program information is preliminary. Verify all details directly with the agency before relying on this listing.',
+}
+
 function YesNoBadge({ value, label }) {
   if (value === null || value === undefined) return null
   return (
@@ -95,14 +109,20 @@ export default function GrantCard({ grant, saved, onToggleBookmark, onToggleAler
 
             {/* Brewery relevance score */}
             {grant.brewery_relevance_score != null && (
-              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber/10 text-amber">
-                ★ {grant.brewery_relevance_score}/5
+              <span
+                className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber/10 text-amber cursor-help"
+                title={RELEVANCE_TOOLTIPS[grant.brewery_relevance_score]}
+              >
+                Relevance: {grant.brewery_relevance_score}/5
               </span>
             )}
 
             {/* Confidence level */}
             {grant.confidence_level && (
-              <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${confidenceStyle}`}>
+              <span
+                className={`text-xs font-medium px-2 py-0.5 rounded-full cursor-help ${confidenceStyle}`}
+                title={CONFIDENCE_TOOLTIPS[grant.confidence_level]}
+              >
                 {grant.confidence_level} Confidence
               </span>
             )}

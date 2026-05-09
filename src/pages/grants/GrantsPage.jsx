@@ -273,6 +273,10 @@ export default function GrantsPage() {
           isFederalOrNationwide(g) ||
           (breweryStateCode ? isAvailableInState(g, breweryStateCode) : false)
         )
+      } else if (sourceFilter === 'verified') {
+        result = result.filter(g => g.is_manually_curated)
+      } else if (sourceFilter === 'community') {
+        result = result.filter(g => g.grant_source === 'user_submitted')
       }
     } else if (activeTab === 'all' && myStateOnly && breweryStateCode) {
       // My State Only only runs when Source filter is set to All Sources
@@ -288,17 +292,16 @@ export default function GrantsPage() {
     // Brewery relevance filter
     if (relevanceFilter === '4_5')    result = result.filter(g => (g.brewery_relevance_score ?? 0) >= 4)
     if (relevanceFilter === '3_plus') result = result.filter(g => (g.brewery_relevance_score ?? 0) >= 3)
+    if (relevanceFilter === '2_plus') result = result.filter(g => (g.brewery_relevance_score ?? 0) >= 2)
 
-    // Government level filter
-    if (govLevelFilter === 'federal') result = result.filter(g => g.government_level?.startsWith('Federal'))
-    if (govLevelFilter === 'state')   result = result.filter(g => g.government_level === 'State')
-    if (govLevelFilter === 'local')   result = result.filter(g =>
-      ['Municipal', 'Regional', 'County', 'Local'].includes(g.government_level ?? '')
-    )
+    // Government level filter — matches exact database values
+    if (govLevelFilter !== 'all') result = result.filter(g => g.government_level === govLevelFilter)
 
-    // Loan / Grant filter
-    if (loanFilter === 'grants_only') result = result.filter(g => !g.is_loan)
-    if (loanFilter === 'loans_only')  result = result.filter(g => !!g.is_loan)
+    // Loan / Grant / funding type filter
+    if (loanFilter === 'grants_only')      result = result.filter(g => !g.is_loan)
+    if (loanFilter === 'loans_only')       result = result.filter(g => !!g.is_loan)
+    if (loanFilter === 'mixed')            result = result.filter(g => g.funding_type?.toLowerCase().includes('mixed'))
+    if (loanFilter === 'technical_assist') result = result.filter(g => g.funding_type?.toLowerCase().includes('technical'))
 
     // Keyword search across title, description, eligibility_summary, and acronym
     if (search.trim()) {
@@ -384,15 +387,21 @@ export default function GrantsPage() {
       <div className="flex flex-wrap gap-2 items-center">
         <FilterSelect value={relevanceFilter} onChange={setRelevanceFilter} options={[
           { value: 'all',    label: 'All Programs' },
-          { value: '4_5',    label: 'Most Relevant (4–5 ★)' },
-          { value: '3_plus', label: 'Highly Relevant (3+ ★)' },
+          { value: '4_5',    label: 'Score 4–5 (Most Relevant)' },
+          { value: '3_plus', label: 'Score 3 (Relevant)' },
+          { value: '2_plus', label: 'Score 2 (Potentially Relevant)' },
         ]} />
 
         <FilterSelect value={govLevelFilter} onChange={setGovLevelFilter} options={[
-          { value: 'all',     label: 'All Levels' },
-          { value: 'federal', label: 'Federal' },
-          { value: 'state',   label: 'State' },
-          { value: 'local',   label: 'Municipal / Local' },
+          { value: 'all',                   label: 'All Levels' },
+          { value: 'Federal',               label: 'Federal' },
+          { value: 'Federal/State',         label: 'Federal / State' },
+          { value: 'Federal/Regional',      label: 'Federal / Regional' },
+          { value: 'Federal/State/Utility', label: 'Federal / State / Utility' },
+          { value: 'State',                 label: 'State' },
+          { value: 'Municipal',             label: 'Municipal' },
+          { value: 'County',                label: 'County' },
+          { value: 'Regional',              label: 'Regional' },
         ]} />
 
         <FilterSelect value={statusFilter} onChange={setStatusFilter} options={[
@@ -405,9 +414,11 @@ export default function GrantsPage() {
         ]} />
 
         <FilterSelect value={loanFilter} onChange={setLoanFilter} options={[
-          { value: 'all',         label: 'Grants & Loans' },
-          { value: 'grants_only', label: 'Grants Only' },
-          { value: 'loans_only',  label: 'Loans Only' },
+          { value: 'all',              label: 'All Funding Types' },
+          { value: 'grants_only',      label: 'Grants Only' },
+          { value: 'loans_only',       label: 'Loans Only' },
+          { value: 'mixed',            label: 'Mixed Programs' },
+          { value: 'technical_assist', label: 'Technical Assistance' },
         ]} />
       </div>
 
@@ -426,8 +437,10 @@ export default function GrantsPage() {
         <FilterSelect value={sourceFilter} onChange={setSourceFilter} options={[
           { value: 'all',              label: 'All Sources' },
           { value: 'federal_only',     label: 'Federal Only' },
-          { value: 'state_only',       label: 'State Only' },
+          { value: 'state_only',       label: 'State & Local Only' },
           { value: 'my_state_federal', label: 'My State + Federal' },
+          { value: 'verified',         label: 'Verified by The Craft Beer Brief' },
+          { value: 'community',        label: 'Community Submissions' },
         ]} />
 
         <FilterSelect value={categoryFilter} onChange={setCategoryFilter} options={[
@@ -470,7 +483,7 @@ export default function GrantsPage() {
         ]} />
 
         <FilterSelect value={sortBy} onChange={setSortBy} options={[
-          { value: 'relevance', label: 'Sort: Relevance' },
+          { value: 'relevance', label: 'Sort: Brewery Relevance' },
           { value: 'deadline',  label: 'Sort: Deadline (soonest)' },
           { value: 'amount',    label: 'Sort: Amount (highest)' },
           { value: 'newest',    label: 'Sort: Recently Added' },
