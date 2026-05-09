@@ -367,6 +367,15 @@ export default function AdminPage() {
   const [gmSourceFilter, setGmSourceFilter]   = useState('all')
   const [actionError, setActionError]         = useState('')   // shown as red banner in manage tab
 
+  // Import Data tab
+  const [importFile, setImportFile]           = useState(null)
+  const [importParsed, setImportParsed]       = useState(null)  // { headers, rows }
+  const [importing, setImporting]             = useState(false)
+  const [importResult, setImportResult]       = useState(null)  // { processed, upserted, skipped, errors }
+  const [importError, setImportError]         = useState('')
+  const [wipeConfirm1, setWipeConfirm1]       = useState(false)
+  const [wipeConfirmText, setWipeConfirmText] = useState('')
+
   // Edit modal
   const [editingGrant, setEditingGrant] = useState(null)
   const [editForm, setEditForm]         = useState({})
@@ -530,6 +539,91 @@ export default function AdminPage() {
     }
   }
 
+  // ── CSV Import helpers ──────────────────────────────────────────────────────
+
+  // Parses raw CSV text into { headers (lowercase), rows (array of arrays) }.
+  // Handles quoted fields, embedded commas, escaped double-quotes, and \r\n.
+  function parseCSVText(text) {
+    const rows = []
+    let row = [], field = '', inQuotes = false, i = 0
+    while (i < text.length) {
+      const ch = text[i]
+      if (inQuotes) {
+        if (ch === '"' && text[i + 1] === '"') { field += '"'; i += 2; continue }
+        if (ch === '"') { inQuotes = false; i++; continue }
+        field += ch; i++; continue
+      }
+      if (ch === '"') { inQuotes = true; i++; continue }
+      if (ch === ',') { row.push(field); field = ''; i++; continue }
+      if (ch === '\r' && text[i + 1] === '\n') { row.push(field); rows.push(row); row = []; field = ''; i += 2; continue }
+      if (ch === '\n') { row.push(field); rows.push(row); row = []; field = ''; i++; continue }
+      field += ch; i++
+    }
+    if (field || row.length > 0) { row.push(field); rows.push(row) }
+    if (rows.length === 0) return { headers: [], rows: [] }
+    const headers = rows[0].map(h => h.trim().toLowerCase())
+    const dataRows = rows.slice(1).filter(r => r.some(f => f.trim()))
+    return { headers, rows: dataRows }
+  }
+
+  function handleFileSelect(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImportFile(file)
+    setImportParsed(null)
+    setImportResult(null)
+    setImportError('')
+    setWipeConfirm1(false)
+    setWipeConfirmText('')
+  }
+
+  function handleParseCSV() {
+    if (!importFile) return
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      try {
+        const parsed = parseCSVText(e.target.result)
+        if (parsed.headers.length === 0) {
+          setImportError('Could not parse CSV — file appears to be empty.')
+          return
+        }
+        setImportParsed(parsed)
+        setImportError('')
+      } catch (err) {
+        setImportError(`Parse error: ${err.message}`)
+      }
+    }
+    reader.readAsText(importFile)
+  }
+
+  // Converts parsed CSV rows into record objects keyed by lowercase CSV header name
+  function buildRecords(parsed) {
+    return parsed.rows.map(row =>
+      Object.fromEntries(parsed.headers.map((h, i) => [h, row[i] ?? '']))
+    )
+  }
+
+  async function handleImport(wipeFirst = false) {
+    if (!importParsed) return
+    setImporting(true)
+    setImportResult(null)
+    setImportError('')
+    try {
+      const { data, error } = await supabase.functions.invoke('import-grants-csv', {
+        body: { records: buildRecords(importParsed), wipe_first: wipeFirst },
+      })
+      if (error) throw new Error(error.message)
+      if (data?.error) throw new Error(data.error)
+      setImportResult(data)
+      setWipeConfirm1(false)
+      setWipeConfirmText('')
+      await loadAdminData()
+    } catch (err) {
+      setImportError(`Import failed: ${err.message}`)
+    }
+    setImporting(false)
+  }
+
   // ── Filtered grant list for Grant Management tab ────────────────────────────
 
   const filteredGrants = useMemo(() => {
@@ -567,6 +661,9 @@ export default function AdminPage() {
           </AdminTab>
           <AdminTab active={activeTab === 'sync'} onClick={() => setActiveTab('sync')}>
             Sync History
+          </AdminTab>
+          <AdminTab active={activeTab === 'import'} onClick={() => setActiveTab('import')}>
+            Import Data
           </AdminTab>
         </div>
 
@@ -780,6 +877,235 @@ export default function AdminPage() {
                   </table>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ── Import Data ─────────────────────────────────────────────────── */}
+          {activeTab === 'import' && (
+            <div className="space-y-5">
+
+              {/* Warning banner */}
+              <div className="bg-amber/10 border border-amber/30 rounded-lg px-4 py-3 text-sm text-amber font-medium">
+                ⚠️ Importing will upsert all records using the program ID as the key. Existing records
+                with matching program IDs will be updated. Records without matching IDs will be inserted.
+                No records will be deleted during a standard import.
+              </div>
+
+              {/* File upload */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-2">Select CSV File</label>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <label className="flex items-center gap-2 cursor-pointer border border-dashed border-gray-300 rounded-lg px-4 py-3 hover:bg-gray-50 transition-colors">
+                    <span className="text-gray-400 text-lg">📂</span>
+                    <span className="text-sm text-gray-600">
+                      {importFile ? importFile.name : 'Click to choose a CSV file'}
+                    </span>
+                    <input type="file" accept=".csv" onChange={handleFileSelect} className="hidden" />
+                  </label>
+                  {importFile && (
+                    <button
+                      onClick={handleParseCSV}
+                      className="text-sm bg-navy text-white px-4 py-2 rounded-lg hover:bg-navy/80 transition-colors"
+                    >
+                      Parse CSV
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Parse error */}
+              {importError && !importParsed && (
+                <p className="text-sm text-danger font-medium">❌ {importError}</p>
+              )}
+
+              {/* Preview + column mapping */}
+              {importParsed && (
+                <div className="space-y-4">
+                  <p className="text-xs text-gray-500">
+                    Parsed <strong>{importParsed.rows.length}</strong> records with{' '}
+                    <strong>{importParsed.headers.length}</strong> columns.
+                  </p>
+
+                  {/* Column mapping reference */}
+                  <details className="border border-gray-200 rounded-lg">
+                    <summary className="px-4 py-2.5 text-xs font-semibold text-gray-700 cursor-pointer hover:bg-gray-50">
+                      Column Mapping Reference ({importParsed.headers.length} columns detected)
+                    </summary>
+                    <div className="px-4 pb-3 overflow-x-auto">
+                      <table className="w-full text-xs mt-2 min-w-[400px]">
+                        <thead>
+                          <tr className="border-b border-gray-200 text-left text-gray-500">
+                            <th className="pb-1 pr-4 font-medium">CSV Column</th>
+                            <th className="pb-1 font-medium">Database Field</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50">
+                          {[
+                            ['program id',                         'external_program_id'],
+                            ['grant title',                        'title'],
+                            ['program acronym',                    'program_acronym'],
+                            ['acronym definition',                 'acronym_definition'],
+                            ['funding type',                       'funding_type + is_loan'],
+                            ['government level',                   'government_level + is_federal'],
+                            ['funding agency/organization',        'funding_agency'],
+                            ['program category',                   'program_category'],
+                            ['brief description',                  'description'],
+                            ['eligibility notes',                  'eligibility_summary'],
+                            ['brewery relevance score',            'brewery_relevance_score'],
+                            ['confidence level',                   'confidence_level'],
+                            ['minimum award amount',               'amount_min'],
+                            ['maximum award amount',               'amount_max'],
+                            ['application deadline',               'application_deadline'],
+                            ['application cycle',                  'application_cycle'],
+                            ['program status',                     'status (Active→open)'],
+                            ['application url',                    'application_url'],
+                            ['source url',                         'source_url'],
+                            ['states that are eligible',           'states_eligible'],
+                            ['county',                             'county'],
+                            ['municipality',                       'municipality'],
+                            ['rural eligible',                     'rural_eligible'],
+                            ['opportunity zone eligible',          'opportunity_zone_eligible'],
+                            ['forgivable loan eligible',           'forgivable_loan_eligible'],
+                            ['stackable with other incentives',    'stackable'],
+                            ['industry focus',                     'industry_focus'],
+                            ['business stage',                     'business_stage'],
+                            ['maintenance priority',               'maintenance_priority'],
+                            ['next recommended verification date', 'next_verification_date'],
+                            ['program priority tier',              'program_priority_tier'],
+                            ['additional notes',                   'data_quality_notes'],
+                            ['active record',                      'approved'],
+                          ].map(([csv, db]) => (
+                            <tr key={csv}>
+                              <td className="py-1 pr-4 text-gray-600 font-mono">{csv}</td>
+                              <td className="py-1 text-navy font-mono">{db}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </details>
+
+                  {/* Preview table */}
+                  <div>
+                    <p className="text-xs font-semibold text-gray-700 mb-2">
+                      Preview — first {Math.min(10, importParsed.rows.length)} rows
+                    </p>
+                    <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                      <table className="text-xs min-w-max">
+                        <thead>
+                          <tr className="bg-gray-50 border-b border-gray-200">
+                            {importParsed.headers.map(h => (
+                              <th key={h} className="px-3 py-2 text-left font-medium text-gray-600 whitespace-nowrap">
+                                {h}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {importParsed.rows.slice(0, 10).map((row, ri) => (
+                            <tr key={ri} className="hover:bg-gray-50">
+                              {row.map((cell, ci) => (
+                                <td key={ci} className="px-3 py-1.5 text-gray-700 whitespace-nowrap max-w-[200px] truncate">
+                                  {cell}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Import button + result */}
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      onClick={() => handleImport(false)}
+                      disabled={importing}
+                      className="text-sm bg-amber text-white font-medium px-5 py-2 rounded-lg hover:bg-amber-dark transition-colors disabled:opacity-60"
+                    >
+                      {importing ? 'Importing…' : `⬆ Import ${importParsed.rows.length} Records`}
+                    </button>
+                  </div>
+
+                  {/* Import error */}
+                  {importError && (
+                    <p className="text-sm text-danger font-medium">❌ {importError}</p>
+                  )}
+
+                  {/* Import result */}
+                  {importResult && (
+                    <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 space-y-1">
+                      <p className="text-sm font-semibold text-green-800">✅ Import complete</p>
+                      <p className="text-xs text-green-700">
+                        Processed: {importResult.processed} &nbsp;·&nbsp;
+                        Upserted: {importResult.upserted} &nbsp;·&nbsp;
+                        Skipped: {importResult.skipped}
+                      </p>
+                      {importResult.errors?.length > 0 && (
+                        <details className="mt-2">
+                          <summary className="text-xs text-red-600 cursor-pointer font-medium">
+                            {importResult.errors.length} error(s) — click to expand
+                          </summary>
+                          <ul className="mt-1 space-y-0.5 text-xs text-red-600">
+                            {importResult.errors.map((e, i) => <li key={i}>{e}</li>)}
+                          </ul>
+                        </details>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Wipe and Replace */}
+                  <div className="border-t border-gray-200 pt-5 space-y-3">
+                    <p className="text-xs font-semibold text-gray-700">Wipe and Replace</p>
+                    <p className="text-xs text-gray-500">
+                      Deletes ALL manually curated grants, then imports the CSV from scratch.
+                      Use this for quarterly full refreshes only. User-submitted grants are not affected.
+                    </p>
+
+                    {!wipeConfirm1 ? (
+                      <button
+                        onClick={() => setWipeConfirm1(true)}
+                        className="text-sm border border-danger/50 text-danger px-4 py-2 rounded-lg hover:bg-red-50 transition-colors"
+                      >
+                        🗑 Wipe and Replace All Curated Grants
+                      </button>
+                    ) : (
+                      <div className="bg-red-50 border border-red-200 rounded-lg p-4 space-y-3">
+                        <p className="text-sm font-semibold text-danger">
+                          ⚠️ This will permanently delete all manually curated grants. Are you sure?
+                        </p>
+                        <p className="text-xs text-red-600">
+                          Type <strong>WIPE</strong> below to confirm, then click the button.
+                        </p>
+                        <input
+                          type="text"
+                          value={wipeConfirmText}
+                          onChange={e => setWipeConfirmText(e.target.value)}
+                          placeholder="Type WIPE to confirm"
+                          className="border border-red-300 rounded-lg px-3 py-2 text-sm w-48 focus:outline-none focus:ring-2 focus:ring-danger"
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleImport(true)}
+                            disabled={wipeConfirmText !== 'WIPE' || importing}
+                            className="text-sm bg-danger text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-40"
+                          >
+                            {importing ? 'Wiping & Importing…' : 'Confirm Wipe and Replace'}
+                          </button>
+                          <button
+                            onClick={() => { setWipeConfirm1(false); setWipeConfirmText('') }}
+                            className="text-sm border border-gray-300 text-gray-600 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                </div>
+              )}
+
             </div>
           )}
 

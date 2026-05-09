@@ -115,6 +115,8 @@ export default function GrantsPage() {
   const [amountFilter, setAmountFilter]     = useState('all')
   const [loanFilter, setLoanFilter]         = useState('all')   // 'all' | 'grants_only' | 'loans_only'
   const [categoryFilter, setCategoryFilter] = useState('all')
+  const [relevanceFilter, setRelevanceFilter] = useState('all') // 'all' | '4_5' | '3_plus'
+  const [govLevelFilter, setGovLevelFilter]   = useState('all') // 'all' | 'federal' | 'state' | 'local'
   const [sourceFilter, setSourceFilter]     = useState(         // 'all' | 'federal_only' | 'state_only' | 'my_state_federal'
     () => localStorage.getItem('grants_source_filter') ?? 'all'
   )
@@ -236,9 +238,10 @@ export default function GrantsPage() {
     setSubmitSuccess(true)
   }
 
-  // Most recent last_reviewed_at across all grants — shown below the search bar
+  // Most recent last_reviewed_at across all manually curated grants
   const dbLastUpdated = useMemo(() => {
     const dates = grants
+      .filter(g => g.is_manually_curated)
       .map(g => g.last_reviewed_at)
       .filter(Boolean)
       .map(d => new Date(d))
@@ -276,28 +279,40 @@ export default function GrantsPage() {
       result = result.filter(g => isAvailableInState(g, breweryStateCode))
     }
 
-    // Funding type filter — compares snake_case db value to filter value
+    // Funding type filter
     if (typeFilter     !== 'all') result = result.filter(g => g.funding_type === typeFilter)
     if (statusFilter   !== 'all') result = result.filter(g => getDisplayStatus(g) === statusFilter)
     if (amountFilter   !== 'all') result = result.filter(g => matchesAmountFilter(g, amountFilter))
     if (categoryFilter !== 'all') result = result.filter(g => g.program_category === categoryFilter)
 
+    // Brewery relevance filter
+    if (relevanceFilter === '4_5')    result = result.filter(g => (g.brewery_relevance_score ?? 0) >= 4)
+    if (relevanceFilter === '3_plus') result = result.filter(g => (g.brewery_relevance_score ?? 0) >= 3)
+
+    // Government level filter
+    if (govLevelFilter === 'federal') result = result.filter(g => g.government_level?.startsWith('Federal'))
+    if (govLevelFilter === 'state')   result = result.filter(g => g.government_level === 'State')
+    if (govLevelFilter === 'local')   result = result.filter(g =>
+      ['Municipal', 'Regional', 'County', 'Local'].includes(g.government_level ?? '')
+    )
+
     // Loan / Grant filter
     if (loanFilter === 'grants_only') result = result.filter(g => !g.is_loan)
     if (loanFilter === 'loans_only')  result = result.filter(g => !!g.is_loan)
 
-    // Keyword search across title, description, and eligibility_summary
+    // Keyword search across title, description, eligibility_summary, and acronym
     if (search.trim()) {
       const q = search.toLowerCase()
       result = result.filter(g =>
         g.title?.toLowerCase().includes(q) ||
         g.description?.toLowerCase().includes(q) ||
-        g.eligibility_summary?.toLowerCase().includes(q)
+        g.eligibility_summary?.toLowerCase().includes(q) ||
+        g.program_acronym?.toLowerCase().includes(q) ||
+        g.funding_agency?.toLowerCase().includes(q)
       )
     }
 
     // Sort — always returns a new array to avoid mutating state
-    const statusOrder = { open: 0, closing_soon: 1, rolling: 2, upcoming: 3, closed: 4 }
     return [...result].sort((a, b) => {
       if (sortBy === 'deadline') {
         if (!a.application_deadline) return 1
@@ -310,10 +325,15 @@ export default function GrantsPage() {
       if (sortBy === 'newest') {
         return new Date(b.created_at) - new Date(a.created_at)
       }
-      // Default (relevance): open grants first, closing_soon next, then rolling, then closed
-      return (statusOrder[getDisplayStatus(a)] ?? 5) - (statusOrder[getDisplayStatus(b)] ?? 5)
+      // Default (relevance): sort by brewery_relevance_score desc, then program_priority_tier asc
+      const scoreA = a.brewery_relevance_score ?? 0
+      const scoreB = b.brewery_relevance_score ?? 0
+      if (scoreB !== scoreA) return scoreB - scoreA
+      const tierA = a.program_priority_tier ?? 'ZZZ'
+      const tierB = b.program_priority_tier ?? 'ZZZ'
+      return tierA.localeCompare(tierB)
     })
-  }, [grants, savedMap, activeTab, myStateOnly, sourceFilter, brewery?.state, typeFilter, statusFilter, amountFilter, loanFilter, categoryFilter, search, sortBy])
+  }, [grants, savedMap, activeTab, myStateOnly, sourceFilter, brewery?.state, typeFilter, statusFilter, amountFilter, loanFilter, categoryFilter, relevanceFilter, govLevelFilter, search, sortBy])
 
   return (
     <div className="space-y-4">
@@ -360,11 +380,19 @@ export default function GrantsPage() {
         </p>
       )}
 
-      {/* Filter bar — row 1: type, status, amount, loan/grant */}
+      {/* Filter bar — row 1: relevance, government level, status, loan/grant */}
       <div className="flex flex-wrap gap-2 items-center">
-        <FilterSelect value={typeFilter} onChange={setTypeFilter} options={[
-          { value: 'all', label: 'All Types' },
-          ...FUNDING_TYPES,
+        <FilterSelect value={relevanceFilter} onChange={setRelevanceFilter} options={[
+          { value: 'all',    label: 'All Programs' },
+          { value: '4_5',    label: 'Most Relevant (4–5 ★)' },
+          { value: '3_plus', label: 'Highly Relevant (3+ ★)' },
+        ]} />
+
+        <FilterSelect value={govLevelFilter} onChange={setGovLevelFilter} options={[
+          { value: 'all',     label: 'All Levels' },
+          { value: 'federal', label: 'Federal' },
+          { value: 'state',   label: 'State' },
+          { value: 'local',   label: 'Municipal / Local' },
         ]} />
 
         <FilterSelect value={statusFilter} onChange={setStatusFilter} options={[
@@ -376,6 +404,15 @@ export default function GrantsPage() {
           { value: 'closed',       label: 'Closed' },
         ]} />
 
+        <FilterSelect value={loanFilter} onChange={setLoanFilter} options={[
+          { value: 'all',         label: 'Grants & Loans' },
+          { value: 'grants_only', label: 'Grants Only' },
+          { value: 'loans_only',  label: 'Loans Only' },
+        ]} />
+      </div>
+
+      {/* Filter bar — row 2: amount, source, category, sort, my state toggle */}
+      <div className="flex flex-wrap gap-2 items-center">
         <FilterSelect value={amountFilter} onChange={setAmountFilter} options={[
           { value: 'all',        label: 'Any Amount' },
           { value: 'under_10k',  label: 'Under $10,000' },
@@ -386,38 +423,50 @@ export default function GrantsPage() {
           { value: 'no_amount',  label: 'Amount not specified' },
         ]} />
 
-        <FilterSelect value={loanFilter} onChange={setLoanFilter} options={[
-          { value: 'all',         label: 'Grants & Loans' },
-          { value: 'grants_only', label: 'Grants Only' },
-          { value: 'loans_only',  label: 'Loans Only' },
-        ]} />
-      </div>
-
-      {/* Filter bar — row 2: source, category, sort, my state toggle */}
-      <div className="flex flex-wrap gap-2 items-center">
-        {/* Source filter — separates federal from state programs */}
         <FilterSelect value={sourceFilter} onChange={setSourceFilter} options={[
           { value: 'all',              label: 'All Sources' },
-          { value: 'federal_only',     label: 'Federal Programs Only' },
-          { value: 'state_only',       label: 'State Programs Only' },
+          { value: 'federal_only',     label: 'Federal Only' },
+          { value: 'state_only',       label: 'State Only' },
           { value: 'my_state_federal', label: 'My State + Federal' },
         ]} />
 
-        {/* Program Category filter with visual grouping */}
         <FilterSelect value={categoryFilter} onChange={setCategoryFilter} options={[
-          { value: 'all',                  label: 'All Categories' },
-          { value: '_sep_fed',             label: '── Federal Programs ──', disabled: true },
-          { value: 'federal_sba',          label: 'Federal — SBA Programs' },
-          { value: 'federal_usda',         label: 'Federal — USDA Programs' },
-          { value: 'federal_other',        label: 'Federal — Other' },
-          { value: '_sep_state',           label: '── State Programs ──', disabled: true },
-          { value: 'economic_development', label: 'State — Economic Development' },
-          { value: 'agriculture',          label: 'State — Agriculture' },
-          { value: 'tourism',              label: 'State — Tourism' },
-          { value: 'manufacturing',        label: 'State — Manufacturing' },
-          { value: 'rural_development',    label: 'State — Rural Development' },
-          { value: 'local_redevelopment',  label: 'Local — Redevelopment' },
-          { value: 'energy_utility',       label: 'Energy and Utility Programs' },
+          { value: 'all', label: 'All Categories' },
+          { value: '_s1', label: '── Small Business ──', disabled: true },
+          { value: 'Small Business Financing',                    label: 'Small Business Financing' },
+          { value: 'Small Business Support',                      label: 'Small Business Support' },
+          { value: 'Small Business / Commercial Corridor',        label: 'SB / Commercial Corridor' },
+          { value: 'Small Business / Downtown Development',       label: 'SB / Downtown Development' },
+          { value: 'Small Business / Neighborhood Business',      label: 'SB / Neighborhood Business' },
+          { value: 'Small Business / Redevelopment',              label: 'SB / Redevelopment' },
+          { value: 'Small Business / Storefront',                 label: 'SB / Storefront' },
+          { value: 'Small Business / Creative & Commercial Districts', label: 'SB / Creative Districts' },
+          { value: '_s2', label: '── Financing & Capital ──', disabled: true },
+          { value: 'Access to Capital',                           label: 'Access to Capital' },
+          { value: 'Fixed Asset Financing',                       label: 'Fixed Asset Financing' },
+          { value: 'Startup / Access to Capital',                 label: 'Startup / Access to Capital' },
+          { value: 'Community Development Finance',               label: 'Community Development Finance' },
+          { value: '_s3', label: '── Rural & Agriculture ──', disabled: true },
+          { value: 'Rural Business Development',                  label: 'Rural Business Development' },
+          { value: 'Rural Business Financing',                    label: 'Rural Business Financing' },
+          { value: 'Building Reuse / Rural Development',          label: 'Building Reuse / Rural Dev' },
+          { value: '_s4', label: '── Redevelopment ──', disabled: true },
+          { value: 'Commercial Revitalization',                   label: 'Commercial Revitalization' },
+          { value: 'Brownfield Redevelopment',                    label: 'Brownfield Redevelopment' },
+          { value: 'Historic Preservation',                       label: 'Historic Preservation' },
+          { value: 'Facade Improvement',                          label: 'Facade Improvement' },
+          { value: 'Building Improvement / Commercial Corridor',  label: 'Building Improvement' },
+          { value: 'Business Assistance / Redevelopment',         label: 'Business Assistance / Redevelopment' },
+          { value: 'Redevelopment / Small Business Financing',    label: 'Redevelopment / SB Financing' },
+          { value: 'Urban Redevelopment / Small Business Financing', label: 'Urban Redevelopment / SB' },
+          { value: '_s5', label: '── Other Programs ──', disabled: true },
+          { value: 'Business Expansion / Manufacturing',          label: 'Business Expansion / Mfg' },
+          { value: 'Economic Development / Infrastructure',       label: 'Economic Dev / Infrastructure' },
+          { value: 'Economic Development / Manufacturing',        label: 'Economic Dev / Manufacturing' },
+          { value: 'Infrastructure / Economic Development',       label: 'Infrastructure / Econ Dev' },
+          { value: 'Energy Efficiency / Sustainability',          label: 'Energy Efficiency' },
+          { value: 'Energy Efficiency / Utility Incentives',      label: 'Utility Incentives' },
+          { value: 'Export Assistance',                           label: 'Export Assistance' },
         ]} />
 
         <FilterSelect value={sortBy} onChange={setSortBy} options={[
@@ -427,8 +476,6 @@ export default function GrantsPage() {
           { value: 'newest',    label: 'Sort: Recently Added' },
         ]} />
 
-        {/* My State Only toggle — hidden when Source filter is active (it already handles
-            state filtering) and hidden on the Bookmarked tab (bookmarks show regardless) */}
         {activeTab === 'all' && sourceFilter === 'all' && (
           <button onClick={() => setMyStateOnly(v => !v)}
             className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${

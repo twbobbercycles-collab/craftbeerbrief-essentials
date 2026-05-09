@@ -16,6 +16,34 @@ import {
   formatAmount, formatDeadline, isNationwide,
 } from './grantsUtils'
 
+// Government level badge styles
+const GOV_LEVEL_STYLES = {
+  'Federal':        'bg-navy text-white',
+  'Federal/State':  'bg-navy/80 text-white',
+  'State':          'bg-blue-100 text-blue-700',
+  'Municipal':      'bg-purple-100 text-purple-700',
+  'Regional':       'bg-teal-100 text-teal-700',
+  'County':         'bg-indigo-100 text-indigo-700',
+}
+
+// Confidence level badge styles
+const CONFIDENCE_STYLES = {
+  'High':   'bg-green-100 text-green-700',
+  'Medium': 'bg-amber/10 text-amber',
+  'Low':    'bg-red-100 text-red-600',
+}
+
+function YesNoBadge({ value, label }) {
+  if (value === null || value === undefined) return null
+  return (
+    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+      value ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'
+    }`}>
+      {label}: {value ? 'Yes' : 'No'}
+    </span>
+  )
+}
+
 export default function GrantCard({ grant, saved, onToggleBookmark, onToggleAlert, showRemoveBookmark }) {
   const [expanded, setExpanded] = useState(false)
 
@@ -25,16 +53,17 @@ export default function GrantCard({ grant, saved, onToggleBookmark, onToggleAler
   const deadline      = formatDeadline(grant.application_deadline)
   const nationwide    = isNationwide(grant)
   const states        = grant.states_eligible ?? []
-  // Show the first 4 state badges; "+X more" badge for the rest
   const visibleStates = states.slice(0, 4)
   const extraCount    = states.length - 4
 
-  // Format last_reviewed_at as "Month Day, Year"
   const reviewedDate = grant.last_reviewed_at
     ? new Date(grant.last_reviewed_at).toLocaleDateString('en-US', {
         month: 'long', day: 'numeric', year: 'numeric',
       })
     : null
+
+  const govLevelStyle    = GOV_LEVEL_STYLES[grant.government_level] ?? 'bg-gray-100 text-gray-600'
+  const confidenceStyle  = CONFIDENCE_STYLES[grant.confidence_level] ?? 'bg-gray-100 text-gray-500'
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-5 transition-shadow hover:shadow-sm">
@@ -43,24 +72,50 @@ export default function GrantCard({ grant, saved, onToggleBookmark, onToggleAler
       <div className="flex items-start gap-3">
         <div className="flex-1 min-w-0">
 
-          {/* Badge row: Loan/Grant type badge + status badge */}
-          <div className="flex flex-wrap gap-2 mb-2">
+          {/* Badge row */}
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {/* Loan vs Grant */}
             {grant.is_loan ? (
-              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
-                Loan
-              </span>
+              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">Loan</span>
             ) : (
-              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">
-                Grant
-              </span>
+              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">Grant</span>
             )}
+
+            {/* Status */}
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${getStatusColor(displayStatus)}`}>
               {getStatusLabel(displayStatus)}
             </span>
+
+            {/* Government level */}
+            {grant.government_level && (
+              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${govLevelStyle}`}>
+                {grant.government_level}
+              </span>
+            )}
+
+            {/* Brewery relevance score */}
+            {grant.brewery_relevance_score != null && (
+              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber/10 text-amber">
+                ★ {grant.brewery_relevance_score}/5
+              </span>
+            )}
+
+            {/* Confidence level */}
+            {grant.confidence_level && (
+              <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${confidenceStyle}`}>
+                {grant.confidence_level} Confidence
+              </span>
+            )}
           </div>
 
-          {/* Grant title */}
+          {/* Program acronym + title */}
+          {grant.program_acronym && (
+            <p className="text-xs font-bold text-amber tracking-wide mb-0.5">{grant.program_acronym}</p>
+          )}
           <h3 className="font-semibold text-navy text-sm leading-snug">{grant.title}</h3>
+          {grant.program_acronym && grant.acronym_definition && (
+            <p className="text-xs text-gray-400 mt-0.5 italic">{grant.acronym_definition}</p>
+          )}
         </div>
 
         {/* Star bookmark toggle */}
@@ -75,7 +130,7 @@ export default function GrantCard({ grant, saved, onToggleBookmark, onToggleAler
         </button>
       </div>
 
-      {/* ── Eligibility summary (3-line clamp, expands with card) ── */}
+      {/* ── Eligibility summary ── */}
       {grant.eligibility_summary && (
         <p className={`text-xs text-gray-600 mt-2 leading-relaxed ${expanded ? '' : 'line-clamp-3'}`}>
           {grant.eligibility_summary}
@@ -87,30 +142,34 @@ export default function GrantCard({ grant, saved, onToggleBookmark, onToggleAler
         <span className="text-xs font-medium text-success">{formatAmount(grant)}</span>
         <span className={`text-xs ${
           deadline.isUrgent ? 'text-danger font-semibold' :
-          deadline.isPast   ? 'text-gray-400 line-through' :
-                              'text-gray-500'
+          deadline.isPast   ? 'text-gray-400 line-through' : 'text-gray-500'
         }`}>
           {deadline.text === 'No deadline' ? 'No deadline (rolling)' : `Deadline: ${deadline.text}`}
         </span>
+        {grant.application_cycle && (
+          <span className="text-xs text-gray-400">Cycle: {grant.application_cycle}</span>
+        )}
       </div>
 
       {/* ── State eligibility badges ── */}
       <div className="flex flex-wrap gap-1.5 mt-3">
         {nationwide ? (
-          <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium">
-            Nationwide
-          </span>
+          <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium">Nationwide</span>
         ) : (
           <>
             {visibleStates.map(s => (
               <span key={s} className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{s}</span>
             ))}
             {extraCount > 0 && (
-              <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">
-                +{extraCount} more
-              </span>
+              <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">+{extraCount} more</span>
             )}
           </>
+        )}
+        {grant.municipality && (
+          <span className="text-xs px-2 py-0.5 rounded-full bg-purple-50 text-purple-600">{grant.municipality}</span>
+        )}
+        {grant.county && !grant.municipality && (
+          <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600">{grant.county} County</span>
         )}
       </div>
 
@@ -123,7 +182,6 @@ export default function GrantCard({ grant, saved, onToggleBookmark, onToggleAler
           {expanded ? 'Hide Details' : 'View Details'}
         </button>
 
-        {/* Alert Me button — only shown when bookmarked AND a deadline exists */}
         {isBookmarked && grant.application_deadline && (
           <button
             onClick={() => onToggleAlert(grant.id)}
@@ -137,7 +195,6 @@ export default function GrantCard({ grant, saved, onToggleBookmark, onToggleAler
           </button>
         )}
 
-        {/* Remove Bookmark button — only shown on the Bookmarked tab */}
         {showRemoveBookmark && (
           <button
             onClick={() => onToggleBookmark(grant.id)}
@@ -152,7 +209,7 @@ export default function GrantCard({ grant, saved, onToggleBookmark, onToggleAler
       {expanded && (
         <div className="mt-4 pt-4 border-t border-gray-100 space-y-3">
 
-          {/* Full description (only shown if different from eligibility_summary) */}
+          {/* Full description */}
           {grant.description && grant.description !== grant.eligibility_summary && (
             <div>
               <p className="text-xs font-semibold text-navy mb-1">Description</p>
@@ -166,7 +223,49 @@ export default function GrantCard({ grant, saved, onToggleBookmark, onToggleAler
             <p className="text-xs text-gray-600">{formatAmount(grant)}</p>
           </div>
 
-          {/* Full state list (only for non-nationwide grants) */}
+          {/* Program details grid */}
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+            {grant.funding_agency && (
+              <div>
+                <p className="text-xs font-semibold text-navy">Funding Agency</p>
+                <p className="text-xs text-gray-600">{grant.funding_agency}</p>
+              </div>
+            )}
+            {grant.application_cycle && (
+              <div>
+                <p className="text-xs font-semibold text-navy">Application Cycle</p>
+                <p className="text-xs text-gray-600">{grant.application_cycle}</p>
+              </div>
+            )}
+            {grant.industry_focus && (
+              <div>
+                <p className="text-xs font-semibold text-navy">Industry Focus</p>
+                <p className="text-xs text-gray-600">{grant.industry_focus}</p>
+              </div>
+            )}
+            {grant.business_stage && (
+              <div>
+                <p className="text-xs font-semibold text-navy">Business Stage</p>
+                <p className="text-xs text-gray-600">{grant.business_stage}</p>
+              </div>
+            )}
+            {grant.matching_requirement && (
+              <div className="col-span-2">
+                <p className="text-xs font-semibold text-navy">Matching Requirement</p>
+                <p className="text-xs text-gray-600">{grant.matching_requirement}</p>
+              </div>
+            )}
+          </div>
+
+          {/* Eligibility flags */}
+          <div className="flex flex-wrap gap-1.5">
+            <YesNoBadge value={grant.rural_eligible}            label="Rural Eligible" />
+            <YesNoBadge value={grant.opportunity_zone_eligible} label="Opportunity Zone" />
+            <YesNoBadge value={grant.forgivable_loan_eligible}  label="Forgivable" />
+            <YesNoBadge value={grant.stackable}                 label="Stackable" />
+          </div>
+
+          {/* Full state list */}
           {!nationwide && states.length > 0 && (
             <div>
               <p className="text-xs font-semibold text-navy mb-1">Eligible States</p>
@@ -178,7 +277,7 @@ export default function GrantCard({ grant, saved, onToggleBookmark, onToggleAler
             </div>
           )}
 
-          {/* Apply button — opens official application page in a new tab */}
+          {/* Apply button */}
           {grant.application_url && (
             <a
               href={grant.application_url}
@@ -190,7 +289,7 @@ export default function GrantCard({ grant, saved, onToggleBookmark, onToggleAler
             </a>
           )}
 
-          {/* Source URL (shown below the button if different from the apply URL) */}
+          {/* Source URL */}
           {grant.source_url && grant.source_url !== grant.application_url && (
             <p className="text-xs text-gray-400 break-all">
               Source:{' '}
@@ -200,14 +299,11 @@ export default function GrantCard({ grant, saved, onToggleBookmark, onToggleAler
             </p>
           )}
 
-          {/* Last reviewed / synced timestamp + source badges */}
+          {/* Footer: last reviewed + badges */}
           <div className="flex flex-wrap items-center gap-2 pt-1">
             {reviewedDate ? (
               <p className="text-xs text-gray-400">
-                {grant.grant_source === 'grants_gov'
-                  ? `Last synced from Grants.gov: ${reviewedDate}`
-                  : `Last reviewed by The Craft Beer Brief team: ${reviewedDate}`
-                }
+                Last reviewed by The Craft Beer Brief team: {reviewedDate}
               </p>
             ) : (
               <p className="text-xs text-gray-400">
@@ -216,12 +312,6 @@ export default function GrantCard({ grant, saved, onToggleBookmark, onToggleAler
                   month: 'short', day: 'numeric', year: 'numeric',
                 })}
               </p>
-            )}
-
-            {grant.grant_source === 'grants_gov' && (
-              <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium">
-                Auto-synced from Grants.gov
-              </span>
             )}
             {grant.is_manually_curated && (
               <span className="text-xs px-2 py-0.5 rounded-full bg-amber/10 text-amber font-medium">
@@ -234,6 +324,7 @@ export default function GrantCard({ grant, saved, onToggleBookmark, onToggleAler
               </span>
             )}
           </div>
+
         </div>
       )}
     </div>
