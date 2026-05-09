@@ -66,11 +66,11 @@ const CATEGORIES = [
     items: [
       {
         q: 'Where does the grant data come from?',
-        a: 'Federal grants are automatically pulled from Simpler.Grants.gov — the official U.S. federal grants database — and updated daily. State and local grants are researched and added by The Craft Beer Brief team on a regular schedule. Community members can also submit grants they find using the Submit a Grant button, which are reviewed and added after verification.',
+        a: 'All grants and funding programs in our database are manually researched and curated by The Craft Beer Brief team specifically for craft breweries. Our database includes federal programs (SBA, USDA, EDA), state economic development programs across all 50 states, and municipal programs in key cities. The database is reviewed and updated quarterly. Users can also submit programs they find using the Submit a Grant button — submissions are reviewed and added after verification.',
       },
       {
         q: 'How often is the grant database updated?',
-        a: 'Federal grants are synced automatically every 24 hours from Grants.gov. State and local grants are reviewed and updated on a weekly basis by The Craft Beer Brief team. You can see when each grant listing was last updated in the expanded card details.',
+        a: 'The grant database is reviewed and updated quarterly by The Craft Beer Brief team. Each program listing shows when it was last verified. When you submit a grant we review it within 48 hours. We recommend always verifying program details directly with the funding agency before applying as program availability and deadlines change frequently.',
       },
       {
         q: 'How do I find grants specific to my state?',

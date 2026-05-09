@@ -22,7 +22,7 @@ const STEPS = [
     target: 'a[href="/grants"]',
     placement: 'right',
     title: 'Grant & Funding Finder',
-    body: "Search 100+ federal and state funding programs updated daily. Bookmark grants and set deadline alerts so you never miss an application window.",
+    body: "Search 90+ verified funding programs curated specifically for craft breweries. Bookmark grants and set deadline alerts so you never miss an application window.",
   },
   {
     target: 'a[href="/ttb"]',

@@ -92,7 +92,7 @@ function buildEmailHtml(breweryName: string, trialEndsFormatted: string): string
                         <td style="padding:5px 0;vertical-align:top;">
                           <span style="color:#C8871A;font-weight:bold;font-size:16px;margin-right:10px;line-height:1.4;">&#10003;</span>
                           <span style="color:#1A2744;font-weight:bold;font-size:14px;">Grant &amp; Funding Finder</span>
-                          <span style="color:#666666;font-size:14px;"> &#8212; Search 100+ federal and state funding programs updated daily</span>
+                          <span style="color:#666666;font-size:14px;"> &#8212; Search 90+ verified federal, state, and local funding programs curated specifically for craft breweries</span>
                         </td>
                       </tr>
                       <tr>
