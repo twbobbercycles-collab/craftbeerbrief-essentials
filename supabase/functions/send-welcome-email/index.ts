@@ -269,6 +269,7 @@ Deno.serve(async (req) => {
         },
         body: JSON.stringify({
           from: 'The Craft Beer Brief Essentials <hello@thecraftbeerbrief.com>',
+          reply_to: 'craftbeerbrief@gmail.com',
           to: [email],
           subject,
           html: htmlBody,
