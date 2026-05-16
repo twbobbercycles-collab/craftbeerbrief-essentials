@@ -14,7 +14,6 @@ import LoadingSpinner from '../../components/LoadingSpinner'
 import DraftNoticeBar from '../../components/DraftNoticeBar'
 import { useModalDraft } from '../../hooks/useModalDraft'
 import { useReadOnly } from '../../hooks/useReadOnly'
-import IngredientLibraryModal from './IngredientLibraryModal'
 import {
   convertToBarrels, calculateTotalIngredientCost,
   calculateTotalProductionCost, calculateCostPerBarrel, calculateCostPerPint,
@@ -139,9 +138,6 @@ export default function RecipesPage() {
   const [saveError, setSaveError] = useState('')
   const draft = useModalDraft('modal_draft_recipe')
 
-  // Ingredient Library modal
-  const [libOpen, setLibOpen] = useState(false)
-
   // ── Load recipes ────────────────────────────────────────────────────────────
 
   const loadRecipes = useCallback(async () => {
@@ -180,8 +176,6 @@ export default function RecipesPage() {
         amount: parseFloat(l.amount) || 0,
         scale_with_batch: l.scale_with_batch,
         price_per_unit: parseFloat(l.supplier?.price_per_unit ?? l.ingredient?.current_price_per_unit ?? 0),
-        order_shipping_cost: 0,
-        order_total_quantity: 0,
       }))
       const barrels   = convertToBarrels(r.base_batch_size, r.base_batch_size_unit)
       const totalIng  = calculateTotalIngredientCost(mapped, r.base_batch_size, r.base_batch_size)
@@ -290,13 +284,16 @@ export default function RecipesPage() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h2 className="text-xl font-bold text-navy">🧪 Recipe Builder</h2>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setLibOpen(true)}
-            className="text-sm text-navy border border-navy px-3 py-2 rounded-lg hover:bg-navy/5 transition-colors"
-          >
-            Manage Ingredients
-          </button>
+        <div className="flex items-center gap-3">
+          <p className="text-xs text-gray-400 hidden sm:block">
+            <button
+              onClick={() => navigate('/inventory')}
+              className="text-amber hover:underline font-medium"
+            >
+              Manage ingredients & pricing
+            </button>
+            {' '}in the Inventory module
+          </p>
           <ReadOnlyTooltip isReadOnly={isReadOnly}>
             <button
               onClick={openAddModal}
@@ -558,11 +555,6 @@ export default function RecipesPage() {
         </form>
       </ModalShell>
 
-      {/* Ingredient Library Modal */}
-      <IngredientLibraryModal
-        isOpen={libOpen}
-        onClose={() => setLibOpen(false)}
-      />
     </>
   )
 }

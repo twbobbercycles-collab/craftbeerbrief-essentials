@@ -34,17 +34,6 @@ export function convertToBarrels(amount, unit) {
 
 // ── Ingredient costing ────────────────────────────────────────────────────────
 
-/**
- * Returns the effective cost per unit including a shipping allocation.
- * If no order quantity is recorded the base price is returned as-is.
- */
-export function calculateEffectiveCostPerUnit(basePricePerUnit, orderShippingCost, orderTotalQuantity) {
-  const qty = parseFloat(orderTotalQuantity) || 0
-  if (qty === 0) return parseFloat(basePricePerUnit) || 0
-  const shippingPerUnit = (parseFloat(orderShippingCost) || 0) / qty
-  return (parseFloat(basePricePerUnit) || 0) + shippingPerUnit
-}
-
 export function calculateScaledAmount(baseAmount, baseBatchSize, currentBatchSize, scaleWithBatch) {
   const base    = parseFloat(baseAmount)    || 0
   const baseBatch = parseFloat(baseBatchSize) || 0
@@ -55,24 +44,20 @@ export function calculateScaledAmount(baseAmount, baseBatchSize, currentBatchSiz
 }
 
 export function calculateIngredientLineCost(
-  baseAmount, baseBatchSize, currentBatchSize, scaleWithBatch,
-  basePricePerUnit, orderShippingCost, orderTotalQuantity,
+  baseAmount, baseBatchSize, currentBatchSize, scaleWithBatch, pricePerUnit,
 ) {
-  const scaled  = calculateScaledAmount(baseAmount, baseBatchSize, currentBatchSize, scaleWithBatch)
-  const effective = calculateEffectiveCostPerUnit(basePricePerUnit, orderShippingCost, orderTotalQuantity)
-  return scaled * effective
+  const scaled = calculateScaledAmount(baseAmount, baseBatchSize, currentBatchSize, scaleWithBatch)
+  return scaled * (parseFloat(pricePerUnit) || 0)
 }
 
 /**
- * Each element of `ingredients` must have:
- *   amount, scale_with_batch, price_per_unit, order_shipping_cost, order_total_quantity
+ * Each element of `ingredients` must have: amount, scale_with_batch, price_per_unit
  */
 export function calculateTotalIngredientCost(ingredients, currentBatchSize, baseBatchSize) {
   return (ingredients ?? []).reduce((total, ing) => {
     return total + calculateIngredientLineCost(
       ing.amount, baseBatchSize, currentBatchSize,
       ing.scale_with_batch, ing.price_per_unit,
-      ing.order_shipping_cost, ing.order_total_quantity,
     )
   }, 0)
 }

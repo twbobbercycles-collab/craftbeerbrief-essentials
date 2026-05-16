@@ -18,7 +18,7 @@ import { useReadOnly } from '../../hooks/useReadOnly'
 import { useModalDraft } from '../../hooks/useModalDraft'
 import {
   convertToBarrels,
-  calculateScaledAmount, calculateEffectiveCostPerUnit, calculateTotalIngredientCost,
+  calculateScaledAmount, calculateTotalIngredientCost,
   calculatePackagingCostPerBatch, calculateUnitsProduced, pintsPerContainer,
   calculateLaborCost, calculateUtilitiesCost, calculateTotalProductionCost,
   calculateCostPerBarrel, calculateCostPerPint,
@@ -95,6 +95,10 @@ export default function RecipeDetailPage() {
   // Mobile cost panel bottom sheet
   const [costPanelOpen, setCostPanelOpen] = useState(false)
 
+  // Inventory / brew-check panel
+  const [brewCheckOpen, setBrewCheckOpen] = useState(false)
+  const [brewCheckResults, setBrewCheckResults] = useState([])
+
   // Autocomplete state — tracks which line's name input is active
   const [acLineId, setAcLineId]   = useState(null)
   const [acQuery, setAcQuery]     = useState('')
@@ -165,22 +169,15 @@ export default function RecipeDetailPage() {
 
     // Per-line costs for ingredient breakdown display
     const lineCosts = lines.map(l => {
-      const basePrice = parseFloat(l.supplier?.price_per_unit ?? l.ingredient?.current_price_per_unit ?? l._priceOverride ?? 0)
-      const effectiveCost = calculateEffectiveCostPerUnit(
-        basePrice,
-        parseFloat(l.order_shipping_cost) || 0,
-        parseFloat(l.order_total_quantity) || 0,
-      )
+      const pricePerUnit = parseFloat(l.supplier?.price_per_unit ?? l.ingredient?.current_price_per_unit ?? l._priceOverride ?? 0)
       const scaled = calculateScaledAmount(parseFloat(l.amount) || 0, baseBatch, curBatch, l.scale_with_batch)
-      return { id: l.id, name: l.ingredient_name, scaled, effectiveCost, totalCost: scaled * effectiveCost }
+      return { id: l.id, name: l.ingredient_name, scaled, effectiveCost: pricePerUnit, totalCost: scaled * pricePerUnit }
     })
 
     const mappedLines = lines.map(l => ({
-      amount:              parseFloat(l.amount) || 0,
-      scale_with_batch:    l.scale_with_batch,
-      price_per_unit:      parseFloat(l.supplier?.price_per_unit ?? l.ingredient?.current_price_per_unit ?? l._priceOverride ?? 0),
-      order_shipping_cost: parseFloat(l.order_shipping_cost) || 0,
-      order_total_quantity:parseFloat(l.order_total_quantity) || 0,
+      amount:           parseFloat(l.amount) || 0,
+      scale_with_batch: l.scale_with_batch,
+      price_per_unit:   parseFloat(l.supplier?.price_per_unit ?? l.ingredient?.current_price_per_unit ?? l._priceOverride ?? 0),
     }))
 
     const ingredientCost = calculateTotalIngredientCost(mappedLines, curBatch, baseBatch)
@@ -332,6 +329,30 @@ export default function RecipeDetailPage() {
     setRecipe(prev => ({ ...prev, is_archived: next }))
   }
 
+  // ── Inventory / brew check ────────────────────────────────────────────────────
+
+  function runBrewCheck() {
+    const baseBatch = parseFloat(recipe?.base_batch_size) || 0
+    const curBatch  = parseFloat(batchSize) || baseBatch
+    const results = lines.map(line => {
+      const scaled  = calculateScaledAmount(parseFloat(line.amount) || 0, baseBatch, curBatch, line.scale_with_batch)
+      const libIng  = library.find(i => i.id === line.ingredient_id)
+      if (!libIng) {
+        return { id: line.id, name: line.ingredient_name, scaled, unit: line.unit, status: 'no_inventory' }
+      }
+      const stock   = parseFloat(libIng.current_stock_quantity) || 0
+      const reorder = parseFloat(libIng.reorder_threshold) || 0
+      if (stock < scaled) {
+        return { id: line.id, name: line.ingredient_name, scaled, unit: line.unit, status: 'insufficient', stock, needed: scaled - stock }
+      }
+      const remaining = stock - scaled
+      const status = reorder > 0 && remaining <= reorder ? 'low' : 'ok'
+      return { id: line.id, name: line.ingredient_name, scaled, unit: line.unit, status, stock, remaining }
+    })
+    setBrewCheckResults(results)
+    setBrewCheckOpen(true)
+  }
+
   // ── Duplicate recipe ──────────────────────────────────────────────────────────
 
   async function handleDuplicate() {
@@ -385,8 +406,6 @@ export default function RecipeDetailPage() {
           notes: l.notes,
           sort_order: l.sort_order,
           supplier_id: l.supplier_id,
-          order_shipping_cost:  l.order_shipping_cost,
-          order_total_quantity: l.order_total_quantity,
         }))
       )
     }
@@ -524,15 +543,9 @@ export default function RecipeDetailPage() {
     const match = library.find(i => i.name.toLowerCase() === newLineForm.ingredient_name.toLowerCase())
     const preferred = match?.ingredient_suppliers?.find(s => s.is_preferred)
 
-    const enteredPrice = parseFloat(newLineForm.price_per_unit) || 0
-    const enteredShipping = parseFloat(newLineForm.order_shipping_cost) || 0
-    const enteredQty = parseFloat(newLineForm.order_total_quantity) || 0
     const enteredAddType = newLineForm.addition_type || addingTo
-
-    // If a price was entered and the ingredient matches a library record, update it
-    if (enteredPrice > 0 && match) {
-      supabase.from('ingredients').update({ current_price_per_unit: enteredPrice }).eq('id', match.id)
-    }
+    // For Other mode (no library match), use the entered price as an override for immediate display
+    const enteredPrice = parseFloat(newLineForm.price_per_unit) || 0
 
     const { data, error: e2 } = await supabase.from('recipe_ingredients').insert({
       recipe_id: id,
@@ -547,16 +560,13 @@ export default function RecipeDetailPage() {
       notes: newLineForm.notes || null,
       sort_order: maxSort + 1,
       supplier_id: preferred?.id ?? null,
-      order_shipping_cost:  enteredShipping,
-      order_total_quantity: enteredQty,
     }).select('*, ingredient:ingredients(id,name,category,unit,current_price_per_unit,ingredient_suppliers(*)), supplier:ingredient_suppliers(id,supplier_name,price_per_unit,is_preferred)').single()
 
     setNewLineSaving(false)
     if (e2) { setNewLineError(e2.message); return }
 
-    // Attach _priceOverride so the cost panel shows the entered price immediately
-    // (before the library update propagates via a re-fetch)
-    const lineWithPrice = enteredPrice > 0 ? { ...data, _priceOverride: enteredPrice } : data
+    // Attach _priceOverride for Other-mode ingredients so cost panel shows the entered price before next reload
+    const lineWithPrice = !match && enteredPrice > 0 ? { ...data, _priceOverride: enteredPrice } : data
     setLines(prev => [...prev, lineWithPrice])
     setAddingTo(null)
   }
@@ -654,6 +664,10 @@ export default function RecipeDetailPage() {
 
           {/* Action buttons */}
           <div className="flex flex-wrap gap-2 shrink-0">
+            <button onClick={runBrewCheck}
+              className="text-xs border border-amber text-amber px-3 py-1.5 rounded-lg hover:bg-amber/5 transition-colors font-medium">
+              Check Inventory
+            </button>
             <button onClick={handleExportCSV}
               className="text-xs border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors">
               Export CSV
@@ -722,6 +736,81 @@ export default function RecipeDetailPage() {
               </div>
             </div>
           </div>
+
+          {/* Brew check results panel */}
+          {brewCheckOpen && (
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-bold text-navy text-sm">Inventory Check</h3>
+                <button onClick={() => setBrewCheckOpen(false)} className="text-gray-400 hover:text-gray-600 text-lg leading-none">✕</button>
+              </div>
+
+              {/* Top-level summary */}
+              {brewCheckResults.every(r => r.status === 'ok' || r.status === 'no_inventory') && (
+                <p className="text-sm font-semibold text-success mb-3">✓ You can brew this recipe</p>
+              )}
+              {brewCheckResults.some(r => r.status === 'insufficient') && (
+                <p className="text-sm font-semibold text-danger mb-3">Missing ingredients — check inventory before brewing</p>
+              )}
+              {!brewCheckResults.some(r => r.status === 'insufficient') && brewCheckResults.some(r => r.status === 'low') && (
+                <p className="text-sm font-semibold text-amber mb-3">⚠ Some ingredients are running low after this brew</p>
+              )}
+
+              {/* Per-ingredient rows */}
+              <div className="space-y-2">
+                {brewCheckResults.map(r => (
+                  <div key={r.id} className="flex items-start gap-2 text-sm">
+                    <span className={
+                      r.status === 'ok'           ? 'text-success shrink-0 mt-0.5' :
+                      r.status === 'low'          ? 'text-amber shrink-0 mt-0.5' :
+                      r.status === 'insufficient' ? 'text-danger shrink-0 mt-0.5' :
+                                                    'text-gray-300 shrink-0 mt-0.5'
+                    }>
+                      {r.status === 'ok' ? '✓' : r.status === 'low' ? '⚠' : r.status === 'insufficient' ? '✕' : '—'}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="font-medium text-navy leading-tight">{r.name}</p>
+                      {r.status === 'ok' && (
+                        <p className="text-xs text-gray-400">
+                          Need {r.scaled.toFixed(3)} {r.unit} · {r.remaining.toFixed(2)} {r.unit} remaining after brew
+                        </p>
+                      )}
+                      {r.status === 'low' && (
+                        <p className="text-xs text-amber">
+                          {r.remaining.toFixed(2)} {r.unit} remaining — at or below reorder threshold
+                        </p>
+                      )}
+                      {r.status === 'insufficient' && (
+                        <p className="text-xs text-danger">
+                          Need {r.scaled.toFixed(3)} {r.unit}, have {r.stock.toFixed(2)} {r.unit} (short {r.needed.toFixed(2)} {r.unit}).{' '}
+                          <button
+                            onClick={() => navigate('/inventory')}
+                            className="underline font-medium"
+                          >
+                            Order in Inventory →
+                          </button>
+                        </p>
+                      )}
+                      {r.status === 'no_inventory' && (
+                        <p className="text-xs text-gray-400">Not tracked in inventory</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {brewCheckResults.some(r => r.status === 'insufficient') && (
+                <div className="mt-3 pt-3 border-t border-gray-100">
+                  <button
+                    onClick={() => navigate('/inventory')}
+                    className="text-xs bg-amber text-white font-semibold px-3 py-1.5 rounded-lg hover:bg-amber-dark transition-colors"
+                  >
+                    Go to Inventory to create a Purchase Order →
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Ingredient sections — one per addition type */}
           {ADDITION_TYPES.map(addType => {
@@ -918,27 +1007,28 @@ function IngredientRow({
   isAcOpen, acResults, onIngNameInput, onAcSelect, onAcClose,
   onUpdateLine, onSaveLineField, onRemoveLine, onMoveLine,
 }) {
-  const [shippingOpen, setShippingOpen] = useState(false)
-
-  const basePrice      = parseFloat(line.supplier?.price_per_unit ?? line.ingredient?.current_price_per_unit ?? 0)
-  const orderQty       = parseFloat(line.order_total_quantity) || 0
-  const orderShipping  = parseFloat(line.order_shipping_cost) || 0
-  const shippingPerUnit = orderQty > 0 ? orderShipping / orderQty : 0
-  const effectiveCost  = basePrice + shippingPerUnit
+  const pricePerUnit   = parseFloat(line.supplier?.price_per_unit ?? line.ingredient?.current_price_per_unit ?? line._priceOverride ?? 0)
   const scaledAmount   = calculateScaledAmount(line.amount, baseBatchSize, batchSize, line.scale_with_batch)
-  const pricePerUnit   = effectiveCost
-  const lineCost       = scaledAmount * effectiveCost
+  const lineCost       = scaledAmount * pricePerUnit
 
-  // Suppliers for this ingredient from the library
-  const libIng    = library.find(i => i.id === line.ingredient_id)
-  const suppliers = libIng?.ingredient_suppliers?.filter(s => s.is_active) ?? []
+  // Inventory data for this ingredient
+  const libIng = library.find(i => i.id === line.ingredient_id)
+
+  // Inventory status indicator
+  const stockQty    = libIng ? parseFloat(libIng.current_stock_quantity) || 0 : null
+  const reorderAt   = libIng ? parseFloat(libIng.reorder_threshold) || 0 : null
+  const stockUnit   = libIng?.unit ?? ''
+  const stockStatus = stockQty === null ? null
+    : stockQty === 0                     ? 'out'
+    : reorderAt > 0 && stockQty < reorderAt ? 'low'
+    : 'ok'
 
   return (
     <div className="border-t border-gray-100 px-5 py-3 space-y-2">
       {/* Row 1: name + amount + unit */}
       <div className="grid grid-cols-1 sm:grid-cols-[1fr_100px_90px_80px] gap-2 items-start">
 
-        {/* Ingredient name with autocomplete */}
+        {/* Ingredient name with autocomplete + inventory status */}
         <div className="relative">
           <input
             type="text"
@@ -967,6 +1057,15 @@ function IngredientRow({
                 </button>
               ))}
             </div>
+          )}
+          {stockStatus === 'out' && (
+            <p className="text-[11px] text-danger mt-0.5">Out of stock</p>
+          )}
+          {stockStatus === 'low' && (
+            <p className="text-[11px] text-amber mt-0.5">Low stock — {stockQty.toFixed(2)} {stockUnit} remaining</p>
+          )}
+          {stockStatus === 'ok' && (
+            <p className="text-[11px] text-gray-400 mt-0.5">{stockQty.toFixed(2)} {stockUnit} in stock</p>
           )}
         </div>
 
@@ -1013,32 +1112,8 @@ function IngredientRow({
         </div>
       </div>
 
-      {/* Row 2: supplier, addition time, scale toggle, reorder, remove */}
+      {/* Row 2: addition time, scale toggle, reorder, remove */}
       <div className="flex flex-wrap gap-2 items-center">
-
-        {/* Supplier select */}
-        {suppliers.length > 0 && (
-          <select
-            value={line.supplier_id ?? ''}
-            onChange={e => {
-              const sid = e.target.value || null
-              const sup = suppliers.find(s => s.id === sid)
-              onUpdateLine(line.id, 'supplier_id', sid)
-              onUpdateLine(line.id, 'supplier', sup ?? null)
-              onSaveLineField(line.id, 'supplier_id', sid)
-            }}
-            disabled={isReadOnly}
-            className="text-xs border border-gray-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-amber disabled:opacity-60"
-          >
-            <option value="">No supplier</option>
-            {suppliers.map(s => (
-              <option key={s.id} value={s.id}>
-                {s.supplier_name} — ${Number(s.price_per_unit ?? 0).toFixed(4)}/{line.unit}
-                {s.is_preferred ? ' ★' : ''}
-              </option>
-            ))}
-          </select>
-        )}
 
         {/* Addition time */}
         <input
@@ -1092,60 +1167,7 @@ function IngredientRow({
           >✕</button>
         </ReadOnlyTooltip>
 
-        {/* Procurement costs toggle */}
-        <button
-          type="button"
-          onClick={() => setShippingOpen(v => !v)}
-          className="text-[11px] text-gray-400 hover:text-amber ml-auto"
-          title="Record shipping and freight costs for this order"
-        >
-          {shippingOpen ? '▲ Procurement Costs' : '▼ Procurement Costs'}
-          {shippingPerUnit > 0 && !shippingOpen && (
-            <span className="ml-1 text-amber">+${shippingPerUnit.toFixed(4)}/unit freight</span>
-          )}
-        </button>
       </div>
-
-      {/* Row 3: Procurement Costs (collapsible) */}
-      {shippingOpen && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-amber/5 rounded-lg px-4 py-3 text-xs">
-          <div>
-            <label className="text-gray-500 mb-1 block">Shipping and freight for this order ($)</label>
-            <input
-              type="number" step="0.01" min="0"
-              value={line.order_shipping_cost ?? 0}
-              onChange={e => onUpdateLine(line.id, 'order_shipping_cost', e.target.value)}
-              onBlur={e => onSaveLineField(line.id, 'order_shipping_cost', parseFloat(e.target.value) || 0)}
-              disabled={isReadOnly}
-              className="w-full border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-amber disabled:opacity-60"
-            />
-          </div>
-          <div>
-            <label className="text-gray-500 mb-1 block">Total quantity received in this order ({line.unit})</label>
-            <input
-              type="number" step="any" min="0"
-              value={line.order_total_quantity ?? 0}
-              onChange={e => onUpdateLine(line.id, 'order_total_quantity', e.target.value)}
-              onBlur={e => onSaveLineField(line.id, 'order_total_quantity', parseFloat(e.target.value) || 0)}
-              disabled={isReadOnly}
-              className="w-full border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-amber disabled:opacity-60"
-            />
-          </div>
-          <div className="space-y-2">
-            <div>
-              <p className="text-gray-500">Freight per {line.unit}</p>
-              <p className="font-semibold text-navy">${shippingPerUnit.toFixed(4)}</p>
-            </div>
-            <div>
-              <div className="flex items-center gap-1">
-                <p className="text-gray-500">Landed cost per {line.unit}</p>
-                <span className="text-gray-400 cursor-help" title="Landed cost includes your purchase price plus an allocation of shipping and freight costs based on the total quantity received in that order. This gives you the true cost of each unit delivered to your brewery.">ⓘ</span>
-              </div>
-              <p className="font-semibold text-navy">${effectiveCost.toFixed(4)}</p>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
@@ -1641,8 +1663,7 @@ function AddIngredientModal({ isOpen, addType, library, form, error, saving, onC
     useModalDraft('modal_draft_recipe_add_ingredient')
 
   // 'inventory' = using dropdown, 'other' = typing a free name
-  const [mode,     setMode]     = useState('inventory')
-  const [procOpen, setProcOpen] = useState(false)
+  const [mode, setMode] = useState('inventory')
 
   // Restore / save draft
   useEffect(() => {
@@ -1691,19 +1712,15 @@ function AddIngredientModal({ isOpen, addType, library, form, error, saving, onC
     setMode('inventory')
     onChange('ingredient_name', ing.name)
     onChange('unit', ing.unit ?? 'lb')
-    const preferred = ing.ingredient_suppliers?.find(s => s.is_preferred)
-    const price = preferred?.price_per_unit ?? ing.current_price_per_unit ?? ''
-    onChange('price_per_unit', price ? String(price) : '')
+    // Don't store price in form for inventory items — it comes from inventory
+    onChange('price_per_unit', '')
   }
 
-  // Find the selected ingredient to show stock level note
+  // Find the selected ingredient to show stock level and cost
   const selectedIng = library.find(i => i.name === form.ingredient_name)
-
-  const enteredPrice    = parseFloat(form.price_per_unit)     || 0
-  const enteredShipping = parseFloat(form.order_shipping_cost) || 0
-  const enteredQty      = parseFloat(form.order_total_quantity) || 0
-  const freightPerUnit  = enteredQty > 0 ? enteredShipping / enteredQty : 0
-  const landedCost      = enteredPrice + freightPerUnit
+  const inventoryPrice = selectedIng
+    ? parseFloat(selectedIng.ingredient_suppliers?.find(s => s.is_preferred)?.price_per_unit ?? selectedIng.current_price_per_unit ?? 0)
+    : null
 
   const showAdditionTime = TIMED_ADDITION_TYPES.includes(form.addition_type)
 
@@ -1832,64 +1849,32 @@ function AddIngredientModal({ isOpen, addType, library, form, error, saving, onC
           </label>
         </div>
 
-        {/* Purchase price */}
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-600">Purchase price per {form.unit} ($)</label>
-          <input
-            type="number" step="any" min="0"
-            value={form.price_per_unit}
-            onChange={e => onChange('price_per_unit', e.target.value)}
-            placeholder="Leave blank to use inventory price"
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber"
-          />
-          {selectedIng && parseFloat(form.price_per_unit) > 0 && (
-            <p className="text-[11px] text-gray-400">Based on last received price</p>
-          )}
-        </div>
-
-        {/* Procurement costs (collapsible) */}
-        <div>
-          <button type="button" onClick={() => setProcOpen(v => !v)}
-            className="text-xs text-gray-400 hover:text-amber">
-            {procOpen ? '▲ Procurement Costs' : '▼ Procurement Costs'}
-          </button>
-
-          {procOpen && (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-gray-50 rounded-lg px-3 py-3 mt-2 text-xs border border-gray-200">
-              <div>
-                <label className="text-gray-500 mb-1 block">Shipping & freight ($)</label>
-                <input type="number" step="0.01" min="0"
-                  value={form.order_shipping_cost}
-                  onChange={e => onChange('order_shipping_cost', e.target.value)}
-                  placeholder="0.00"
-                  className="w-full border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-amber"
-                />
-              </div>
-              <div>
-                <label className="text-gray-500 mb-1 block">Qty received ({form.unit})</label>
-                <input type="number" step="any" min="0"
-                  value={form.order_total_quantity}
-                  onChange={e => onChange('order_total_quantity', e.target.value)}
-                  placeholder="0"
-                  className="w-full border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-amber"
-                />
-              </div>
-              <div className="space-y-2">
-                <div>
-                  <p className="text-gray-500">Freight per {form.unit}</p>
-                  <p className="font-semibold text-navy">${freightPerUnit.toFixed(4)}</p>
-                </div>
-                <div>
-                  <div className="flex items-center gap-1">
-                    <p className="text-gray-500">Landed cost</p>
-                    <span className="text-gray-400 cursor-help" title="Purchase price plus prorated freight cost per unit.">ⓘ</span>
-                  </div>
-                  <p className="font-semibold text-navy">${landedCost.toFixed(4)}</p>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
+        {/* Cost display — read-only from inventory, or editable for Other items */}
+        {mode === 'inventory' && selectedIng ? (
+          <div className="bg-gray-50 rounded-lg px-3 py-2 text-xs text-gray-600">
+            Cost from inventory:{' '}
+            <span className="font-semibold text-navy">
+              {inventoryPrice != null && inventoryPrice > 0
+                ? `$${inventoryPrice.toFixed(4)} per ${form.unit}`
+                : 'No price on file — update in Inventory module'}
+            </span>
+          </div>
+        ) : mode === 'other' ? (
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-600">Enter cost per unit — not in inventory ($)</label>
+            <input
+              type="number" step="any" min="0"
+              value={form.price_per_unit}
+              onChange={e => onChange('price_per_unit', e.target.value)}
+              placeholder="e.g. 2.50"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber"
+            />
+            <p className="text-[11px] text-gray-400">
+              To track costs automatically, add this ingredient in the{' '}
+              <span className="text-amber font-medium">Inventory module</span> first.
+            </p>
+          </div>
+        ) : null}
 
         {/* Notes */}
         <div className="space-y-1">
@@ -1927,7 +1912,5 @@ function emptyNewLine(additionType) {
     scale_with_batch: true, addition_time: '', notes: '',
     addition_type: additionType,
     price_per_unit: '',
-    order_shipping_cost: '',
-    order_total_quantity: '',
   }
 }
