@@ -16,12 +16,14 @@ import OnboardingTour from '../../components/OnboardingTour'
 const TOUR_KEY = 'onboarding_tour_completed'
 
 export default function DashboardPage() {
-  const { profile, brewery } = useAuth()
+  const { profile, brewery, hasAccess } = useAuth()
   const [loading, setLoading] = useState(true)
   const [upcomingDeadlines, setUpcomingDeadlines] = useState([])
   const [openGrantsCount, setOpenGrantsCount] = useState(0)
   const [ttbStatus, setTtbStatus] = useState(null)  // 'open' | 'due_soon' | 'overdue' | 'filed' | null
   const [showTour, setShowTour] = useState(false)
+  const [recipeStats, setRecipeStats] = useState({ count: 0, recentName: null })
+  const [inventoryAlerts, setInventoryAlerts] = useState({ lowStock: 0, outOfStock: 0, expiring: 0 })
 
   useEffect(() => {
     if (!brewery?.id) return
@@ -43,7 +45,26 @@ export default function DashboardPage() {
     const thirtyDaysFromNow = new Date()
     thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30)
 
-    const [deadlinesResult, grantsResult, periodsResult] = await Promise.all([
+    // Only query recipes and inventory if the user has Operations/Full Suite access
+    const recipesPromise = hasAccess('operations')
+      ? supabase
+          .from('recipes')
+          .select('name', { count: 'exact' })
+          .eq('brewery_id', brewery.id)
+          .eq('is_archived', false)
+          .order('updated_at', { ascending: false })
+          .limit(1)
+      : Promise.resolve({ data: [], count: 0 })
+
+    const inventoryPromise = hasAccess('operations')
+      ? supabase
+          .from('ingredients')
+          .select('current_stock_quantity, reorder_threshold, expiration_date, is_active')
+          .eq('brewery_id', brewery.id)
+          .eq('is_active', true)
+      : Promise.resolve({ data: [] })
+
+    const [deadlinesResult, grantsResult, periodsResult, recipesResult, inventoryResult] = await Promise.all([
       supabase
         .from('brewery_deadlines')
         .select('*, compliance_deadlines(*)')
@@ -68,11 +89,30 @@ export default function DashboardPage() {
         .order('period_start', { ascending: false })
         .limit(1)
         .maybeSingle(),
+
+      recipesPromise,
+      inventoryPromise,
     ])
 
     setUpcomingDeadlines(deadlinesResult.data ?? [])
     setOpenGrantsCount(grantsResult.count ?? 0)
     setTtbStatus(computeTtbStatus(brewery, periodsResult.data))
+    setRecipeStats({
+      count: recipesResult.count ?? 0,
+      recentName: recipesResult.data?.[0]?.name ?? null,
+    })
+
+    // Compute inventory alert counts from the raw ingredient rows
+    const ings   = inventoryResult.data ?? []
+    const today  = new Date()
+    setInventoryAlerts({
+      lowStock:   ings.filter(i => i.reorder_threshold != null && (parseFloat(i.current_stock_quantity) || 0) <= parseFloat(i.reorder_threshold) && (parseFloat(i.current_stock_quantity) || 0) > 0).length,
+      outOfStock: ings.filter(i => (parseFloat(i.current_stock_quantity) || 0) === 0).length,
+      expiring:   ings.filter(i => {
+        if (!i.expiration_date) return false
+        return Math.ceil((new Date(i.expiration_date) - today) / 86400000) <= 30
+      }).length,
+    })
     setLoading(false)
   }
 
@@ -147,6 +187,34 @@ export default function DashboardPage() {
       {/* Combined document + certification expiration alert */}
       <ComplianceAlertBanner />
 
+      {/* Inventory alerts — only shown to operations/full_suite subscribers when there are issues */}
+      {hasAccess('operations') && (inventoryAlerts.lowStock > 0 || inventoryAlerts.outOfStock > 0 || inventoryAlerts.expiring > 0) && (
+        <div className={`rounded-xl border px-4 py-3 flex items-center justify-between gap-4 flex-wrap text-sm
+          ${inventoryAlerts.outOfStock > 0 || inventoryAlerts.expiring > 0
+            ? 'bg-red-50 border-danger'
+            : 'bg-amber/10 border-amber'}`}>
+          <div>
+            <p className={`font-semibold ${inventoryAlerts.outOfStock > 0 || inventoryAlerts.expiring > 0 ? 'text-danger' : 'text-amber-dark'}`}>
+              📦 Inventory Alerts
+            </p>
+            <div className="flex flex-wrap gap-3 mt-0.5 text-xs text-gray-600">
+              {inventoryAlerts.outOfStock > 0 && (
+                <span className="text-danger font-medium">{inventoryAlerts.outOfStock} out of stock</span>
+              )}
+              {inventoryAlerts.expiring > 0 && (
+                <span className="text-danger font-medium">{inventoryAlerts.expiring} expiring within 30 days</span>
+              )}
+              {inventoryAlerts.lowStock > 0 && (
+                <span className="text-amber font-medium">{inventoryAlerts.lowStock} at reorder threshold</span>
+              )}
+            </div>
+          </div>
+          <Link to="/inventory" className="text-xs font-semibold text-amber hover:underline shrink-0">
+            View Inventory →
+          </Link>
+        </div>
+      )}
+
       {/* Trial / upgrade banner */}
       <TrialBanner trialDaysLeft={trialDaysLeft} profile={profile} />
 
@@ -189,6 +257,47 @@ export default function DashboardPage() {
           linkLabel="View TTB tracker →"
         />
       </div>
+
+      {/* Operations summary — only shown to operations/full_suite subscribers */}
+      {hasAccess('operations') && (
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">⚗️</span>
+              <h3 className="font-semibold text-navy">Operations</h3>
+              <span className="bg-amber/20 text-amber text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide">
+                {profile?.subscription_tier === 'full_suite' ? 'Full Suite' : 'Operations'}
+              </span>
+            </div>
+            <Link to="/recipes" className="text-amber text-sm hover:underline">
+              View recipes →
+            </Link>
+          </div>
+
+          <div className="flex items-center gap-8">
+            <div>
+              <p className="text-2xl font-bold text-navy">{recipeStats.count}</p>
+              <p className="text-xs text-gray-500 mt-0.5">active recipes</p>
+            </div>
+            {recipeStats.recentName && (
+              <div>
+                <p className="text-sm font-medium text-navy truncate max-w-xs">
+                  {recipeStats.recentName}
+                </p>
+                <p className="text-xs text-gray-500 mt-0.5">most recently updated</p>
+              </div>
+            )}
+            {recipeStats.count === 0 && (
+              <p className="text-sm text-gray-400">
+                No recipes yet —{' '}
+                <Link to="/recipes" className="text-amber hover:underline">
+                  create your first one
+                </Link>
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Upcoming deadlines list */}
       <div className="bg-white rounded-xl border border-gray-200 p-5">

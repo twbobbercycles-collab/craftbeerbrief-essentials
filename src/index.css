@@ -37,3 +37,20 @@ body {
   width: 100%;
   min-height: 100vh;
 }
+
+/* Shared form input style — used by modal forms across the app */
+.field-input {
+  width: 100%;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  padding: 0.375rem 0.625rem;
+  font-size: 0.875rem;
+  background-color: #fff;
+  color: #1A2744;
+  outline: none;
+  transition: box-shadow 0.1s;
+}
+.field-input:focus {
+  box-shadow: 0 0 0 2px #C8871A40;
+  border-color: #C8871A;
+}

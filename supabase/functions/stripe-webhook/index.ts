@@ -92,6 +92,22 @@ Deno.serve(async (req) => {
 })
 
 /**
+ * Maps a Stripe price ID to one of our three subscription tiers.
+ * Reads the four tier price IDs from environment variables so no code change
+ * is needed when prices are updated in Stripe.
+ */
+function getTierFromPriceId(priceId: string): 'essentials' | 'operations' | 'full_suite' {
+  const opMonthly  = Deno.env.get('STRIPE_OPERATIONS_MONTHLY_PRICE_ID')
+  const opYearly   = Deno.env.get('STRIPE_OPERATIONS_YEARLY_PRICE_ID')
+  const fsMonthly  = Deno.env.get('STRIPE_FULL_SUITE_MONTHLY_PRICE_ID')
+  const fsYearly   = Deno.env.get('STRIPE_FULL_SUITE_YEARLY_PRICE_ID')
+
+  if (priceId === opMonthly || priceId === opYearly) return 'operations'
+  if (priceId === fsMonthly || priceId === fsYearly) return 'full_suite'
+  return 'essentials'
+}
+
+/**
  * User completed checkout — activate their subscription.
  */
 async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
@@ -101,10 +117,17 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     return
   }
 
+  // Retrieve the subscription to find out which price (and therefore which tier) was purchased
+  const subscriptionId = session.subscription as string
+  const subscription = await stripe.subscriptions.retrieve(subscriptionId)
+  const priceId = subscription.items.data[0]?.price.id ?? ''
+  const tier = getTierFromPriceId(priceId)
+
   await supabase.from('users').update({
     stripe_customer_id: session.customer as string,
-    stripe_subscription_id: session.subscription as string,
+    stripe_subscription_id: subscriptionId,
     subscription_status: 'active',
+    subscription_tier: tier,
   }).eq('id', userId)
 
   // Add "Essentials App User" tag in Beehiiv — fails silently if API is down
@@ -117,12 +140,16 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 }
 
 /**
- * Subscription was changed (plan switch, payment method update, etc.)
+ * Subscription was changed — handles plan upgrades, downgrades, and payment method updates.
+ * Always re-derives the tier from the current price so upgrades and downgrades are reflected immediately.
  */
 async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
+  const priceId = subscription.items.data[0]?.price.id ?? ''
+  const tier = getTierFromPriceId(priceId)
+
   await supabase
     .from('users')
-    .update({ subscription_status: subscription.status })
+    .update({ subscription_status: subscription.status, subscription_tier: tier })
     .eq('stripe_subscription_id', subscription.id)
 }
 

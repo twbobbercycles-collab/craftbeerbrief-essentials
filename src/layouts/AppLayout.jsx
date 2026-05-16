@@ -10,8 +10,8 @@ import { supabase } from '../services/supabase'
 import ReadOnlyBanner from '../components/ReadOnlyBanner'
 import PastDueBanner from '../components/PastDueBanner'
 
-// Navigation items — each has a path, label, and emoji icon for easy reading
-const NAV_ITEMS = [
+// Main nav items — always shown to all users
+const MAIN_NAV = [
   { path: '/dashboard',  label: 'Dashboard',           icon: '🏠' },
   { path: '/compliance', label: 'Compliance Calendar', icon: '📅' },
   { path: '/documents',  label: 'Documents',           icon: '📁' },
@@ -20,12 +20,22 @@ const NAV_ITEMS = [
   { path: '/permits',    label: 'Local Permits',       icon: '📍' },
   { path: '/ttb',        label: 'TTB Tracker',         icon: '📊' },
   { path: '/grants',     label: 'Grant Finder',        icon: '💰' },
-  { path: '/help',       label: 'Help & FAQ',          icon: '❓' },
-  { path: '/account',    label: 'Account Settings',    icon: '⚙️' },
+]
+
+// Operations tier nav items — only shown to operations/full_suite subscribers
+const OPS_NAV = [
+  { path: '/inventory', label: 'Inventory', icon: '📦' },
+  { path: '/recipes',   label: 'Recipes',   icon: '⚗️' },
+]
+
+// Bottom nav items — always shown
+const BOTTOM_NAV = [
+  { path: '/help',    label: 'Help & FAQ',       icon: '❓' },
+  { path: '/account', label: 'Account Settings', icon: '⚙️' },
 ]
 
 export default function AppLayout() {
-  const { user, brewery, isAdmin, profile, refreshProfile } = useAuth()
+  const { user, brewery, isAdmin, profile, refreshProfile, hasAccess } = useAuth()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const navigate = useNavigate()
 
@@ -41,10 +51,10 @@ export default function AppLayout() {
     navigate('/login')
   }
 
-  // Build the nav items list, adding Admin if this user is the admin
-  const navItems = isAdmin()
-    ? [...NAV_ITEMS, { path: '/admin', label: 'Admin Panel', icon: '🔧' }]
-    : NAV_ITEMS
+  // Build the main nav, adding Admin panel for admins
+  const mainItems = isAdmin()
+    ? [...MAIN_NAV, { path: '/admin', label: 'Admin Panel', icon: '🔧' }]
+    : MAIN_NAV
 
   // Shared styles for nav links — active state gets amber highlight
   function navLinkClass({ isActive }) {
@@ -63,22 +73,75 @@ export default function AppLayout() {
         <h1 className="text-white font-bold text-base leading-tight">
           🍺 The Craft Beer Brief
         </h1>
-        <p className="text-amber text-xs mt-0.5">Essentials</p>
+        {/* Show a tier badge for Operations and Full Suite subscribers; plain text for Essentials */}
+        <p className="text-xs mt-0.5">
+          {profile?.subscription_tier === 'operations' ? (
+            <span className="bg-amber/20 text-amber font-semibold px-1.5 py-0.5 rounded">
+              Operations
+            </span>
+          ) : profile?.subscription_tier === 'full_suite' ? (
+            <span className="bg-amber/20 text-amber font-semibold px-1.5 py-0.5 rounded">
+              Full Suite
+            </span>
+          ) : (
+            <span className="text-amber">Essentials</span>
+          )}
+        </p>
       </div>
 
       {/* Navigation links */}
-      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-        {navItems.map((item) => (
-          <NavLink
-            key={item.path}
-            to={item.path}
-            className={navLinkClass}
-            onClick={() => setSidebarOpen(false)}
-          >
-            <span>{item.icon}</span>
-            <span>{item.label}</span>
-          </NavLink>
-        ))}
+      <nav className="flex-1 px-3 py-4 overflow-y-auto">
+        {/* Main nav */}
+        <div className="space-y-1">
+          {mainItems.map((item) => (
+            <NavLink
+              key={item.path}
+              to={item.path}
+              className={navLinkClass}
+              onClick={() => setSidebarOpen(false)}
+            >
+              <span>{item.icon}</span>
+              <span>{item.label}</span>
+            </NavLink>
+          ))}
+        </div>
+
+        {/* Operations section — only shown to operations/full_suite subscribers */}
+        {hasAccess('operations') && (
+          <div className="mt-5">
+            <p className="px-4 text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1">
+              Operations
+            </p>
+            <div className="space-y-1">
+              {OPS_NAV.map((item) => (
+                <NavLink
+                  key={item.path}
+                  to={item.path}
+                  className={navLinkClass}
+                  onClick={() => setSidebarOpen(false)}
+                >
+                  <span>{item.icon}</span>
+                  <span>{item.label}</span>
+                </NavLink>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Bottom nav — Help & Account */}
+        <div className="mt-5 space-y-1">
+          {BOTTOM_NAV.map((item) => (
+            <NavLink
+              key={item.path}
+              to={item.path}
+              className={navLinkClass}
+              onClick={() => setSidebarOpen(false)}
+            >
+              <span>{item.icon}</span>
+              <span>{item.label}</span>
+            </NavLink>
+          ))}
+        </div>
       </nav>
 
       {/* User info at the bottom of the sidebar */}

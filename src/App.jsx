@@ -19,17 +19,20 @@ import UpgradePage from './pages/auth/UpgradePage'
 import PrivacyPolicyPage from './pages/legal/PrivacyPolicyPage'
 
 // App pages — lazy loaded so the bundle stays small
-const DashboardPage   = lazy(() => import('./pages/dashboard/DashboardPage'))
-const CompliancePage  = lazy(() => import('./pages/compliance/CompliancePage'))
-const DocumentsPage   = lazy(() => import('./pages/documents/DocumentsPage'))
-const StaffPage       = lazy(() => import('./pages/staff/StaffPage'))
-const InsurancePage   = lazy(() => import('./pages/insurance/InsurancePage'))
+const DashboardPage    = lazy(() => import('./pages/dashboard/DashboardPage'))
+const CompliancePage   = lazy(() => import('./pages/compliance/CompliancePage'))
+const DocumentsPage    = lazy(() => import('./pages/documents/DocumentsPage'))
+const StaffPage        = lazy(() => import('./pages/staff/StaffPage'))
+const InsurancePage    = lazy(() => import('./pages/insurance/InsurancePage'))
 const LocalPermitsPage = lazy(() => import('./pages/permits/LocalPermitsPage'))
-const TtbPage         = lazy(() => import('./pages/ttb/TtbPage'))
-const GrantsPage      = lazy(() => import('./pages/grants/GrantsPage'))
-const AccountPage     = lazy(() => import('./pages/account/AccountPage'))
-const HelpPage        = lazy(() => import('./pages/help/HelpPage'))
-const AdminPage       = lazy(() => import('./pages/admin/AdminPage'))
+const TtbPage          = lazy(() => import('./pages/ttb/TtbPage'))
+const GrantsPage       = lazy(() => import('./pages/grants/GrantsPage'))
+const AccountPage      = lazy(() => import('./pages/account/AccountPage'))
+const HelpPage         = lazy(() => import('./pages/help/HelpPage'))
+const AdminPage        = lazy(() => import('./pages/admin/AdminPage'))
+const RecipesPage      = lazy(() => import('./pages/recipes/RecipesPage'))
+const RecipeDetailPage = lazy(() => import('./pages/recipes/RecipeDetailPage'))
+const InventoryPage    = lazy(() => import('./pages/inventory/InventoryPage'))
 
 // Suspense fallback wraps all lazy pages — shows a spinner during code loading
 function PageLoader() {
@@ -74,9 +77,12 @@ export default function App() {
           <Route path="insurance"  element={<InsurancePage />} />
           <Route path="permits"    element={<LocalPermitsPage />} />
           <Route path="ttb"        element={<TtbPage />} />
-          <Route path="grants" element={<GrantsPage />} />
-          <Route path="account" element={<AccountPage />} />
-          <Route path="help"    element={<HelpPage />} />
+          <Route path="grants"   element={<GrantsPage />} />
+          <Route path="account"  element={<AccountPage />} />
+          <Route path="help"     element={<HelpPage />} />
+          <Route path="inventory" element={<InventoryPage />} />
+          <Route path="recipes"  element={<RecipesPage />} />
+          <Route path="recipes/:id" element={<RecipeDetailPage />} />
 
           {/* Admin-only route — only visible to VITE_ADMIN_EMAIL */}
           <Route

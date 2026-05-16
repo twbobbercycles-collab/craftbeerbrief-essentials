@@ -97,6 +97,15 @@ export function AuthProvider({ children }) {
     return user?.email === adminEmail
   }
 
+  // Returns true if the user's subscription tier meets or exceeds the required tier.
+  // Tier hierarchy: full_suite (2) > operations (1) > essentials (0)
+  // Pass 'operations' or 'full_suite' — essentials always returns true.
+  function hasAccess(requiredTier) {
+    const TIER_RANK = { essentials: 0, operations: 1, full_suite: 2 }
+    const userTier = profile?.subscription_tier ?? 'essentials'
+    return (TIER_RANK[userTier] ?? 0) >= (TIER_RANK[requiredTier] ?? 0)
+  }
+
   // Refresh the profile from the database (call this after updating subscription status)
   async function refreshProfile() {
     await loadProfile(user)
@@ -110,6 +119,7 @@ export function AuthProvider({ children }) {
     isTrialActive,
     isSubscribed,
     isAdmin,
+    hasAccess,
     refreshProfile,
   }
 

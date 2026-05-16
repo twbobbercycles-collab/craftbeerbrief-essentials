@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../services/supabase'
+import TierComparisonModal from '../../components/TierComparisonModal'
 
 // ─── Shared option lists (mirror OnboardingPage) ─────────────────────────────
 
@@ -60,6 +61,9 @@ const STAFF_COUNTS = [
   { value: '25_plus', label: '25+ staff members' },
 ]
 
+// Maps subscription_tier values to human-readable plan names
+const TIER_NAMES = { essentials: 'Essentials', operations: 'Operations', full_suite: 'Full Suite' }
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function SectionDivider() {
@@ -74,6 +78,7 @@ export default function AccountPage() {
   // ── Subscription / billing state ──
   const [portalLoading, setPortalLoading] = useState(false)
   const [cancelModalOpen, setCancelModalOpen] = useState(false)
+  const [tierModalOpen, setTierModalOpen] = useState(false)
   // Shows the data-retention confirmation step after the user clicks "Cancel Subscription"
   const [cancelConfirmed, setCancelConfirmed] = useState(false)
 
@@ -214,6 +219,26 @@ export default function AccountPage() {
       {/* ── Subscription ── */}
       <div className="bg-white rounded-xl border border-gray-200 p-5">
         <h3 className="font-semibold text-navy mb-4">Subscription</h3>
+
+        {/* Current plan name — shown prominently */}
+        <div className="mb-4 p-3 bg-amber/5 rounded-lg border border-amber/20 flex items-center justify-between">
+          <div>
+            <p className="text-xs text-gray-500 uppercase tracking-wide font-semibold">Current Plan</p>
+            <p className="text-xl font-bold text-navy mt-0.5">
+              {TIER_NAMES[profile?.subscription_tier] ?? 'Essentials'}
+            </p>
+          </div>
+          {/* Upgrade Plan button — hidden for Full Suite subscribers who are already at the top */}
+          {profile?.subscription_tier !== 'full_suite' && (
+            <button
+              onClick={() => setTierModalOpen(true)}
+              className="text-sm bg-amber hover:bg-amber-dark text-white font-semibold px-4 py-2 rounded-lg transition-colors"
+            >
+              Upgrade Plan
+            </button>
+          )}
+        </div>
+
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <p className="text-sm text-gray-600">
@@ -279,6 +304,9 @@ export default function AccountPage() {
         </form>
         {inviteMessage && <p className="text-sm mt-3 text-gray-700">{inviteMessage}</p>}
       </div>
+
+      {/* ── Tier Comparison Modal ── */}
+      {tierModalOpen && <TierComparisonModal onClose={() => setTierModalOpen(false)} />}
 
       {/* ── Cancel Subscription Modal ── */}
       {cancelModalOpen && (
