@@ -574,7 +574,8 @@ export default function RecipeDetailPage() {
   // ── Remove ingredient line ────────────────────────────────────────────────────
 
   async function handleRemoveLine(lineId) {
-    if (!window.confirm('Remove this ingredient from the recipe?')) return
+    const name = lines.find(l => l.id === lineId)?.ingredient_name || 'this ingredient'
+    if (!window.confirm(`Remove ${name} from this recipe?`)) return
     await supabase.from('recipe_ingredients').delete().eq('id', lineId)
     setLines(prev => prev.filter(l => l.id !== lineId))
   }
@@ -1014,14 +1015,16 @@ function IngredientRow({
   // Inventory data for this ingredient
   const libIng = library.find(i => i.id === line.ingredient_id)
 
-  // Inventory status indicator
-  const stockQty    = libIng ? parseFloat(libIng.current_stock_quantity) || 0 : null
-  const reorderAt   = libIng ? parseFloat(libIng.reorder_threshold) || 0 : null
-  const stockUnit   = libIng?.unit ?? ''
-  const stockStatus = stockQty === null ? null
-    : stockQty === 0                     ? 'out'
-    : reorderAt > 0 && stockQty < reorderAt ? 'low'
-    : 'ok'
+  // Inventory status — compared against the current scaled recipe amount
+  const stockQty  = libIng != null ? parseFloat(libIng.current_stock_quantity) || 0 : null
+  const reorderAt = libIng != null ? parseFloat(libIng.reorder_threshold) || 0 : null
+  const stockUnit = libIng?.unit ?? ''
+  // stockStatus is derived from both stock level AND how much this recipe needs
+  const stockStatus = stockQty === null ? null              // not in inventory → show nothing
+    : stockQty === 0             ? 'insufficient'           // out of stock
+    : scaledAmount > stockQty   ? 'insufficient'           // have some but not enough
+    : reorderAt > 0 && (stockQty - scaledAmount) <= reorderAt ? 'reorder'  // enough, but will hit reorder threshold
+    : 'ok'                                                  // plenty in stock
 
   return (
     <div className="border-t border-gray-100 px-5 py-3 space-y-2">
@@ -1058,14 +1061,25 @@ function IngredientRow({
               ))}
             </div>
           )}
-          {stockStatus === 'out' && (
-            <p className="text-[11px] text-danger mt-0.5">Out of stock</p>
-          )}
-          {stockStatus === 'low' && (
-            <p className="text-[11px] text-amber mt-0.5">Low stock — {stockQty.toFixed(2)} {stockUnit} remaining</p>
-          )}
           {stockStatus === 'ok' && (
-            <p className="text-[11px] text-gray-400 mt-0.5">{stockQty.toFixed(2)} {stockUnit} in stock</p>
+            <p className="text-[11px] text-success mt-0.5">
+              ✓ {stockQty.toFixed(2)} {stockUnit} in stock
+            </p>
+          )}
+          {stockStatus === 'reorder' && (
+            <p className="text-[11px] text-amber mt-0.5">
+              ⚠ {stockQty.toFixed(2)} {stockUnit} in stock — will trigger reorder after brew
+            </p>
+          )}
+          {stockStatus === 'insufficient' && stockQty > 0 && (
+            <p className="text-[11px] text-danger mt-0.5">
+              ✗ Only {stockQty.toFixed(2)} {stockUnit} in stock — need {scaledAmount.toFixed(2)} {stockUnit}
+            </p>
+          )}
+          {stockStatus === 'insufficient' && stockQty === 0 && (
+            <p className="text-[11px] text-danger mt-0.5">
+              ✗ Out of stock — need {scaledAmount.toFixed(2)} {stockUnit}
+            </p>
           )}
         </div>
 
@@ -1162,9 +1176,10 @@ function IngredientRow({
           <button
             onClick={() => onRemoveLine(line.id)}
             disabled={isReadOnly}
-            className="text-gray-300 hover:text-danger text-xs px-1 disabled:opacity-30"
-            title="Remove ingredient"
-          >✕</button>
+            className="text-[11px] text-danger/60 hover:text-danger font-medium px-1 disabled:opacity-30 transition-colors"
+          >
+            🗑 Remove
+          </button>
         </ReadOnlyTooltip>
 
       </div>
