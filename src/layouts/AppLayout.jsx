@@ -3,7 +3,7 @@
  * Renders the sidebar navigation and top bar, then places page content in the main area.
  * On mobile (< 768px) the sidebar collapses to a hamburger menu.
  */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { NavLink, Outlet, useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../services/supabase'
@@ -24,10 +24,12 @@ const MAIN_NAV = [
 
 // Operations tier nav items — only shown to operations/full_suite subscribers
 const OPS_NAV = [
-  { path: '/inventory',     label: 'Inventory',   icon: '📦' },
-  { path: '/brewday',       label: 'Brew Day',    icon: '🗓️' },
-  { path: '/fermentation',  label: 'Fermentation', icon: '🧪' },
-  { path: '/recipes',       label: 'Recipes',     icon: '⚗️' },
+  { path: '/inventory',     label: 'Inventory',    icon: '📦' },
+  { path: '/recipes',       label: 'Recipes',      icon: '⚗️' },
+  { path: '/brewday',       label: 'Brew Day',     icon: '🗓️' },
+  { path: '/fermentation',  label: 'Fermentation', icon: '🫧' },
+  { path: '/packaging',     label: 'Packaging',    icon: '📋' },
+  { path: '/distribution',  label: 'Distribution', icon: '🚚' },
 ]
 
 // Bottom nav items — always shown
@@ -36,10 +38,98 @@ const BOTTOM_NAV = [
   { path: '/account', label: 'Account Settings', icon: '⚙️' },
 ]
 
+// Maps OPS_NAV paths to sidebar warning keys
+const WARNING_KEYS = {
+  '/inventory':    'inventory',
+  '/fermentation': 'fermentation',
+  '/packaging':    'packaging',
+  '/distribution': 'distribution',
+}
+
 export default function AppLayout() {
   const { user, brewery, isAdmin, profile, refreshProfile, hasAccess } = useAuth()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const navigate = useNavigate()
+
+  // Warning counts for sidebar dots — loaded once and refreshed every 5 minutes
+  const [sidebarWarnings, setSidebarWarnings] = useState({})
+
+  const loadSidebarWarnings = useCallback(async () => {
+    if (!brewery?.id) return
+    const today = new Date().toISOString().slice(0, 10)
+    const threeDaysAgo = new Date(Date.now() - 3 * 86400000).toISOString().slice(0, 10)
+    const twentyOneDaysAgo = new Date(Date.now() - 21 * 86400000).toISOString().slice(0, 10)
+
+    const [
+      invRes,
+      fermRes,
+      readingsRes,
+      packagingRes,
+      distRes,
+    ] = await Promise.all([
+      // Inventory: items with zero or low stock
+      supabase.from('inventory_items').select('id, current_stock_quantity, reorder_point')
+        .eq('brewery_id', brewery.id),
+      // Fermentation: active fermentations
+      supabase.from('fermentations').select('id, status, pitch_date')
+        .eq('brewery_id', brewery.id)
+        .in('status', ['fermenting', 'conditioning', 'lagering', 'ready_to_package']),
+      // Gravity readings: to find fermentations without recent readings
+      supabase.from('gravity_readings').select('fermentation_id, reading_date')
+        .eq('brewery_id', brewery.id)
+        .gte('reading_date', threeDaysAgo),
+      // Packaging: in-progress runs
+      supabase.from('packaging_runs').select('id, status')
+        .eq('brewery_id', brewery.id)
+        .in('status', ['in_progress', 'planned']),
+      // Distribution: overdue keg returns
+      supabase.from('distribution_records').select('id, keg_return_expected, keg_returned, keg_return_date')
+        .eq('brewery_id', brewery.id)
+        .eq('keg_return_expected', true)
+        .eq('keg_returned', false),
+    ])
+
+    const warnings = {}
+
+    // Inventory
+    const invItems = invRes.data ?? []
+    const outOfStock = invItems.filter(i => (parseFloat(i.current_stock_quantity) || 0) <= 0)
+    const lowStock = invItems.filter(i => {
+      const qty = parseFloat(i.current_stock_quantity) || 0
+      const reorder = parseFloat(i.reorder_point) || 0
+      return reorder > 0 && qty <= reorder && qty > 0
+    })
+    if (outOfStock.length > 0) warnings.inventory = 'red'
+    else if (lowStock.length > 0) warnings.inventory = 'amber'
+
+    // Fermentation: check for active fermentations with no recent reading
+    const recentReadingIds = new Set((readingsRes.data ?? []).map(r => r.fermentation_id))
+    const missingReadings = (fermRes.data ?? []).filter(f =>
+      ['fermenting', 'conditioning', 'lagering'].includes(f.status) && !recentReadingIds.has(f.id)
+    )
+    const pastLimit = (fermRes.data ?? []).filter(f =>
+      f.status === 'fermenting' && f.pitch_date && f.pitch_date <= twentyOneDaysAgo
+    )
+    if (missingReadings.length > 0 || pastLimit.length > 0) warnings.fermentation = 'red'
+
+    // Packaging
+    const inProgressPkg = (packagingRes.data ?? []).filter(r => r.status === 'in_progress')
+    if (inProgressPkg.length > 0) warnings.packaging = 'amber'
+
+    // Distribution: overdue keg returns
+    const overdueKegs = (distRes.data ?? []).filter(r =>
+      r.keg_return_date && r.keg_return_date < today
+    )
+    if (overdueKegs.length > 0) warnings.distribution = 'red'
+
+    setSidebarWarnings(warnings)
+  }, [brewery?.id])
+
+  useEffect(() => {
+    loadSidebarWarnings()
+    const interval = setInterval(loadSidebarWarnings, 5 * 60 * 1000) // refresh every 5 min
+    return () => clearInterval(interval)
+  }, [loadSidebarWarnings])
 
   // Re-fetch the profile once on mount so subscription_status is always current.
   // AuthContext only loads the profile on auth events (login/logout), which means
@@ -115,17 +205,26 @@ export default function AppLayout() {
               Operations
             </p>
             <div className="space-y-1">
-              {OPS_NAV.map((item) => (
-                <NavLink
-                  key={item.path}
-                  to={item.path}
-                  className={navLinkClass}
-                  onClick={() => setSidebarOpen(false)}
-                >
-                  <span>{item.icon}</span>
-                  <span>{item.label}</span>
-                </NavLink>
-              ))}
+              {OPS_NAV.map((item) => {
+                const warningKey = WARNING_KEYS[item.path]
+                const warnLevel  = warningKey ? sidebarWarnings[warningKey] : null
+                return (
+                  <NavLink
+                    key={item.path}
+                    to={item.path}
+                    className={navLinkClass}
+                    onClick={() => setSidebarOpen(false)}
+                  >
+                    <span>{item.icon}</span>
+                    <span>{item.label}</span>
+                    {warnLevel && (
+                      <span className={`ml-auto w-2 h-2 rounded-full shrink-0 ${
+                        warnLevel === 'red' ? 'bg-danger' : 'bg-amber'
+                      }`} />
+                    )}
+                  </NavLink>
+                )
+              })}
             </div>
           </div>
         )}

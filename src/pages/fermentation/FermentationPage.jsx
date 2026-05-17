@@ -5,6 +5,7 @@
  * URL: /fermentation
  */
 import { useEffect, useState, useCallback, useMemo } from 'react'
+import { Link } from 'react-router-dom'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ReferenceLine, ResponsiveContainer,
@@ -16,6 +17,14 @@ import ModalShell from '../../components/ModalShell'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import { useModalDraft } from '../../hooks/useModalDraft'
 import { useReadOnly } from '../../hooks/useReadOnly'
+import {
+  calculateTotalIngredientCost,
+  calculateTotalProductionCost,
+  calculateCostPerBarrel,
+  convertToBarrels,
+  calculateLaborCost,
+  calculateUtilitiesCost,
+} from '../recipes/recipeUtils'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -76,6 +85,23 @@ function fermLabel(f) {
   const style = f.beer_style ? `(${f.beer_style})` : ''
   if (name) return `${batch} — ${name} ${style}`.trim()
   return batch
+}
+
+// ─── SparklineTooltip ─────────────────────────────────────────────────────────
+// Custom recharts tooltip for vessel card sparklines (gravity and temperature).
+
+function SparklineTooltip({ active, payload, label, unit = '' }) {
+  if (!active || !payload?.length) return null
+  const d = payload[0]
+  const date = d?.payload?.date
+    ? new Date(d.payload.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    : label
+  return (
+    <div className="bg-white border border-gray-200 rounded-md shadow-sm px-2 py-1.5">
+      <p className="text-xs text-navy font-semibold">{d?.value}{unit}</p>
+      <p className="text-xs text-gray-400">{date}</p>
+    </div>
+  )
 }
 
 // ─── Entry Point — TierGate wrapper ──────────────────────────────────────────
@@ -839,13 +865,17 @@ function MiniSparkline({ readings, targetFg, fermentation }) {
   const isNearTarget = tFg !== null && latestG !== undefined && latestG <= tFg + 0.003
   const lineColor = isNearTarget ? '#22C55E' : '#F59E0B'
 
+  // Re-build data with date field for tooltip using sorted readings
+  const dataWithDate = sorted.map((r, i) => ({ i, gravity: parseFloat(r.gravity), date: r.reading_date }))
+
   return (
     <ResponsiveContainer width="100%" height={80}>
-      <LineChart data={data} margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
+      <LineChart data={dataWithDate} margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
         <XAxis dataKey="i" hide />
         {tFg !== null && (
           <ReferenceLine y={tFg} stroke="#D1D5DB" strokeDasharray="4 2" strokeWidth={1} />
         )}
+        <Tooltip content={<SparklineTooltip unit="" />} />
         <Line
           type="monotone"
           dataKey="gravity"
@@ -857,6 +887,50 @@ function MiniSparkline({ readings, targetFg, fermentation }) {
         <YAxis domain={[minG, maxG]} hide />
       </LineChart>
     </ResponsiveContainer>
+  )
+}
+
+// ─── MiniTempSparkline ────────────────────────────────────────────────────────
+// Compact temperature trend chart for the vessel card. Only renders when at
+// least 2 temperature readings exist.
+
+function MiniTempSparkline({ readings }) {
+  const tempReadings = readings.filter(r => r.temperature != null)
+  if (tempReadings.length < 2) return null
+
+  const sorted = [...tempReadings].sort((a, b) => a.reading_date.localeCompare(b.reading_date))
+  const data   = sorted.map((r, i) => ({ i, temp: parseFloat(r.temperature), date: r.reading_date }))
+  const latest = data.at(-1)
+  const temps  = data.map(d => d.temp)
+  const minTemp = Math.min(...temps)
+  const maxTemp = Math.max(...temps)
+
+  return (
+    <div className="mt-3">
+      <div className="flex justify-between items-center mb-1">
+        <p className="text-[11px] text-gray-400">Fermentation Temperature</p>
+        {latest && (
+          <p className="text-[11px] font-semibold text-blue-600">
+            {latest.temp.toFixed(1)}°F
+          </p>
+        )}
+      </div>
+      <ResponsiveContainer width="100%" height={50}>
+        <LineChart data={data} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
+          <XAxis dataKey="i" hide />
+          <YAxis hide domain={[Math.floor(minTemp) - 1, Math.ceil(maxTemp) + 1]} />
+          <Tooltip content={<SparklineTooltip unit="°F" />} />
+          <Line
+            type="monotone"
+            dataKey="temp"
+            stroke="#3B82F6"
+            strokeWidth={2}
+            dot={{ r: 2, fill: '#3B82F6', strokeWidth: 0 }}
+            isAnimationActive={false}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
   )
 }
 
@@ -1004,6 +1078,23 @@ function VesselCard({ vessel, fermentation, readings, onLogReading, onViewDetail
     && fermentation?.dry_hop_date
     && fermentation.dry_hop_date <= new Date().toISOString().slice(0, 10)
 
+  const today = new Date().toISOString().slice(0, 10)
+
+  // Red: no gravity reading in last 3 days (only warn if fermenting/conditioning/lagering)
+  const ACTIVE_WARN_STATUSES = new Set(['fermenting', 'conditioning', 'lagering'])
+  const needsGravityReading = ACTIVE_WARN_STATUSES.has(status) && (() => {
+    if (readings.length === 0) return true
+    const latestDate = readings.reduce((max, r) => r.reading_date > max ? r.reading_date : max, '')
+    const daysSince = Math.floor((new Date(today) - new Date(latestDate + 'T00:00:00')) / 86400000)
+    return daysSince >= 3
+  })()
+
+  // Red: fermenting for 21+ days with no FG target reached
+  const pastFermentationLimit = status === 'fermenting' && fermentation?.pitch_date && (() => {
+    const days = Math.floor((new Date(today) - new Date(fermentation.pitch_date + 'T00:00:00')) / 86400000)
+    return days >= 21
+  })()
+
   // Card border color reflects fermentation status
   const cardBorder =
     status === 'fermenting'       ? 'border-amber shadow-sm' :
@@ -1025,11 +1116,31 @@ function VesselCard({ vessel, fermentation, readings, onLogReading, onViewDetail
             {vessel.has_temperature_control ? ' · TC' : ''}
           </p>
         </div>
-        {fermentation && (
-          <span className={`shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full ${STATUS_STYLES[status]}`}>
-            {STATUS_LABELS[status]}
-          </span>
-        )}
+        <div className="flex items-center gap-1 shrink-0">
+          {fermentation && (
+            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${STATUS_STYLES[status]}`}>
+              {STATUS_LABELS[status]}
+            </span>
+          )}
+          {needsGravityReading && (
+            <span
+              className="w-2 h-2 rounded-full bg-danger inline-block shrink-0"
+              title="No gravity reading in 3+ days"
+            />
+          )}
+          {pastFermentationLimit && (
+            <span
+              className="w-2 h-2 rounded-full bg-danger inline-block shrink-0"
+              title="Fermenting past 21 days — consider checking final gravity"
+            />
+          )}
+          {dryHopAlert && (
+            <span
+              className="w-2 h-2 rounded-full bg-amber inline-block shrink-0"
+              title="Dry hop date has passed — mark completed"
+            />
+          )}
+        </div>
       </div>
 
       {/* Active batch info */}
@@ -1071,14 +1182,7 @@ function VesselCard({ vessel, fermentation, readings, onLogReading, onViewDetail
           {attenuation !== null && (
             <p className="text-[11px] text-gray-500">{attenuation}% attenuated</p>
           )}
-        </div>
-      )}
-
-      {/* Dry hop due alert badge */}
-      {dryHopAlert && (
-        <div className="mt-2 bg-amber/10 border border-amber/30 text-amber text-[11px] font-semibold px-2 py-1.5 rounded-lg text-center">
-          🌿 Dry Hop Due
-          {fermentation.dry_hop_date && ` · ${new Date(fermentation.dry_hop_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
+          <MiniTempSparkline readings={readings} />
         </div>
       )}
 
@@ -1264,13 +1368,33 @@ function AssignVesselModal({ preSelectedFermentation, preSelectedVessel, ferment
     setSaving(true)
     const today = new Date().toISOString().slice(0, 10)
 
-    // Fetch the current fermentation to check pitch_date
-    const { data: f } = await supabase.from('fermentations').select('pitch_date').eq('id', fermId).single()
+    // Fetch fermentation to check pitch_date, volume, and brew_day link
+    const { data: f } = await supabase
+      .from('fermentations')
+      .select('pitch_date, brew_day_id, volume_in_fermenter')
+      .eq('id', fermId)
+      .single()
+
     const update = {
-      vessel_id:  vesselId,
-      status:     'fermenting',
+      vessel_id: vesselId,
+      status:    'fermenting',
       ...(!f?.pitch_date && { pitch_date: today }),
     }
+
+    // If volume is missing but a brew day is linked, pull volume_into_fermenter from the brew day
+    const hasVolume = f?.volume_in_fermenter != null && parseFloat(f.volume_in_fermenter) > 0
+    if (!hasVolume && f?.brew_day_id) {
+      const { data: bd } = await supabase
+        .from('brew_days')
+        .select('volume_into_fermenter, planned_batch_unit')
+        .eq('id', f.brew_day_id)
+        .maybeSingle()
+      if (bd?.volume_into_fermenter != null) {
+        update.volume_in_fermenter = bd.volume_into_fermenter
+        if (bd.planned_batch_unit) update.volume_unit = bd.planned_batch_unit
+      }
+    }
+
     const { error: err } = await supabase.from('fermentations').update(update).eq('id', fermId)
     if (err) { setError(err.message); setSaving(false); return }
     onAssigned()
@@ -1705,14 +1829,39 @@ function FermentationDetailModal({ fermentation: initialFerm, vessels, available
   const [saveStatus, setSaveStatus]     = useState(null) // null | 'saving' | 'saved'
   const [statusChanging, setStatusChanging] = useState(false)
   const [statusError, setStatusError]   = useState('')
+  const [statusNote, setStatusNote]     = useState('')
   const [showVesselChange, setShowVesselChange] = useState(false)
   const [reassignSuccess, setReassignSuccess]   = useState('')
   const [showLogForm, setShowLogForm] = useState(false)
   const [logForm, setLogForm] = useState({ date: new Date().toISOString().slice(0, 10), gravity: '', temperature: '', notes: '' })
   const [logError, setLogError] = useState('')
 
+  // Part 2B: brew day yeast strain fallback
+  const [brewDayYeastStrain, setBrewDayYeastStrain] = useState(null)
+
+  // Part 2D: stage settings form state
+  const [stageFormOpen, setStageFormOpen] = useState(false)  // 'conditioning' | 'lagering' | false
+  const [stageForm, setStageForm] = useState({ temp_target: '', duration_days: '', notes: '' })
+  const [pendingStatus, setPendingStatus] = useState(null)
+
   // Reload readings when the log changes externally (e.g. from vessel card Log Reading button)
   useEffect(() => { setReadings(initialReadings) }, [initialReadings])
+
+  // Part 2B: fetch yeast strain from brew day when ferm has no yeast_strain but has brew_day_id
+  useEffect(() => {
+    if (!ferm?.yeast_strain && ferm?.brew_day_id) {
+      supabase
+        .from('brew_days')
+        .select('yeast_strain')
+        .eq('id', ferm.brew_day_id)
+        .single()
+        .then(({ data: bd }) => {
+          setBrewDayYeastStrain(bd?.yeast_strain ?? null)
+        })
+    } else {
+      setBrewDayYeastStrain(null)
+    }
+  }, [ferm?.brew_day_id, ferm?.yeast_strain])
 
   // Auto-save a single field to the fermentations table
   async function saveField(field, rawValue) {
@@ -1798,23 +1947,57 @@ function FermentationDetailModal({ fermentation: initialFerm, vessels, available
     setTimeout(() => setSaveStatus(s => s === 'saved' ? null : s), 2000)
   }
 
-  // Advance to a new status — validates preconditions
+  // Advance to a new status — validates preconditions and fires side effects
   async function changeStatus(newStatus) {
     setStatusError('')
-    if (newStatus === 'fermenting' && !ferm.vessel_id) {
-      setStatusError('Assign a vessel before moving to Fermenting.')
-      return
+    setStatusNote('')
+
+    // Part 2C: vessel assignment check and capacity validation
+    if (newStatus === 'fermenting') {
+      if (!ferm.vessel_id) {
+        setStatusError('Assign a vessel before moving to Fermenting.')
+        return
+      }
+      // Capacity validation — convert batch and vessel volumes to barrels for comparison
+      const vessel = vessels.find(v => v.id === ferm.vessel_id)
+      if (vessel?.capacity && ferm.volume_in_fermenter) {
+        const bbl = (val, unit) => {
+          const v = parseFloat(val)
+          if (!v) return 0
+          const u = (unit || 'barrels').toLowerCase()
+          if (u === 'gallons' || u === 'gallon') return v / 31
+          if (u === 'liters' || u === 'litres' || u === 'l') return v / 117.35
+          return v // assume barrels
+        }
+        const batchBbl  = bbl(ferm.volume_in_fermenter, ferm.volume_unit)
+        const vesselBbl = bbl(vessel.capacity, vessel.capacity_unit)
+        if (batchBbl > vesselBbl) {
+          setStatusError(
+            `Cannot assign — batch is ${batchBbl.toFixed(2)} bbl but ${vessel.vessel_name} only holds ${vesselBbl.toFixed(2)} bbl. Please select a larger vessel.`
+          )
+          return
+        }
+      }
     }
+
     if (newStatus === 'conditioning' && !ferm.actual_fg) {
       setStatusError('Please log a final gravity reading before moving to conditioning. Update the Actual FG in the Overview tab first.')
       return
     }
+
+    // Part 2D: intercept conditioning/lagering to show the stage settings form
+    if (newStatus === 'conditioning' || newStatus === 'lagering') {
+      setStageForm({ temp_target: '', duration_days: '', notes: '' })
+      setPendingStatus(newStatus)
+      setStageFormOpen(newStatus)
+      return  // don't proceed until form submitted
+    }
+
     if (!window.confirm(`Move this fermentation to "${STATUS_LABELS[newStatus]}"?`)) return
 
     setStatusChanging(true)
     const extra = {}
-    if (newStatus === 'conditioning') extra.conditioning_start_date = new Date().toISOString().slice(0, 10)
-    if (newStatus === 'packaged')     extra.actual_packaging_date   = new Date().toISOString().slice(0, 10)
+    if (newStatus === 'packaged') extra.actual_packaging_date = new Date().toISOString().slice(0, 10)
 
     const { error } = await supabase.from('fermentations')
       .update({ status: newStatus, ...extra })
@@ -1824,9 +2007,109 @@ function FermentationDetailModal({ fermentation: initialFerm, vessels, available
       const updated = { ...ferm, status: newStatus, ...extra }
       setFerm(updated)
       onUpdated(updated)
-      if (newStatus === 'packaged') {
-        alert('Batch marked as packaged! Batch to Sale tracking will be available in a future module.')
+
+      // Part 3A: when ready to package, auto-create a packaging_runs record with recipe cost
+      if (newStatus === 'ready_to_package') {
+        let plannedSplits = null
+        let recipeCostPerPint = null
+
+        if (ferm.recipe_id) {
+          const { data: recipe } = await supabase
+            .from('recipes')
+            .select(`
+              packaging_splits,
+              labor_rate_per_hour, brew_hours,
+              utilities_cost_per_barrel, cleaning_cost_per_batch,
+              fixed_overhead_percentage, water_cost_per_barrel,
+              wastewater_cost_per_barrel, base_batch_size, base_batch_size_unit
+            `)
+            .eq('id', ferm.recipe_id)
+            .maybeSingle()
+
+          if (recipe?.packaging_splits?.length > 0) plannedSplits = recipe.packaging_splits
+
+          if (recipe) {
+            const { data: recipeIngs } = await supabase
+              .from('recipe_ingredients')
+              .select('amount, unit, cost_per_unit, total_cost, category, scale_with_batch, price_per_unit')
+              .eq('recipe_id', ferm.recipe_id)
+
+            const batchBbl = convertToBarrels(parseFloat(recipe.base_batch_size) || 0, recipe.base_batch_size_unit)
+            if (batchBbl > 0) {
+              // calculateTotalIngredientCost(ingredients, currentBatchSize, baseBatchSize)
+              const ingCost = calculateTotalIngredientCost(recipeIngs ?? [], batchBbl, batchBbl)
+
+              // calculateLaborCost(brewHours, laborRatePerHour)
+              const laborCost = calculateLaborCost(recipe.brew_hours, recipe.labor_rate_per_hour)
+
+              // calculateUtilitiesCost(batchSizeBarrels, utilitiesCostPerBarrel, cleaningCostPerBatch, waterCostPerBarrel, wastewaterCostPerBarrel)
+              const { total: utilitiesTotal } = calculateUtilitiesCost(
+                batchBbl,
+                recipe.utilities_cost_per_barrel,
+                recipe.cleaning_cost_per_batch,
+                recipe.water_cost_per_barrel,
+                recipe.wastewater_cost_per_barrel,
+              )
+
+              // calculateTotalProductionCost(ingredientCost, packagingCost, laborCost, utilitiesCost, fixedOverheadPercentage)
+              const { totalCost } = calculateTotalProductionCost(
+                ingCost, 0, laborCost, utilitiesTotal, recipe.fixed_overhead_percentage,
+              )
+
+              const costPerBbl  = calculateCostPerBarrel(totalCost, batchBbl)
+              const pintsPerBbl = 248
+              recipeCostPerPint = costPerBbl / pintsPerBbl
+            }
+          }
+        }
+
+        const pkgRunPayload = {
+          brewery_id:            brewery.id,
+          fermentation_id:       ferm.id,
+          batch_number:          ferm.batch_number ?? `Batch-${new Date().toISOString().slice(0, 10)}`,
+          beer_name:             ferm.beer_name ?? ferm.batch_number ?? 'Unnamed Batch',
+          beer_style:            ferm.beer_style ?? null,
+          packaging_date:        new Date().toISOString().slice(0, 10),
+          volume_from_fermenter: ferm.volume_in_fermenter ?? null,
+          volume_unit:           ferm.volume_unit ?? 'barrels',
+          planned_splits:        plannedSplits,
+          recipe_cost_per_pint:  recipeCostPerPint,
+          status:                'planned',
+        }
+        console.log('[FermentationPage] Creating packaging_runs record:', pkgRunPayload)
+        await supabase.from('packaging_runs').insert(pkgRunPayload)
+        setStatusNote('ready_to_package')
+        setTimeout(() => setStatusNote(''), 8000)
       }
+    }
+    setStatusChanging(false)
+  }
+
+  // Part 2D: confirm transition to conditioning/lagering after stage form is submitted
+  async function confirmStageTransition() {
+    const ns = pendingStatus
+    setStageFormOpen(false)
+    setPendingStatus(null)
+    setStatusChanging(true)
+
+    const prefix = ns === 'conditioning' ? 'conditioning' : 'lagering'
+    const today  = new Date().toISOString().slice(0, 10)
+    const extra  = {
+      [`${prefix}_temp_target`]:   stageForm.temp_target   ? parseFloat(stageForm.temp_target)   : null,
+      [`${prefix}_duration_days`]: stageForm.duration_days ? parseInt(stageForm.duration_days)    : null,
+      [`${prefix}_notes`]:         stageForm.notes.trim()  || null,
+    }
+    if (ns === 'conditioning') extra.conditioning_start_date = today
+    if (ns === 'lagering')     extra.lagering_start_date     = today
+
+    const { error } = await supabase.from('fermentations')
+      .update({ status: ns, ...extra })
+      .eq('id', ferm.id)
+
+    if (!error) {
+      const updated = { ...ferm, status: ns, ...extra }
+      setFerm(updated)
+      onUpdated(updated)
     }
     setStatusChanging(false)
   }
@@ -2043,6 +2326,21 @@ function FermentationDetailModal({ fermentation: initialFerm, vessels, available
               <div className="sm:col-span-2">
                 <label className={LBL}>Yeast strain</label>
                 <input className={INPUT_CLS} placeholder="WY1056" {...fi('yeast_strain')} />
+                {/* Part 2B: brew day yeast strain suggestion */}
+                {!ferm.yeast_strain && brewDayYeastStrain && (
+                  <p className="text-xs text-amber mt-1">
+                    From brew day: {brewDayYeastStrain} —{' '}
+                    <button
+                      onClick={() => {
+                        saveField('yeast_strain', brewDayYeastStrain)
+                        setFerm(p => ({ ...p, yeast_strain: brewDayYeastStrain }))
+                      }}
+                      className="underline font-medium"
+                    >
+                      Click to use
+                    </button>
+                  </p>
+                )}
               </div>
               <div>
                 <label className={LBL}>Yeast generation</label>
@@ -2080,6 +2378,47 @@ function FermentationDetailModal({ fermentation: initialFerm, vessels, available
               <textarea rows={2} className={INPUT_CLS} placeholder="Notes on transfer from brew vessel..." {...ti('transfer_notes')} />
             </div>
 
+            {/* Part 2D: Stage History */}
+            {(ferm.pitch_date || ferm.conditioning_start_date || ferm.lagering_start_date) && (
+              <div className="mt-4 border-t pt-4">
+                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Stage History</h4>
+                <div className="space-y-2 text-sm">
+                  {ferm.pitch_date && (
+                    <div className="bg-amber/5 rounded-lg px-3 py-2">
+                      <p className="font-medium text-navy">Primary Fermentation</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Pitched {ferm.pitch_date}
+                        {ferm.pitch_temp && ` at ${ferm.pitch_temp}°F`}
+                        {ferm.yeast_strain && ` — ${ferm.yeast_strain}`}
+                      </p>
+                    </div>
+                  )}
+                  {ferm.conditioning_start_date && (
+                    <div className="bg-blue-50 rounded-lg px-3 py-2">
+                      <p className="font-medium text-blue-800">Conditioning</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Started {ferm.conditioning_start_date}
+                        {ferm.conditioning_temp_target && ` · Target: ${ferm.conditioning_temp_target}°F`}
+                        {ferm.conditioning_duration_days && ` · ${ferm.conditioning_duration_days} days`}
+                      </p>
+                      {ferm.conditioning_notes && <p className="text-xs text-gray-600 mt-1">{ferm.conditioning_notes}</p>}
+                    </div>
+                  )}
+                  {ferm.lagering_start_date && (
+                    <div className="bg-indigo-50 rounded-lg px-3 py-2">
+                      <p className="font-medium text-indigo-800">Lagering</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Started {ferm.lagering_start_date}
+                        {ferm.lagering_temp_target && ` · Target: ${ferm.lagering_temp_target}°F`}
+                        {ferm.lagering_duration_days && ` · ${ferm.lagering_duration_days} days`}
+                      </p>
+                      {ferm.lagering_notes && <p className="text-xs text-gray-600 mt-1">{ferm.lagering_notes}</p>}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Status progression */}
             {(nextStatuses.length > 0 || !['packaged', 'dumped'].includes(ferm.status)) && (
               <div className="border-t border-gray-100 pt-4">
@@ -2105,6 +2444,14 @@ function FermentationDetailModal({ fermentation: initialFerm, vessels, available
                 </div>
                 {statusError && (
                   <p className="text-xs text-danger mt-2">{statusError}</p>
+                )}
+                {statusNote === 'ready_to_package' && (
+                  <p className="text-xs text-success mt-2">
+                    ✓ Packaging run created.{' '}
+                    <Link to="/packaging" onClick={onClose} className="underline font-medium">
+                      Complete packaging details →
+                    </Link>
+                  </p>
                 )}
               </div>
             )}
@@ -2284,6 +2631,59 @@ function FermentationDetailModal({ fermentation: initialFerm, vessels, available
           </button>
         </div>
       </div>
+
+      {/* Part 2D: Stage settings modal (conditioning/lagering) — rendered inside ModalShell */}
+      {stageFormOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4">
+            <h3 className="text-base font-bold text-navy mb-4">
+              {stageFormOpen === 'conditioning' ? 'Conditioning Settings' : 'Lagering Settings'}
+            </h3>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Temperature Target (°F)</label>
+                <input type="number" step="0.1"
+                  value={stageForm.temp_target}
+                  onChange={e => setStageForm(f => ({ ...f, temp_target: e.target.value }))}
+                  placeholder="e.g. 34"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Duration Target (days)</label>
+                <input type="number" min="1"
+                  value={stageForm.duration_days}
+                  onChange={e => setStageForm(f => ({ ...f, duration_days: e.target.value }))}
+                  placeholder="e.g. 14"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Notes</label>
+                <textarea rows={2}
+                  value={stageForm.notes}
+                  onChange={e => setStageForm(f => ({ ...f, notes: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber"
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 mt-5">
+              <button
+                onClick={() => confirmStageTransition()}
+                className="flex-1 bg-amber hover:bg-amber-dark text-white font-semibold py-2.5 rounded-lg text-sm transition-colors"
+              >
+                Confirm & Move to {stageFormOpen === 'conditioning' ? 'Conditioning' : 'Lagering'}
+              </button>
+              <button
+                onClick={() => { setStageFormOpen(false); setPendingStatus(null) }}
+                className="flex-1 border border-gray-300 text-gray-600 font-medium py-2.5 rounded-lg text-sm hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </ModalShell>
   )
 }

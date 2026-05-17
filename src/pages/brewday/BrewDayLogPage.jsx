@@ -8,6 +8,7 @@ import { useParams, Link } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../services/supabase'
 import LoadingSpinner from '../../components/LoadingSpinner'
+import WorkflowWarningBanner from '../../components/WorkflowWarningBanner'
 import { useReadOnly } from '../../hooks/useReadOnly'
 
 const STATUS_STYLES = {
@@ -82,6 +83,58 @@ export default function BrewDayLogPage() {
       .order('sort_order')
       .then(({ data }) => setRecipeIngredients(data ?? []))
   }, [bd?.recipe_id])
+
+  // Track whether we've already auto-populated hops so we don't re-run
+  // after the brewer manually adds or removes hop additions.
+  const [hopAutoPopulated, setHopAutoPopulated] = useState(false)
+
+  // Auto-populate hop additions from the linked recipe on first load.
+  // Only runs when:  recipe is linked + no existing hop rows + not yet populated.
+  useEffect(() => {
+    if (!bd?.recipe_id || hopAdditions.length > 0 || hopAutoPopulated) return
+    if (isReadOnly) return
+
+    async function autoPopulateHops() {
+      // Fetch the recipe base batch size for scaling
+      const [recipeRes, hopIngRes] = await Promise.all([
+        supabase.from('recipes').select('base_batch_size').eq('id', bd.recipe_id).single(),
+        supabase.from('recipe_ingredients')
+          .select('id, name, ingredient_id, amount, unit, addition_type, addition_time, category')
+          .eq('recipe_id', bd.recipe_id)
+          .in('addition_type', ['Boil', 'Whirlpool', 'Dry Hop', 'First Wort', 'Flameout'])
+          .order('addition_time', { ascending: false }),
+      ])
+      const hopIngs = hopIngRes.data ?? []
+      if (hopIngs.length === 0) return
+
+      const scale = (recipeRes.data?.base_batch_size && bd.planned_batch_size)
+        ? parseFloat(bd.planned_batch_size) / parseFloat(recipeRes.data.base_batch_size)
+        : 1
+
+      const inserts = hopIngs.map(h => ({
+        brew_day_id:     bd.id,
+        brewery_id:      brewery.id,
+        ingredient_name: h.name,
+        ingredient_id:   h.ingredient_id ?? null,
+        planned_amount:  h.amount != null ? Math.round(parseFloat(h.amount) * scale * 100) / 100 : null,
+        unit:            h.unit ?? 'oz',
+        addition_type:   h.addition_type ?? 'Boil',
+        planned_time:    h.addition_time ?? null,
+      }))
+
+      const { data: created } = await supabase
+        .from('brew_day_hop_additions')
+        .insert(inserts)
+        .select()
+
+      if (created?.length > 0) {
+        setHopAdditions(prev => [...prev, ...created])
+        setHopAutoPopulated(true)
+      }
+    }
+
+    autoPopulateHops()
+  }, [bd?.id, bd?.recipe_id, hopAdditions.length, hopAutoPopulated])
 
   // Load the transactions that were created during deduction so we can show the summary
   useEffect(() => {
@@ -162,7 +215,7 @@ export default function BrewDayLogPage() {
 
     // Auto-create a fermentation record (status: pending_assignment) so the
     // brewer can assign a vessel in the Fermentation Tracker without re-entering data.
-    const { error: fermErr } = await supabase.from('fermentations').insert({
+    const fermInsertPayload = {
       brewery_id:           brewery.id,
       brew_day_id:          completedBd.id,
       recipe_id:            completedBd.recipe_id ?? null,
@@ -181,7 +234,9 @@ export default function BrewDayLogPage() {
       yeast_generation:     completedBd.yeast_generation ?? 1,
       pitch_date:           completedBd.brew_date ?? null,
       pitch_temp:           completedBd.pitch_temp_actual ?? null,
-    })
+    }
+    console.log('[BrewDayLogPage] Creating fermentation record:', fermInsertPayload)
+    const { error: fermErr } = await supabase.from('fermentations').insert(fermInsertPayload)
 
     const fermNote = fermErr ? '' : ' Fermentation record created — assign a vessel in the Fermentation Tracker.'
     const msg = warning
@@ -446,6 +501,25 @@ export default function BrewDayLogPage() {
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
+  // Derive warnings from current brew day state — no extra state needed
+  const brewDayWarnings = []
+  if (bd) {
+    // Required: volume into fermenter not entered
+    if (!bd.volume_into_fermenter) {
+      brewDayWarnings.push({
+        message: 'Volume into fermenter not recorded — enter in Post-Brew Actuals',
+        severity: 'required',
+      })
+    }
+    // Recommended: actual OG not entered
+    if (!bd.actual_og) {
+      brewDayWarnings.push({
+        message: 'Actual OG not recorded — enter in Post-Brew Actuals for efficiency tracking',
+        severity: 'recommended',
+      })
+    }
+  }
+
   return (
     <div className="space-y-5 max-w-4xl">
 
@@ -528,6 +602,9 @@ export default function BrewDayLogPage() {
           </button>
         </div>
       </div>
+
+      {/* ── Workflow warnings ── */}
+      <WorkflowWarningBanner warnings={brewDayWarnings} />
 
       {/* ── Section 1: Brew Overview ── */}
       <SectionBlock title="Brew Overview" icon="📋" open={open.overview} onToggle={() => toggle('overview')}>
@@ -912,11 +989,18 @@ export default function BrewDayLogPage() {
       <SectionBlock title="Post-Brew Actuals" icon="📊" open={open.actuals} onToggle={() => toggle('actuals')}>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div>
-            <label className={LBL}>Volume Into Fermenter</label>
+            <label className={LBL}>
+              Volume Into Fermenter ({bd.planned_batch_unit === 'gallons' ? 'gal' : 'bbl'})
+              {bd.planned_batch_size && (
+                <span className="text-xs text-gray-400 ml-2">
+                  (planned: {bd.planned_batch_size} {bd.planned_batch_unit ?? 'bbl'})
+                </span>
+              )}
+            </label>
             <input type="number" step="0.01" className={INPUT_CLS} {...fi('volume_into_fermenter', 'number')} />
           </div>
           <div>
-            <label className={LBL}>Trub Loss</label>
+            <label className={LBL}>Trub Loss ({bd.planned_batch_unit === 'gallons' ? 'gal' : 'bbl'})</label>
             <input type="number" step="0.01" className={INPUT_CLS} {...fi('trub_loss', 'number')} />
           </div>
           <div>

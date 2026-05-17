@@ -26,6 +26,8 @@ export default function DashboardPage() {
   const [inventoryAlerts, setInventoryAlerts] = useState({ lowStock: 0, outOfStock: 0, expiring: 0 })
   const [brewDayStats, setBrewDayStats] = useState({ nextBrew: null, thisMonthCount: 0, avgEfficiency: null })
   const [fermentationStats, setFermentationStats] = useState({ activeCount: 0, readyCount: 0, dryHopsDue: 0 })
+  const [packagingStats, setPackagingStats] = useState({ inProgress: 0, planned: 0 })
+  const [distributionStats, setDistributionStats] = useState({ batchesThisMonth: 0, kegsAwaitingReturn: 0 })
 
   useEffect(() => {
     if (!brewery?.id) return
@@ -75,6 +77,33 @@ export default function DashboardPage() {
           .not('status', 'in', '("packaged","dumped")')
       : Promise.resolve({ data: [] })
 
+    // Packaging stats: runs in progress + planned runs coming up
+    const packagingPromise = hasAccess('operations')
+      ? Promise.all([
+          supabase
+            .from('packaging_runs')
+            .select('id', { count: 'exact' })
+            .eq('brewery_id', brewery.id)
+            .eq('status', 'in_progress'),
+          supabase
+            .from('packaging_runs')
+            .select('id', { count: 'exact' })
+            .eq('brewery_id', brewery.id)
+            .eq('status', 'planned'),
+          supabase
+            .from('batch_packages')
+            .select('id', { count: 'exact' })
+            .eq('brewery_id', brewery.id)
+            .gte('packaging_date', monthStart),
+          supabase
+            .from('distribution_records')
+            .select('id', { count: 'exact' })
+            .eq('brewery_id', brewery.id)
+            .eq('returnable_kegs', true)
+            .eq('kegs_returned', false),
+        ])
+      : Promise.resolve([{ count: 0 }, { count: 0 }, { count: 0 }, { count: 0 }])
+
     // Fetch next scheduled brew and recent efficiency data
     const today = new Date().toISOString().split('T')[0]
     const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]
@@ -104,7 +133,7 @@ export default function DashboardPage() {
         ])
       : Promise.resolve([{ data: [] }, { data: [] }, { data: [] }])
 
-    const [deadlinesResult, grantsResult, periodsResult, recipesResult, inventoryResult, brewDayResult, fermentationResult] = await Promise.all([
+    const [deadlinesResult, grantsResult, periodsResult, recipesResult, inventoryResult, brewDayResult, fermentationResult, packagingResult] = await Promise.all([
       supabase
         .from('brewery_deadlines')
         .select('*, compliance_deadlines(*)')
@@ -134,6 +163,7 @@ export default function DashboardPage() {
       inventoryPromise,
       brewDayPromise,
       fermentationPromise,
+      packagingPromise,
     ])
 
     setUpcomingDeadlines(deadlinesResult.data ?? [])
@@ -164,6 +194,19 @@ export default function DashboardPage() {
       readyCount:  fermRows.filter(f => f.status === 'ready_to_package').length,
       dryHopsDue:  fermRows.filter(f => f.dry_hop_scheduled && !f.dry_hop_completed && f.dry_hop_date && f.dry_hop_date <= todayStr).length,
     })
+
+    // Compute packaging and distribution stats
+    if (Array.isArray(packagingResult)) {
+      const [inProgressRes, plannedRes, batchesRes, kegsRes] = packagingResult
+      setPackagingStats({
+        inProgress: inProgressRes?.count ?? 0,
+        planned:    plannedRes?.count    ?? 0,
+      })
+      setDistributionStats({
+        batchesThisMonth:   batchesRes?.count ?? 0,
+        kegsAwaitingReturn: kegsRes?.count    ?? 0,
+      })
+    }
 
     // Compute inventory alert counts from the raw ingredient rows
     const ings = inventoryResult.data ?? []
@@ -396,6 +439,61 @@ export default function DashboardPage() {
                 </p>
                 {fermentationStats.dryHopsDue > 0 && (
                   <p className="text-xs text-amber font-medium">Action needed</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Packaging widget */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">📋</span>
+                <h3 className="font-semibold text-navy">Packaging</h3>
+              </div>
+              <Link to="/packaging" className="text-amber text-sm hover:underline">View runs →</Link>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <p className="text-xs text-gray-500 mb-0.5">Runs in progress</p>
+                <p className={`text-2xl font-bold ${packagingStats.inProgress > 0 ? 'text-amber' : 'text-navy'}`}>
+                  {packagingStats.inProgress}
+                </p>
+                {packagingStats.inProgress > 0 && (
+                  <p className="text-xs text-amber font-medium">Active now</p>
+                )}
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-0.5">Planned runs</p>
+                <p className="text-2xl font-bold text-navy">{packagingStats.planned}</p>
+                {packagingStats.planned > 0 && (
+                  <p className="text-xs text-gray-400">Ready to schedule</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Distribution widget */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">🚚</span>
+                <h3 className="font-semibold text-navy">Distribution</h3>
+              </div>
+              <Link to="/distribution" className="text-amber text-sm hover:underline">View log →</Link>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <p className="text-xs text-gray-500 mb-0.5">Batches shipped this month</p>
+                <p className="text-2xl font-bold text-navy">{distributionStats.batchesThisMonth}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-0.5">Kegs awaiting return</p>
+                <p className={`text-2xl font-bold ${distributionStats.kegsAwaitingReturn > 0 ? 'text-amber' : 'text-navy'}`}>
+                  {distributionStats.kegsAwaitingReturn}
+                </p>
+                {distributionStats.kegsAwaitingReturn > 0 && (
+                  <p className="text-xs text-amber font-medium">Follow up needed</p>
                 )}
               </div>
             </div>

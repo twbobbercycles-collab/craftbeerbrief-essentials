@@ -16,6 +16,7 @@ import { supabase } from '../../services/supabase'
 import TierGate from '../../components/TierGate'
 import ModalShell from '../../components/ModalShell'
 import LoadingSpinner from '../../components/LoadingSpinner'
+import WorkflowWarningBanner from '../../components/WorkflowWarningBanner'
 import { useModalDraft } from '../../hooks/useModalDraft'
 import { useReadOnly } from '../../hooks/useReadOnly'
 
@@ -48,7 +49,22 @@ const PO_STATUSES = [
   { value: 'cancelled',          label: 'Cancelled',          bg: 'bg-red-100',    text: 'text-danger' },
 ]
 
-const TABS = ['Inventory', 'Receive Stock', 'Purchase Orders', 'Transaction History']
+const TABS = ['Inventory', 'Packaging Materials', 'Receive Stock', 'Purchase Orders', 'Transaction History']
+
+const PKG_MATERIAL_CATEGORIES = [
+  'Cans', 'Bottles', 'Kegs', 'Labels', 'Carriers', 'Gas', 'Cleaning', 'Other',
+]
+
+const PKG_MATERIAL_SUGGESTIONS = {
+  Cans:     ['12oz Cans', '16oz Cans', '8oz Cans', '19.2oz Cans'],
+  Bottles:  ['12oz Bottles', '22oz Bombers', '750ml Bottles', '32oz Growlers'],
+  Kegs:     ['Half Barrel Kegs', 'Quarter Barrel Kegs', 'Sixth Barrel Kegs', '30L Kegs'],
+  Labels:   ['Front Label', 'Back Label', 'Neck Label', 'Lid Sticker'],
+  Carriers: ['4-Pack Carrier', '6-Pack Carrier', '12-Pack Case', '24-Pack Case'],
+  Gas:      ['CO2 (lbs)', 'Nitrogen (lbs)', 'Argon (lbs)'],
+  Cleaning: ['PBW (lbs)', 'Star San (oz)', 'Caustic (gal)', 'Peracetic Acid (gal)'],
+  Other:    [],
+}
 
 // Days from today at which stock expiry becomes a warning vs. danger
 const EXPIRY_WARN_DAYS  = 90
@@ -93,6 +109,12 @@ function InventoryPageInner() {
   const [draftRefreshKey, setDraftRefreshKey] = useState(0)
   const [receiveSuccessMsg, setReceiveSuccessMsg] = useState(null)
 
+  // Packaging Materials tab state
+  const [packagingMaterials,  setPackagingMaterials]  = useState([])
+  const [pkgMatsLoading,      setPkgMatsLoading]      = useState(false)
+  const [addPkgMatOpen,       setAddPkgMatOpen]       = useState(false)
+  const [adjustPkgMatTarget,  setAdjustPkgMatTarget]  = useState(null)
+
   // ── Load all data ────────────────────────────────────────────────────────────
 
   const loadAll = useCallback(async () => {
@@ -126,6 +148,21 @@ function InventoryPageInner() {
   }, [brewery?.id])
 
   useEffect(() => { loadAll() }, [loadAll])
+
+  const loadPackagingMaterials = useCallback(async () => {
+    if (!brewery?.id) return
+    setPkgMatsLoading(true)
+    const { data } = await supabase
+      .from('packaging_materials')
+      .select('*')
+      .eq('brewery_id', brewery.id)
+      .eq('is_active', true)
+      .order('category').order('name')
+    setPackagingMaterials(data ?? [])
+    setPkgMatsLoading(false)
+  }, [brewery?.id])
+
+  useEffect(() => { loadPackagingMaterials() }, [loadPackagingMaterials])
 
   // ── PO lifecycle handlers ────────────────────────────────────────────────────
 
@@ -230,6 +267,17 @@ function InventoryPageInner() {
             </button>
           </ReadOnlyTooltip>
         )}
+        {activeTab === 'Packaging Materials' && (
+          <ReadOnlyTooltip isReadOnly={isReadOnly}>
+            <button
+              onClick={() => setAddPkgMatOpen(true)}
+              disabled={isReadOnly}
+              className="bg-amber hover:bg-amber-dark text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+            >
+              + Add Material
+            </button>
+          </ReadOnlyTooltip>
+        )}
       </div>
 
       {/* ── Tabs ── */}
@@ -314,6 +362,22 @@ function InventoryPageInner() {
           onCreatePO={() => setPoOpen(true)}
           onDeactivate={handleDeactivateIng}
           onReactivate={handleReactivateIng}
+        />
+      )}
+
+      {activeTab === 'Packaging Materials' && (
+        <PackagingMaterialsTab
+          materials={packagingMaterials}
+          loading={pkgMatsLoading}
+          isReadOnly={isReadOnly}
+          ReadOnlyTooltip={ReadOnlyTooltip}
+          onAdd={() => setAddPkgMatOpen(true)}
+          onAdjust={mat => setAdjustPkgMatTarget(mat)}
+          onDeactivate={async mat => {
+            if (!window.confirm(`Deactivate "${mat.name}"? It will be hidden but its history is preserved.`)) return
+            await supabase.from('packaging_materials').update({ is_active: false }).eq('id', mat.id)
+            setPackagingMaterials(prev => prev.filter(m => m.id !== mat.id))
+          }}
         />
       )}
 
@@ -427,6 +491,35 @@ function InventoryPageInner() {
           onEdit={() => setPoOpen(true)}
         />
       )}
+
+      {addPkgMatOpen && (
+        <AddPackagingMaterialModal
+          isOpen={addPkgMatOpen}
+          breweryId={brewery.id}
+          onClose={() => setAddPkgMatOpen(false)}
+          onSaved={newMat => {
+            setPackagingMaterials(prev =>
+              [...prev, newMat].sort((a, b) =>
+                (a.category ?? '').localeCompare(b.category ?? '') || a.name.localeCompare(b.name)
+              )
+            )
+            setAddPkgMatOpen(false)
+          }}
+        />
+      )}
+
+      {adjustPkgMatTarget && (
+        <AdjustPackagingMaterialModal
+          isOpen={!!adjustPkgMatTarget}
+          material={adjustPkgMatTarget}
+          breweryId={brewery.id}
+          onClose={() => setAdjustPkgMatTarget(null)}
+          onSaved={updatedMat => {
+            setPackagingMaterials(prev => prev.map(m => m.id === updatedMat.id ? updatedMat : m))
+            setAdjustPkgMatTarget(null)
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -484,8 +577,41 @@ function InventoryTab({
     return list
   }, [ingredients, search, catFilter, statusFilter, sortBy, today, showInactive])
 
+  // Build workflow warnings from the ingredients list
+  const inventoryWarnings = []
+
+  // Active ingredients with zero or null stock
+  const warnOutOfStock = ingredients.filter(item =>
+    (item.current_stock_quantity == null || parseFloat(item.current_stock_quantity) <= 0) &&
+    (item.is_active !== false)
+  )
+  if (warnOutOfStock.length > 0) {
+    inventoryWarnings.push({
+      message: `${warnOutOfStock.length} ingredient${warnOutOfStock.length > 1 ? 's' : ''} out of stock`,
+      severity: 'required',
+      link: '/inventory',
+    })
+  }
+
+  // Active ingredients at or below their reorder threshold (but still have some stock)
+  const warnLowStock = ingredients.filter(item => {
+    const qty    = parseFloat(item.current_stock_quantity) || 0
+    const reorder = parseFloat(item.reorder_threshold ?? item.reorder_point ?? item.min_stock_level) || 0
+    return item.is_active !== false && reorder > 0 && qty <= reorder && qty > 0
+  })
+  if (warnLowStock.length > 0) {
+    inventoryWarnings.push({
+      message: `${warnLowStock.length} ingredient${warnLowStock.length > 1 ? 's' : ''} at or below reorder threshold`,
+      severity: 'recommended',
+      link: '/inventory',
+    })
+  }
+
   return (
     <div className="space-y-4">
+
+      {/* Workflow warning banner */}
+      <WorkflowWarningBanner warnings={inventoryWarnings} />
 
       {/* Alert bars */}
       {(outOfStock.length > 0 || expiring.length > 0) && (
@@ -2821,6 +2947,515 @@ function PODetailModal({ isOpen, purchaseOrder: po, onClose, onReceive, onEdit }
           </button>
         </div>
       </div>
+    </ModalShell>
+  )
+}
+
+// ─── Tab: Packaging Materials ─────────────────────────────────────────────────
+
+function PackagingMaterialsTab({ materials, loading, isReadOnly, ReadOnlyTooltip, onAdd, onAdjust, onDeactivate }) {
+  const [search,    setSearch]    = useState('')
+  const [catFilter, setCatFilter] = useState('')
+
+  const lowStock = materials.filter(m =>
+    m.reorder_threshold != null &&
+    (parseFloat(m.current_stock_quantity) || 0) <= parseFloat(m.reorder_threshold)
+  )
+
+  const filtered = useMemo(() => {
+    let list = [...materials]
+    if (search)    list = list.filter(m => m.name.toLowerCase().includes(search.toLowerCase()))
+    if (catFilter) list = list.filter(m => m.category === catFilter)
+    return list
+  }, [materials, search, catFilter])
+
+  if (loading) return <LoadingSpinner message="Loading packaging materials..." />
+
+  return (
+    <div className="space-y-4">
+      {lowStock.length > 0 && (
+        <div className="bg-amber/10 border border-amber rounded-lg px-4 py-2.5 text-sm text-amber-dark">
+          <strong>{lowStock.length} material{lowStock.length > 1 ? 's' : ''} at or below reorder threshold:</strong>{' '}
+          {lowStock.map(m => m.name).join(', ')}
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        <input
+          type="text"
+          placeholder="Search materials..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="border border-gray-300 rounded-lg px-3 py-2 text-sm flex-1 min-w-[180px] focus:outline-none focus:border-amber"
+        />
+        <select
+          value={catFilter}
+          onChange={e => setCatFilter(e.target.value)}
+          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber"
+        >
+          <option value="">All Categories</option>
+          {PKG_MATERIAL_CATEGORIES.map(c => <option key={c}>{c}</option>)}
+        </select>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="text-center py-12 text-gray-400">
+          <p className="text-4xl mb-3">📦</p>
+          <p className="font-medium">No packaging materials yet</p>
+          <p className="text-sm mt-1">Track cans, bottles, kegs, labels, carriers, and more.</p>
+          <ReadOnlyTooltip isReadOnly={isReadOnly}>
+            <button
+              onClick={onAdd}
+              disabled={isReadOnly}
+              className="mt-4 bg-amber hover:bg-amber-dark text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+            >
+              + Add Material
+            </button>
+          </ReadOnlyTooltip>
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-lg border border-gray-200">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+                <th className="text-left px-4 py-3">Name</th>
+                <th className="text-left px-4 py-3">Category</th>
+                <th className="text-left px-4 py-3">Specification</th>
+                <th className="text-right px-4 py-3">In Stock</th>
+                <th className="text-right px-4 py-3">Reorder At</th>
+                <th className="text-right px-4 py-3">Cost/Unit</th>
+                <th className="text-left px-4 py-3">Supplier</th>
+                <th className="px-4 py-3"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {filtered.map(mat => {
+                const qty      = parseFloat(mat.current_stock_quantity) || 0
+                const reorder  = mat.reorder_threshold != null ? parseFloat(mat.reorder_threshold) : null
+                const isLow    = reorder != null && qty <= reorder
+                return (
+                  <tr key={mat.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 font-medium text-navy">
+                      {mat.name}
+                      {isLow && (
+                        <span className="ml-2 text-xs bg-amber/20 text-amber-dark font-semibold px-1.5 py-0.5 rounded">
+                          Low Stock
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">{mat.category ?? '—'}</td>
+                    <td className="px-4 py-3 text-gray-500">{mat.specification ?? '—'}</td>
+                    <td className="px-4 py-3 text-right font-medium">
+                      <span className={isLow ? 'text-amber' : 'text-navy'}>
+                        {qty.toLocaleString()} {mat.stock_unit ?? 'units'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right text-gray-500">
+                      {reorder != null ? `${reorder.toLocaleString()} ${mat.stock_unit ?? 'units'}` : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-right text-gray-600">
+                      {mat.cost_per_unit != null ? `$${parseFloat(mat.cost_per_unit).toFixed(4)}` : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-gray-500">{mat.supplier ?? '—'}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-2 justify-end">
+                        <ReadOnlyTooltip isReadOnly={isReadOnly}>
+                          <button
+                            onClick={() => onAdjust(mat)}
+                            disabled={isReadOnly}
+                            className="text-xs font-medium text-amber hover:underline disabled:opacity-50"
+                          >
+                            Adjust
+                          </button>
+                        </ReadOnlyTooltip>
+                        <ReadOnlyTooltip isReadOnly={isReadOnly}>
+                          <button
+                            onClick={() => onDeactivate(mat)}
+                            disabled={isReadOnly}
+                            className="text-xs font-medium text-gray-400 hover:text-danger disabled:opacity-50"
+                          >
+                            Remove
+                          </button>
+                        </ReadOnlyTooltip>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Modal: Add Packaging Material ───────────────────────────────────────────
+
+const INPUT_PKG = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber'
+
+function AddPackagingMaterialModal({ isOpen, breweryId, onClose, onSaved }) {
+  const { loadDraft, saveDraft, clearDraft, draftRestored, dismissDraftBanner } =
+    useModalDraft('add_packaging_material')
+
+  const blank = {
+    category: '', name: '', specification: '', stock_unit: 'units',
+    current_stock_quantity: '', reorder_threshold: '', reorder_quantity: '',
+    cost_per_unit: '', supplier: '', notes: '',
+  }
+
+  const [form,   setForm]   = useState(blank)
+  const [saving, setSaving] = useState(false)
+  const [error,  setError]  = useState('')
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  useEffect(() => {
+    if (!isOpen) return
+    const draft = loadDraft()
+    if (draft) setForm(draft)
+    else       setForm(blank)
+    setError('')
+  }, [isOpen])
+
+  useEffect(() => {
+    if (!isOpen) return
+    saveDraft(form)
+  }, [form])
+
+  const suggestions = PKG_MATERIAL_SUGGESTIONS[form.category] ?? []
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    if (!form.name.trim()) { setError('Name is required.'); return }
+    setSaving(true); setError('')
+
+    const { data, error: err } = await supabase
+      .from('packaging_materials')
+      .insert({
+        brewery_id:             breweryId,
+        category:               form.category   || null,
+        name:                   form.name.trim(),
+        specification:          form.specification.trim() || null,
+        stock_unit:             form.stock_unit  || 'units',
+        current_stock_quantity: parseFloat(form.current_stock_quantity) || 0,
+        reorder_threshold:      form.reorder_threshold !== '' ? parseFloat(form.reorder_threshold) : null,
+        reorder_quantity:       form.reorder_quantity  !== '' ? parseFloat(form.reorder_quantity)  : null,
+        cost_per_unit:          form.cost_per_unit     !== '' ? parseFloat(form.cost_per_unit)     : null,
+        supplier:               form.supplier.trim()   || null,
+        notes:                  form.notes.trim()      || null,
+      })
+      .select()
+      .single()
+
+    setSaving(false)
+    if (err) { setError(err.message); return }
+    clearDraft()
+    onSaved(data)
+  }
+
+  return (
+    <ModalShell
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Add Packaging Material"
+      isDirty={JSON.stringify(form) !== JSON.stringify(blank)}
+    >
+      {draftRestored && (
+        <div className="bg-amber/10 border border-amber rounded-lg px-3 py-2 text-xs text-amber-dark flex justify-between items-center mb-3">
+          Draft restored.
+          <button onClick={dismissDraftBanner} className="text-gray-400 hover:text-gray-600 ml-3">✕</button>
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-600">Category</label>
+            <select value={form.category} onChange={e => set('category', e.target.value)} className={INPUT_PKG}>
+              <option value="">Select category…</option>
+              {PKG_MATERIAL_CATEGORIES.map(c => <option key={c}>{c}</option>)}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-600">Name <span className="text-danger">*</span></label>
+            <input
+              list="pkg-mat-suggestions"
+              value={form.name}
+              onChange={e => set('name', e.target.value)}
+              placeholder="e.g. 16oz Cans"
+              className={INPUT_PKG}
+              required
+            />
+            <datalist id="pkg-mat-suggestions">
+              {suggestions.map(s => <option key={s} value={s} />)}
+            </datalist>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-600">Specification</label>
+            <input
+              value={form.specification}
+              onChange={e => set('specification', e.target.value)}
+              placeholder="e.g. Front Label, Half Barrel"
+              className={INPUT_PKG}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-600">Stock Unit</label>
+            <input
+              value={form.stock_unit}
+              onChange={e => set('stock_unit', e.target.value)}
+              placeholder="units, cases, lbs…"
+              className={INPUT_PKG}
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-4">
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-600">Current Stock</label>
+            <input
+              type="number" min="0" step="any"
+              value={form.current_stock_quantity}
+              onChange={e => set('current_stock_quantity', e.target.value)}
+              placeholder="0"
+              className={INPUT_PKG}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-600">Reorder At</label>
+            <input
+              type="number" min="0" step="any"
+              value={form.reorder_threshold}
+              onChange={e => set('reorder_threshold', e.target.value)}
+              placeholder="—"
+              className={INPUT_PKG}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-600">Reorder Qty</label>
+            <input
+              type="number" min="0" step="any"
+              value={form.reorder_quantity}
+              onChange={e => set('reorder_quantity', e.target.value)}
+              placeholder="—"
+              className={INPUT_PKG}
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-600">Cost per Unit ($)</label>
+            <input
+              type="number" min="0" step="any"
+              value={form.cost_per_unit}
+              onChange={e => set('cost_per_unit', e.target.value)}
+              placeholder="0.00"
+              className={INPUT_PKG}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-600">Supplier</label>
+            <input
+              value={form.supplier}
+              onChange={e => set('supplier', e.target.value)}
+              placeholder="Supplier name"
+              className={INPUT_PKG}
+            />
+          </div>
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-gray-600">Notes</label>
+          <textarea
+            value={form.notes}
+            onChange={e => set('notes', e.target.value)}
+            rows={2}
+            className={INPUT_PKG}
+          />
+        </div>
+
+        {error && <p className="text-sm text-danger">{error}</p>}
+
+        <div className="flex gap-3 pt-2">
+          <button
+            type="submit"
+            disabled={saving}
+            className="flex-1 bg-amber hover:bg-amber-dark text-white font-semibold py-3 rounded-lg text-sm transition-colors disabled:opacity-50"
+          >
+            {saving ? 'Saving…' : 'Add Material'}
+          </button>
+          <button type="button" onClick={onClose}
+            className="flex-1 border border-gray-300 text-gray-600 font-medium py-3 rounded-lg text-sm hover:bg-gray-50 transition-colors">
+            Cancel
+          </button>
+        </div>
+      </form>
+    </ModalShell>
+  )
+}
+
+// ─── Modal: Adjust Packaging Material Stock ───────────────────────────────────
+
+const PKG_ADJUST_TYPES = [
+  { value: 'received',         label: 'Received (add)',      sign:  1, txType: 'received'        },
+  { value: 'used_in_packaging',label: 'Used in Packaging',   sign: -1, txType: 'used_in_packaging'},
+  { value: 'adjustment',       label: 'Manual Adjustment',   sign:  1, txType: 'adjustment'       },
+  { value: 'waste',            label: 'Waste / Disposal',    sign: -1, txType: 'waste'            },
+]
+
+function AdjustPackagingMaterialModal({ isOpen, material, breweryId, onClose, onSaved }) {
+  const [adjType,  setAdjType]  = useState('received')
+  const [quantity, setQuantity] = useState('')
+  const [notes,    setNotes]    = useState('')
+  const [txDate,   setTxDate]   = useState(new Date().toISOString().split('T')[0])
+  const [saving,   setSaving]   = useState(false)
+  const [error,    setError]    = useState('')
+
+  const currentQty  = parseFloat(material?.current_stock_quantity) || 0
+  const qty         = parseFloat(quantity) || 0
+  const typeInfo    = PKG_ADJUST_TYPES.find(t => t.value === adjType)
+  const signedQty   = typeInfo ? typeInfo.sign * qty : qty
+
+  useEffect(() => {
+    if (!isOpen) return
+    setAdjType('received'); setQuantity(''); setNotes('')
+    setTxDate(new Date().toISOString().split('T')[0])
+    setError('')
+  }, [isOpen, material?.id])
+
+  function previewNew() {
+    if (!qty) return currentQty
+    return Math.max(0, currentQty + signedQty)
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    if (!qty) { setError('Quantity is required.'); return }
+    setSaving(true); setError('')
+
+    const newQty = previewNew()
+
+    const { error: matErr } = await supabase
+      .from('packaging_materials')
+      .update({ current_stock_quantity: newQty, updated_at: new Date().toISOString() })
+      .eq('id', material.id)
+
+    if (matErr) { setSaving(false); setError(matErr.message); return }
+
+    await supabase.from('packaging_material_transactions').insert({
+      brewery_id:       breweryId,
+      material_id:      material.id,
+      transaction_type: typeInfo?.txType ?? 'adjustment',
+      quantity:         signedQty,
+      notes:            notes.trim() || null,
+      transaction_date: txDate,
+    })
+
+    setSaving(false)
+    onSaved({ ...material, current_stock_quantity: newQty })
+  }
+
+  return (
+    <ModalShell
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`Adjust Stock — ${material?.name ?? ''}`}
+      isDirty={!!quantity || !!notes}
+    >
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="bg-gray-50 rounded-lg px-4 py-3 flex justify-between text-sm">
+          <span className="text-gray-500">Current stock</span>
+          <span className="font-semibold text-navy">
+            {currentQty.toLocaleString()} {material?.stock_unit ?? 'units'}
+          </span>
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-gray-600">Adjustment Type</label>
+          <div className="grid grid-cols-2 gap-2">
+            {PKG_ADJUST_TYPES.map(t => (
+              <button
+                key={t.value}
+                type="button"
+                onClick={() => setAdjType(t.value)}
+                className={[
+                  'px-3 py-2 rounded-lg text-sm font-medium border transition-colors text-left',
+                  adjType === t.value
+                    ? 'bg-amber/10 border-amber text-amber-dark'
+                    : 'border-gray-200 text-gray-600 hover:bg-gray-50',
+                ].join(' ')}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-gray-600">
+            Quantity ({material?.stock_unit ?? 'units'})
+          </label>
+          <input
+            type="number" min="0" step="any"
+            value={quantity}
+            onChange={e => setQuantity(e.target.value)}
+            placeholder="0"
+            className={INPUT_PKG}
+            autoFocus
+          />
+        </div>
+
+        {qty > 0 && (
+          <div className="bg-blue-50 rounded-lg px-4 py-2.5 text-sm text-blue-700 flex justify-between">
+            <span>New stock level</span>
+            <span className="font-semibold">
+              {previewNew().toLocaleString()} {material?.stock_unit ?? 'units'}
+            </span>
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-600">Date</label>
+            <input
+              type="date"
+              value={txDate}
+              onChange={e => setTxDate(e.target.value)}
+              className={INPUT_PKG}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-600">Notes</label>
+            <input
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              placeholder="Optional"
+              className={INPUT_PKG}
+            />
+          </div>
+        </div>
+
+        {error && <p className="text-sm text-danger">{error}</p>}
+
+        <div className="flex gap-3 pt-2">
+          <button
+            type="submit"
+            disabled={saving || !qty}
+            className="flex-1 bg-amber hover:bg-amber-dark text-white font-semibold py-3 rounded-lg text-sm transition-colors disabled:opacity-50"
+          >
+            {saving ? 'Saving…' : 'Save Adjustment'}
+          </button>
+          <button type="button" onClick={onClose}
+            className="flex-1 border border-gray-300 text-gray-600 font-medium py-3 rounded-lg text-sm hover:bg-gray-50 transition-colors">
+            Cancel
+          </button>
+        </div>
+      </form>
     </ModalShell>
   )
 }

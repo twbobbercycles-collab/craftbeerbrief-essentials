@@ -51,6 +51,16 @@ const UNIT_GROUPS = [
   { label: 'Other',            options: ['pinch', 'tsp', 'tbsp'] },
 ]
 
+// ─── safeParse helper ─────────────────────────────────────────────────────────
+// Parses a numeric field value for Supabase saves.
+// Returns `fallback` when the value is empty/null/undefined or not a valid number.
+// Critically, parseFloat('0') returns 0 (NOT the fallback), so users can zero-out fields.
+function safeParse(val, fallback) {
+  if (val === '' || val === null || val === undefined) return fallback
+  const n = parseFloat(val)
+  return isNaN(n) ? fallback : n
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function RecipeDetailPage() {
@@ -91,6 +101,9 @@ export default function RecipeDetailPage() {
   // Inline name editing
   const [editingName, setEditingName]   = useState(false)
   const [nameVal, setNameVal]           = useState('')
+
+  // Auto-save status indicator — 'saving' | 'saved' | 'error'
+  const [autoSaveStatus, setAutoSaveStatus] = useState('saved')
 
   // Mobile cost panel bottom sheet
   const [costPanelOpen, setCostPanelOpen] = useState(false)
@@ -302,23 +315,25 @@ export default function RecipeDetailPage() {
   // ── Persist all cost settings to the recipe row on blur ───────────────────────
 
   async function saveCostSettings() {
-    await supabase.from('recipes').update({
+    setAutoSaveStatus('saving')
+    const { error: saveErr } = await supabase.from('recipes').update({
       packaging_splits:           packagingSplits.length > 0 ? packagingSplits : null,
       packaging_container_type:   packagingContainerType || null,
-      packaging_cost_per_unit:    parseFloat(packagingCostPerUnit)   || 0,
-      label_cost_per_unit:        parseFloat(labelCostPerUnit)       || 0,
-      carrier_cost_per_unit:      parseFloat(carrierCostPerUnit)     || 0,
-      packaging_yield_percentage: parseFloat(packagingYieldPct)      || 85,
-      brew_hours:                 parseFloat(brewHours)              || 0,
-      labor_rate_per_hour:        parseFloat(laborRatePerHour)       || 0,
-      utilities_cost_per_barrel:   parseFloat(utilitiesCostPerBarrel)    || 10,
-      cleaning_cost_per_batch:     parseFloat(cleaningCostPerBatch)      || 15,
-      water_cost_per_barrel:       parseFloat(waterCostPerBarrel)        || 0.50,
-      wastewater_cost_per_barrel:  parseFloat(wastewaterCostPerBarrel)   || 0.30,
-      fixed_overhead_percentage:   parseFloat(fixedOverheadPct)          || 15,
-      target_margin_percentage:   parseFloat(marginPct)              || 65,
-      tax_rate:                   parseFloat(taxRate)                || 0,
+      packaging_cost_per_unit:    safeParse(packagingCostPerUnit,        0),
+      label_cost_per_unit:        safeParse(labelCostPerUnit,            0),
+      carrier_cost_per_unit:      safeParse(carrierCostPerUnit,          0),
+      packaging_yield_percentage: safeParse(packagingYieldPct,           85),
+      brew_hours:                 safeParse(brewHours,                   4),
+      labor_rate_per_hour:        safeParse(laborRatePerHour,            0),
+      utilities_cost_per_barrel:  safeParse(utilitiesCostPerBarrel,      10),
+      cleaning_cost_per_batch:    safeParse(cleaningCostPerBatch,        0),
+      water_cost_per_barrel:      safeParse(waterCostPerBarrel,          0),
+      wastewater_cost_per_barrel: safeParse(wastewaterCostPerBarrel,     0),
+      fixed_overhead_percentage:  safeParse(fixedOverheadPct,            15),
+      target_margin_percentage:   safeParse(marginPct,                   65),
+      tax_rate:                   safeParse(taxRate,                     0),
     }).eq('id', id)
+    setAutoSaveStatus(saveErr ? 'error' : 'saved')
   }
 
   // ── Archive / unarchive ───────────────────────────────────────────────────────
@@ -358,7 +373,7 @@ export default function RecipeDetailPage() {
   async function handleDuplicate() {
     const { data: copy, error: e } = await supabase.from('recipes').insert({
       brewery_id: brewery.id,
-      name: `${recipe.name} (copy)`,
+      name: `${recipe.name} — Copy`,
       style: recipe.style,
       bjcp_category: recipe.bjcp_category,
       base_batch_size: recipe.base_batch_size,
@@ -646,6 +661,15 @@ export default function RecipeDetailPage() {
                 <button onClick={() => { setNameVal(recipe.name); setEditingName(true) }}
                   className="text-gray-400 hover:text-amber shrink-0" title="Edit name">✏️</button>
               )}
+              <span className={`inline-flex items-center text-sm px-3 py-1 rounded-full font-medium ml-2 ${
+                autoSaveStatus === 'saving' ? 'bg-amber/10 text-amber' :
+                autoSaveStatus === 'error'  ? 'bg-red-50 text-danger' :
+                'bg-green-100 text-success'
+              }`}>
+                {autoSaveStatus === 'saving' ? 'Saving…' :
+                 autoSaveStatus === 'error'  ? 'Save failed — check connection' :
+                 'All changes saved ✓'}
+              </span>
             </div>
 
             {/* Badges */}
@@ -675,8 +699,9 @@ export default function RecipeDetailPage() {
             </button>
             <ReadOnlyTooltip isReadOnly={isReadOnly}>
               <button onClick={handleDuplicate} disabled={isReadOnly}
+                title="Create a copy of this recipe with the same ingredients. Use this to brew the same beer with different packaging splits."
                 className="text-xs border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50">
-                Duplicate
+                Duplicate Recipe
               </button>
             </ReadOnlyTooltip>
             <ReadOnlyTooltip isReadOnly={isReadOnly}>
@@ -698,6 +723,20 @@ export default function RecipeDetailPage() {
             {recipe.target_srm && <span>SRM: <strong className="text-navy">{recipe.target_srm}</strong></span>}
           </div>
         )}
+      </div>
+
+      {/* ── Recipe completion checklist ── */}
+      <div className="mb-6">
+        <RecipeChecklist
+          recipe={recipe}
+          ingredients={lines.map(l => ({
+            category: l.ingredient?.category ?? '',
+            name: l.ingredient_name,
+            price_per_unit: parseFloat(l.supplier?.price_per_unit ?? l.ingredient?.current_price_per_unit ?? l._priceOverride ?? 0),
+          }))}
+          packagingSplits={packagingSplits}
+          batchBarrels={costs.batchBarrels}
+        />
       </div>
 
       {/* ── Main layout — ingredient editor left, cost panel right ── */}
@@ -934,6 +973,86 @@ export default function RecipeDetailPage() {
         onSubmit={handleSaveNewLine}
         onClose={cancelAddLine}
       />
+    </div>
+  )
+}
+
+// ─── RecipeChecklist ──────────────────────────────────────────────────────────
+
+function RecipeChecklist({ recipe, ingredients, packagingSplits, batchBarrels }) {
+  const [open, setOpen] = useState(true)
+
+  const required    = []
+  const recommended = []
+
+  // Mash: any ingredient with category containing 'Mash', 'Grain', or 'Adjunct'
+  const hasMash = ingredients.some(i => /mash|grain|adjunct/i.test(i.category || ''))
+  if (!hasMash) required.push('No mash ingredients added')
+
+  // Hops: any ingredient with category containing 'Hop'
+  const hasHops = ingredients.some(i => /hop/i.test(i.category || ''))
+  if (!hasHops) required.push('No hop additions added')
+
+  // Yeast: any ingredient with category = 'Yeast'
+  const hasYeast = ingredients.some(i => /yeast/i.test(i.category || ''))
+  if (!hasYeast) required.push('No yeast strain added')
+
+  if (!recipe.target_og) required.push('Target OG not set')
+  if (!recipe.target_fg) required.push('Target FG not set')
+  if (!batchBarrels || parseFloat(batchBarrels) <= 0) required.push('Batch size not set')
+
+  // Costs: at least one ingredient has a non-zero price_per_unit
+  const hasCosts = ingredients.some(i => parseFloat(i.price_per_unit) > 0)
+  if (!hasCosts) recommended.push('No ingredient costs set — add ingredients to inventory for cost tracking')
+
+  // Splits total: if splits exist, sum volume_barrels and compare to batchBarrels
+  if (packagingSplits.length > 0 && batchBarrels > 0) {
+    const total = packagingSplits.reduce((s, p) => s + (parseFloat(p.volume_barrels) || 0), 0)
+    if (Math.abs(total - parseFloat(batchBarrels)) > 0.01) {
+      recommended.push('Packaging splits do not total full batch volume')
+    }
+  }
+
+  const allClear = required.length === 0 && recommended.length === 0
+
+  if (allClear) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-success font-medium bg-green-50 border border-green-200 rounded-xl px-4 py-2.5">
+        <span>✓ Recipe ready to brew</span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-amber/5 border border-amber/30 rounded-xl overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-2.5 text-left hover:bg-amber/10 transition-colors"
+      >
+        <span className="text-sm font-semibold text-amber">
+          ⚠ Recipe Checklist — {required.length + recommended.length} item{required.length + recommended.length !== 1 ? 's' : ''} need attention
+        </span>
+        <span className="text-amber text-xs">{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div className="px-4 pb-3 space-y-1.5">
+          {required.map((msg, i) => (
+            <div key={i} className="flex items-start gap-2 text-sm">
+              <span className="text-danger mt-0.5 shrink-0">●</span>
+              <span className="text-gray-700">{msg}</span>
+            </div>
+          ))}
+          {recommended.map((msg, i) => (
+            <div key={i} className="flex items-start gap-2 text-sm">
+              <span className="text-amber mt-0.5 shrink-0">●</span>
+              <span className="text-gray-700">{msg}</span>
+            </div>
+          ))}
+          {required.length > 0 && (
+            <p className="text-xs text-gray-400 mt-2">Red items are required to brew. Amber items are recommended for costing.</p>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -1371,7 +1490,8 @@ function CostPanel({
             <div key={idx} className="space-y-1 border-t border-amber/10 pt-2 first:border-t-0 first:pt-0">
               <p className="font-semibold text-navy text-xs">
                 {s.container_type || 'Split ' + (idx + 1)}
-                {s.container_size ? ` — ${s.container_size}` : ''}
+                {s.container_size_label ? ` — ${s.container_size_label}` : ''}
+                {s.units != null ? ` (~${s.units.toLocaleString()} units)` : ''}
               </p>
               <div className="flex justify-between text-xs">
                 <span className="text-gray-600">Volume</span>
@@ -1422,12 +1542,108 @@ function CostPanel({
 // Lets the brewer split one batch across multiple container types using volume
 // (barrels) as the primary input. Percentage is calculated read-only.
 
-const SPLIT_CONTAINER_TYPES = [
+const SPLIT_CONTAINER_CATEGORIES = [
   'Draft/Taproom', 'Can', 'Bottle', 'Growler', 'Crowler',
-  'Keg Half Barrel', 'Keg Quarter Barrel', 'Keg Sixth Barrel',
+  'Keg Half Barrel', 'Keg Quarter Barrel', 'Keg Sixth Barrel', 'Barrel Aging',
+  '4-Pack (Cans)', '6-Pack (Cans)', '12-Pack (Cans)', '24-Pack / Case (Cans)',
 ]
 
+// Size options per container category.
+// ozPerUnit: fluid ounces per container (for cans, bottles, pours, growlers).
+// bblPerUnit: barrels per container (for kegs).
+// ozPerUnit: null means no unit calculation (barrel aging).
+const CONTAINER_SIZE_OPTIONS = {
+  'Can': [
+    { label: '8oz',    ozPerUnit: 8 },
+    { label: '10oz',   ozPerUnit: 10 },
+    { label: '12oz',   ozPerUnit: 12 },
+    { label: '16oz',   ozPerUnit: 16 },
+    { label: '19.2oz', ozPerUnit: 19.2 },
+    { label: '32oz',   ozPerUnit: 32 },
+  ],
+  'Bottle': [
+    { label: '12oz',  ozPerUnit: 12 },
+    { label: '16oz',  ozPerUnit: 16 },
+    { label: '22oz',  ozPerUnit: 22 },
+    { label: '375ml', ozPerUnit: 12.68 },
+    { label: '500ml', ozPerUnit: 16.91 },
+    { label: '750ml', ozPerUnit: 25.36 },
+    { label: '1L',    ozPerUnit: 33.81 },
+  ],
+  'Growler': [
+    { label: '32oz', ozPerUnit: 32 },
+    { label: '64oz', ozPerUnit: 64 },
+  ],
+  'Crowler': [
+    { label: '32oz', ozPerUnit: 32 },
+  ],
+  'Keg Half Barrel':    [{ label: '1/2 bbl (15.5 gal)',   bblPerUnit: 0.5 }],
+  'Keg Quarter Barrel': [{ label: '1/4 bbl (7.75 gal)',   bblPerUnit: 0.25 }],
+  'Keg Sixth Barrel':   [
+    { label: '1/6 bbl (5.16 gal)',  bblPerUnit: 0.167 },
+    { label: 'Slim 1/4 (7.75 gal)', bblPerUnit: 0.25 },
+  ],
+  'Barrel Aging': [
+    { label: 'Bourbon Barrel', ozPerUnit: null },
+    { label: 'Wine Barrel',    ozPerUnit: null },
+    { label: 'Port Barrel',    ozPerUnit: null },
+    { label: 'Rum Barrel',     ozPerUnit: null },
+  ],
+  'Draft/Taproom': [
+    { label: '12oz pour', ozPerUnit: 12 },
+    { label: '16oz pour', ozPerUnit: 16 },
+    { label: '20oz pour', ozPerUnit: 20 },
+  ],
+  '4-Pack (Cans)': [
+    { label: '4-Pack 12oz',  ozPerPack: 4  * 12 },
+    { label: '4-Pack 16oz',  ozPerPack: 4  * 16 },
+  ],
+  '6-Pack (Cans)': [
+    { label: '6-Pack 12oz',  ozPerPack: 6  * 12 },
+    { label: '6-Pack 16oz',  ozPerPack: 6  * 16 },
+  ],
+  '12-Pack (Cans)': [
+    { label: '12-Pack 12oz', ozPerPack: 12 * 12 },
+    { label: '12-Pack 16oz', ozPerPack: 12 * 16 },
+  ],
+  '24-Pack / Case (Cans)': [
+    { label: 'Case 12oz (24)',  ozPerPack: 24 * 12 },
+    { label: 'Case 16oz (24)',  ozPerPack: 24 * 16 },
+  ],
+}
+
+// Calculate estimated units from a volume + size option + yield percentage.
+// Returns null when a calculation is not possible (no size, barrel aging, etc.).
+function calcUnitsFromSize(volumeBarrels, sizeOption, packagingYield) {
+  if (!sizeOption || !volumeBarrels) return null
+  const bbls = parseFloat(volumeBarrels) || 0
+  const yld  = (parseFloat(packagingYield) || 85) / 100
+  const GALLONS_PER_BBL = 31
+  const OZ_PER_GAL = 128
+
+  if (sizeOption.bblPerUnit) {
+    return Math.floor((bbls * yld) / sizeOption.bblPerUnit)
+  }
+  if (sizeOption.ozPerUnit) {
+    const totalOz = bbls * GALLONS_PER_BBL * OZ_PER_GAL * yld
+    return Math.floor(totalOz / sizeOption.ozPerUnit)
+  }
+  if (sizeOption.ozPerPack) {
+    // ozPerPack = total oz per pack (e.g. 6-Pack 12oz = 72oz)
+    const totalOz = bbls * GALLONS_PER_BBL * OZ_PER_GAL * yld
+    return Math.floor(totalOz / sizeOption.ozPerPack)
+  }
+  return null
+}
+
 function PackagingSplitsEditor({ splits, defaultYield, batchBarrels, onChange }) {
+  function unitLabel(ct) {
+    if (!ct) return 'units'
+    if (ct.startsWith('Keg'))         return 'kegs'
+    if (ct === 'Barrel Aging')        return 'barrels'
+    if (ct.includes('Pack') || ct.includes('Case')) return 'packs'
+    return 'units'
+  }
   const bbls = parseFloat(batchBarrels) || 0
   const totalAllocated = splits.reduce((s, sp) => s + (parseFloat(sp.volume_barrels) || 0), 0)
   const remaining  = bbls - totalAllocated
@@ -1435,14 +1651,34 @@ function PackagingSplitsEditor({ splits, defaultYield, batchBarrels, onChange })
 
   function addSplit() {
     onChange([...splits, {
-      container_type: '', volume_barrels: '', container_size: '',
+      container_type: '', volume_barrels: '', container_size_label: '', units: null,
       packaging_cost_per_unit: '', label_cost_per_unit: '',
       carrier_cost_per_unit: '', packaging_yield: String(defaultYield ?? 85),
     }])
   }
 
   function updateSplit(idx, field, val) {
-    onChange(splits.map((s, i) => i === idx ? { ...s, [field]: val } : s))
+    // Build the next split object, then cascade derived fields.
+    const current = splits[idx]
+    let updated = { ...current, [field]: val }
+
+    // When container_type changes, reset size label (sizes differ per category)
+    if (field === 'container_type') {
+      updated = { ...updated, container_size_label: '', units: null }
+    }
+
+    // Recalculate units whenever size label, volume, or yield changes
+    if (field === 'container_size_label' || field === 'volume_barrels' || field === 'packaging_yield') {
+      const sizeLabel = field === 'container_size_label' ? val : updated.container_size_label
+      const sizeOptions = CONTAINER_SIZE_OPTIONS[updated.container_type] ?? []
+      const sizeOption  = sizeOptions.find(o => o.label === sizeLabel) ?? null
+      updated = {
+        ...updated,
+        units: calcUnitsFromSize(updated.volume_barrels, sizeOption, updated.packaging_yield),
+      }
+    }
+
+    onChange(splits.map((s, i) => i === idx ? updated : s))
   }
 
   function removeSplit(idx) {
@@ -1470,7 +1706,7 @@ function PackagingSplitsEditor({ splits, defaultYield, batchBarrels, onChange })
                   className="w-full border border-gray-200 rounded px-1.5 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-amber"
                 >
                   <option value="">Select...</option>
-                  {SPLIT_CONTAINER_TYPES.map(c => <option key={c} value={c}>{c}</option>)}
+                  {SPLIT_CONTAINER_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
               <div>
@@ -1482,9 +1718,14 @@ function PackagingSplitsEditor({ splits, defaultYield, batchBarrels, onChange })
                   placeholder="0.00"
                   className="w-full border border-gray-200 rounded px-1.5 py-1 text-right focus:outline-none focus:ring-1 focus:ring-amber"
                 />
+                {split.units != null && (
+                  <p className="text-[11px] mt-0.5 font-medium text-amber">
+                    ≈ {split.units.toLocaleString()} {unitLabel(split.container_type)}
+                  </p>
+                )}
               </div>
             </div>
-            {/* Row 2: % of batch (read-only) + size description */}
+            {/* Row 2: % of batch (read-only) + container size dropdown */}
             <div className="grid grid-cols-2 gap-1.5">
               <div>
                 <label className="text-gray-500 mb-0.5 block">% of batch</label>
@@ -1493,14 +1734,17 @@ function PackagingSplitsEditor({ splits, defaultYield, batchBarrels, onChange })
                 </div>
               </div>
               <div>
-                <label className="text-gray-500 mb-0.5 block">Size description</label>
-                <input
-                  type="text"
-                  value={split.container_size}
-                  onChange={e => updateSplit(idx, 'container_size', e.target.value)}
-                  placeholder="e.g. 16oz cans"
-                  className="w-full border border-gray-200 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-amber"
-                />
+                <label className="text-gray-500 mb-0.5 block">Container size</label>
+                <select
+                  value={split.container_size_label || ''}
+                  onChange={e => updateSplit(idx, 'container_size_label', e.target.value)}
+                  className="w-full border border-gray-200 rounded px-1.5 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-amber"
+                >
+                  <option value="">Select size…</option>
+                  {(CONTAINER_SIZE_OPTIONS[split.container_type] ?? []).map(opt => (
+                    <option key={opt.label} value={opt.label}>{opt.label}</option>
+                  ))}
+                </select>
               </div>
             </div>
             {/* Row 3: yield + per-unit costs */}

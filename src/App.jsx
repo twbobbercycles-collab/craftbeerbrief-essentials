@@ -35,7 +35,10 @@ const RecipeDetailPage = lazy(() => import('./pages/recipes/RecipeDetailPage'))
 const InventoryPage    = lazy(() => import('./pages/inventory/InventoryPage'))
 const BrewDayPage        = lazy(() => import('./pages/brewday/BrewDayPage'))
 const BrewDayLogPage     = lazy(() => import('./pages/brewday/BrewDayLogPage'))
-const FermentationPage   = lazy(() => import('./pages/fermentation/FermentationPage'))
+const FermentationPage        = lazy(() => import('./pages/fermentation/FermentationPage'))
+const PackagingPage           = lazy(() => import('./pages/packaging/PackagingPage'))
+const PackagingRunDetailPage  = lazy(() => import('./pages/packaging/PackagingRunDetailPage'))
+const DistributionPage        = lazy(() => import('./pages/distribution/DistributionPage'))
 
 // Suspense fallback wraps all lazy pages — shows a spinner during code loading
 function PageLoader() {
@@ -86,7 +89,10 @@ export default function App() {
           <Route path="inventory" element={<InventoryPage />} />
           <Route path="brewday"       element={<BrewDayPage />} />
           <Route path="brewday/:id"   element={<BrewDayLogPage />} />
-          <Route path="fermentation"  element={<FermentationPage />} />
+          <Route path="fermentation"   element={<FermentationPage />} />
+          <Route path="packaging"      element={<PackagingPage />} />
+          <Route path="packaging/:id"  element={<PackagingRunDetailPage />} />
+          <Route path="distribution"   element={<DistributionPage />} />
           <Route path="recipes"  element={<RecipesPage />} />
           <Route path="recipes/:id" element={<RecipeDetailPage />} />
 

@@ -265,6 +265,64 @@ export default function RecipesPage() {
     setRecipes(prev => prev.map(r => r.id === recipe.id ? { ...r, is_archived: next } : r))
   }
 
+  async function handleDuplicate(recipe) {
+    const { data: copy, error } = await supabase
+      .from('recipes')
+      .insert({
+        brewery_id:                  brewery.id,
+        name:                        `${recipe.name} — Copy`,
+        style:                       recipe.style,
+        bjcp_category:               recipe.bjcp_category,
+        base_batch_size:             recipe.base_batch_size,
+        base_batch_size_unit:        recipe.base_batch_size_unit,
+        description:                 recipe.description,
+        target_og:                   recipe.target_og,
+        target_fg:                   recipe.target_fg,
+        target_abv:                  recipe.target_abv,
+        target_ibu:                  recipe.target_ibu,
+        target_srm:                  recipe.target_srm,
+        packaging_splits:            recipe.packaging_splits ?? null,
+        packaging_container_type:    recipe.packaging_container_type,
+        packaging_cost_per_unit:     recipe.packaging_cost_per_unit,
+        label_cost_per_unit:         recipe.label_cost_per_unit,
+        carrier_cost_per_unit:       recipe.carrier_cost_per_unit,
+        packaging_yield_percentage:  recipe.packaging_yield_percentage,
+        brew_hours:                  recipe.brew_hours,
+        labor_rate_per_hour:         recipe.labor_rate_per_hour,
+        utilities_cost_per_barrel:   recipe.utilities_cost_per_barrel,
+        cleaning_cost_per_batch:     recipe.cleaning_cost_per_batch,
+        water_cost_per_barrel:       recipe.water_cost_per_barrel,
+        wastewater_cost_per_barrel:  recipe.wastewater_cost_per_barrel,
+        fixed_overhead_percentage:   recipe.fixed_overhead_percentage,
+        target_margin_percentage:    recipe.target_margin_percentage,
+        tax_rate:                    recipe.tax_rate,
+        version:                     (recipe.version ?? 1) + 1,
+        parent_recipe_id:            recipe.id,
+      })
+      .select()
+      .single()
+
+    if (error || !copy) return
+
+    // Copy all ingredient lines to the new recipe
+    const { data: ings } = await supabase
+      .from('recipe_ingredients')
+      .select('*')
+      .eq('recipe_id', recipe.id)
+
+    if (ings?.length > 0) {
+      await supabase.from('recipe_ingredients').insert(
+        ings.map(({ id, recipe_id, created_at, updated_at, ...rest }) => ({
+          ...rest,
+          recipe_id:  copy.id,
+          brewery_id: brewery.id,
+        }))
+      )
+    }
+
+    navigate(`/recipes/${copy.id}`)
+  }
+
   // ── Filtering ───────────────────────────────────────────────────────────────
 
   const allStyles = [...new Set(recipes.map(r => r.style).filter(Boolean))].sort()
@@ -365,6 +423,7 @@ export default function RecipesPage() {
               recipe={r}
               onEdit={() => navigate(`/recipes/${r.id}`)}
               onArchive={() => handleArchive(r)}
+              onDuplicate={() => handleDuplicate(r)}
               isReadOnly={isReadOnly}
               ReadOnlyTooltip={ReadOnlyTooltip}
             />
@@ -561,9 +620,21 @@ export default function RecipesPage() {
 
 // ─── Recipe Card ──────────────────────────────────────────────────────────────
 
-function RecipeCard({ recipe, onEdit, onArchive, isReadOnly, ReadOnlyTooltip }) {
+// Returns the count of key fields that are missing or zero on a recipe row.
+// Checks: target OG, target FG, and base batch size.
+function recipeIncompleteCount(recipe) {
+  let count = 0
+  if (!recipe.target_og)  count++
+  if (!recipe.target_fg)  count++
+  const batchSize = recipe.batch_size_value ?? recipe.batch_size ?? recipe.base_batch_size
+  if (!batchSize || parseFloat(batchSize) <= 0) count++
+  return count
+}
+
+function RecipeCard({ recipe, onEdit, onArchive, onDuplicate, isReadOnly, ReadOnlyTooltip }) {
   const hasIngredients = recipe._ingredientCount > 0
   const cpp = recipe._costPerPint
+  const incompleteCount = recipeIncompleteCount(recipe)
 
   return (
     <div className={`bg-white rounded-xl border border-gray-200 p-5 flex flex-col gap-3 ${recipe.is_archived ? 'opacity-60' : ''}`}>
@@ -571,9 +642,19 @@ function RecipeCard({ recipe, onEdit, onArchive, isReadOnly, ReadOnlyTooltip }) 
       <div>
         <div className="flex items-start justify-between gap-2">
           <h3 className="font-bold text-navy text-base leading-tight">{recipe.name}</h3>
-          {recipe.is_archived && (
-            <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full shrink-0">Archived</span>
-          )}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {incompleteCount > 0 && (
+              <span
+                className="inline-flex items-center bg-amber/10 text-amber text-xs font-medium px-2 py-0.5 rounded-full"
+                title={`${incompleteCount} incomplete item${incompleteCount !== 1 ? 's' : ''} — OG, FG, or batch size missing`}
+              >
+                ⚠ {incompleteCount}
+              </span>
+            )}
+            {recipe.is_archived && (
+              <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Archived</span>
+            )}
+          </div>
         </div>
         <div className="flex flex-wrap gap-1.5 mt-1.5">
           {recipe.style && (
@@ -623,6 +704,16 @@ function RecipeCard({ recipe, onEdit, onArchive, isReadOnly, ReadOnlyTooltip }) 
         >
           Edit Recipe
         </button>
+        <ReadOnlyTooltip isReadOnly={isReadOnly}>
+          <button
+            onClick={onDuplicate}
+            disabled={isReadOnly}
+            title="Create a copy with the same ingredients — useful for different packaging splits or batch sizes"
+            className="text-sm text-amber border border-amber/40 hover:bg-amber/5 px-3 py-2 rounded-lg transition-colors disabled:opacity-40 font-medium"
+          >
+            Copy
+          </button>
+        </ReadOnlyTooltip>
         <ReadOnlyTooltip isReadOnly={isReadOnly}>
           <button
             onClick={onArchive}

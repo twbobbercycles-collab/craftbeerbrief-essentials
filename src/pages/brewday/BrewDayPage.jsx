@@ -98,10 +98,11 @@ export default function BrewDayPage() {
   const [dateRange, setDateRange]     = useState(() => loadFilters().dateRange || 'this_year')
 
   // Schedule modal state
-  const [addOpen, setAddOpen]     = useState(false)
-  const [form, setForm]           = useState(EMPTY_FORM)
-  const [saving, setSaving]       = useState(false)
-  const [saveError, setSaveError] = useState('')
+  const [addOpen, setAddOpen]       = useState(false)
+  const [form, setForm]             = useState(EMPTY_FORM)
+  const [saving, setSaving]         = useState(false)
+  const [saveError, setSaveError]   = useState('')
+  const [recipeWarning, setRecipeWarning] = useState('')
   const draft = useModalDraft('modal_draft_brew_day')
 
   // Load all brew days for this brewery
@@ -127,9 +128,9 @@ export default function BrewDayPage() {
     if (!brewery?.id) return
     const { data } = await supabase
       .from('recipes')
-      .select('id, name, style, base_batch_size, base_batch_size_unit, target_og, target_fg, target_abv, target_ibu, fixed_overhead_percentage')
+      .select('id, name, style, base_batch_size, base_batch_size_unit, target_og, target_fg, target_abv, target_ibu, target_brewhouse_efficiency, fixed_overhead_percentage')
       .eq('brewery_id', brewery.id)
-      .eq('is_archived', false)
+      .neq('is_archived', true)
       .order('name')
     setRecipes(data ?? [])
   }
@@ -165,6 +166,7 @@ export default function BrewDayPage() {
   function closeAddModal() {
     draft.clearDraft()
     setForm(EMPTY_FORM)
+    setRecipeWarning('')
     setAddOpen(false)
   }
 
@@ -176,12 +178,13 @@ export default function BrewDayPage() {
   }
 
   // When a recipe is selected, auto-populate planning fields from the recipe row
-  function handleRecipeSelect(recipeId) {
+  async function handleRecipeSelect(recipeId) {
+    setRecipeWarning('')
     const rec = recipes.find(r => r.id === recipeId)
     if (!rec) { updateForm('recipe_id', ''); return }
     const next = {
       ...form,
-      recipe_id:  rec.id,
+      recipe_id:   rec.id,
       recipe_name: rec.name,
       beer_style:  rec.style ?? '',
       planned_batch_size: String(rec.base_batch_size ?? ''),
@@ -190,9 +193,50 @@ export default function BrewDayPage() {
       target_fg:   rec.target_fg ? String(rec.target_fg) : '',
       target_abv:  rec.target_abv ? String(rec.target_abv) : '',
       target_ibu:  rec.target_ibu ? String(rec.target_ibu) : '',
+      target_brewhouse_efficiency: rec.target_brewhouse_efficiency ? String(rec.target_brewhouse_efficiency) : '72',
     }
+
+    // Fetch yeast ingredient name for this recipe.
+    // We select category and addition_type so we can use addition_type as a fallback
+    // if the ilike category search returns nothing (some rows store type in addition_type).
+    const { data: yeastIngredients } = await supabase
+      .from('recipe_ingredients')
+      .select('name, category, addition_type')
+      .eq('recipe_id', rec.id)
+      .ilike('category', '%yeast%')
+      .order('name')
+      .limit(1)
+
+    if (yeastIngredients && yeastIngredients.length > 0) {
+      next.yeast_strain = yeastIngredients[0].name
+    }
+
     setForm(next)
     draft.saveDraft(next)
+
+    console.log('[BrewDayPage] Recipe selected:', {
+      recipe: rec,
+      yeastIngredients,
+      populatedForm: next,
+    })
+
+    // Check if the selected recipe has incomplete required items
+    const { data: recipeCheck } = await supabase
+      .from('recipes')
+      .select('target_og, target_fg, base_batch_size, base_batch_size_unit')
+      .eq('id', rec.id)
+      .single()
+    const { count: ingredientCount } = await supabase
+      .from('recipe_ingredients')
+      .select('id', { count: 'exact', head: true })
+      .eq('recipe_id', rec.id)
+
+    if (
+      recipeCheck &&
+      (!recipeCheck.target_og || !recipeCheck.target_fg || !recipeCheck.base_batch_size || (ingredientCount ?? 0) === 0)
+    ) {
+      setRecipeWarning(rec.id)
+    }
   }
 
   // Save a new brew day to the database
@@ -458,16 +502,26 @@ export default function BrewDayPage() {
 
             {form.link_recipe && (
               <div className="space-y-3">
-                <select
-                  value={form.recipe_id}
-                  onChange={e => handleRecipeSelect(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber"
-                >
-                  <option value="">Choose a recipe...</option>
-                  {recipes.map(r => (
-                    <option key={r.id} value={r.id}>{r.name}{r.style ? ` — ${r.style}` : ''}</option>
-                  ))}
-                </select>
+                <div>
+                  <select
+                    value={form.recipe_id}
+                    onChange={e => handleRecipeSelect(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber"
+                  >
+                    <option value="">Choose a recipe...</option>
+                    {recipes.map(r => (
+                      <option key={r.id} value={r.id}>
+                        {r.name}{r.style ? ` — ${r.style}` : ''}{r.base_batch_size ? ` (${r.base_batch_size} ${r.base_batch_size_unit ?? 'bbl'})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {recipeWarning && (
+                    <p className="text-xs text-amber mt-1">
+                      ⚠ This recipe has incomplete items.{' '}
+                      <a href={`/recipes/${recipeWarning}`} className="underline">Review before scheduling →</a>
+                    </p>
+                  )}
+                </div>
               </div>
             )}
 
