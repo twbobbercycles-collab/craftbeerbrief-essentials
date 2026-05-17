@@ -25,6 +25,7 @@ export default function DashboardPage() {
   const [recipeStats, setRecipeStats] = useState({ count: 0, recentName: null })
   const [inventoryAlerts, setInventoryAlerts] = useState({ lowStock: 0, outOfStock: 0, expiring: 0 })
   const [brewDayStats, setBrewDayStats] = useState({ nextBrew: null, thisMonthCount: 0, avgEfficiency: null })
+  const [fermentationStats, setFermentationStats] = useState({ activeCount: 0, readyCount: 0, dryHopsDue: 0 })
 
   useEffect(() => {
     if (!brewery?.id) return
@@ -65,6 +66,15 @@ export default function DashboardPage() {
           .eq('is_active', true)
       : Promise.resolve({ data: [] })
 
+    // Fetch active fermentations for the dashboard widget
+    const fermentationPromise = hasAccess('operations')
+      ? supabase
+          .from('fermentations')
+          .select('id, status, dry_hop_scheduled, dry_hop_completed, dry_hop_date')
+          .eq('brewery_id', brewery.id)
+          .not('status', 'in', '("packaged","dumped")')
+      : Promise.resolve({ data: [] })
+
     // Fetch next scheduled brew and recent efficiency data
     const today = new Date().toISOString().split('T')[0]
     const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]
@@ -94,7 +104,7 @@ export default function DashboardPage() {
         ])
       : Promise.resolve([{ data: [] }, { data: [] }, { data: [] }])
 
-    const [deadlinesResult, grantsResult, periodsResult, recipesResult, inventoryResult, brewDayResult] = await Promise.all([
+    const [deadlinesResult, grantsResult, periodsResult, recipesResult, inventoryResult, brewDayResult, fermentationResult] = await Promise.all([
       supabase
         .from('brewery_deadlines')
         .select('*, compliance_deadlines(*)')
@@ -123,6 +133,7 @@ export default function DashboardPage() {
       recipesPromise,
       inventoryPromise,
       brewDayPromise,
+      fermentationPromise,
     ])
 
     setUpcomingDeadlines(deadlinesResult.data ?? [])
@@ -144,6 +155,15 @@ export default function DashboardPage() {
         : null
       setBrewDayStats({ nextBrew, thisMonthCount, avgEfficiency })
     }
+
+    // Compute fermentation stats: active count, ready to package, dry hops due today or overdue
+    const fermRows = fermentationResult.data ?? []
+    const todayStr = new Date().toISOString().slice(0, 10)
+    setFermentationStats({
+      activeCount: fermRows.filter(f => ['fermenting', 'conditioning', 'lagering'].includes(f.status)).length,
+      readyCount:  fermRows.filter(f => f.status === 'ready_to_package').length,
+      dryHopsDue:  fermRows.filter(f => f.dry_hop_scheduled && !f.dry_hop_completed && f.dry_hop_date && f.dry_hop_date <= todayStr).length,
+    })
 
     // Compute inventory alert counts from the raw ingredient rows
     const ings = inventoryResult.data ?? []
@@ -341,6 +361,41 @@ export default function DashboardPage() {
                 )}
                 {brewDayStats.avgEfficiency != null && (
                   <p className="text-xs text-gray-400">last 5 completed</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Fermentation widget */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">🧪</span>
+                <h3 className="font-semibold text-navy">Fermentation</h3>
+              </div>
+              <Link to="/fermentation" className="text-amber text-sm hover:underline">View tracker →</Link>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <p className="text-xs text-gray-500 mb-0.5">Active fermentations</p>
+                <p className="text-2xl font-bold text-navy">{fermentationStats.activeCount}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-0.5">Ready to package</p>
+                <p className={`text-2xl font-bold ${fermentationStats.readyCount > 0 ? 'text-success' : 'text-navy'}`}>
+                  {fermentationStats.readyCount}
+                </p>
+                {fermentationStats.readyCount > 0 && (
+                  <p className="text-xs text-success font-medium">Ready now</p>
+                )}
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-0.5">Dry hops due</p>
+                <p className={`text-2xl font-bold ${fermentationStats.dryHopsDue > 0 ? 'text-amber' : 'text-navy'}`}>
+                  {fermentationStats.dryHopsDue}
+                </p>
+                {fermentationStats.dryHopsDue > 0 && (
+                  <p className="text-xs text-amber font-medium">Action needed</p>
                 )}
               </div>
             </div>

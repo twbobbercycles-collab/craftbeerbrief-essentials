@@ -159,9 +159,34 @@ export default function BrewDayLogPage() {
 
     // Auto-deduct inventory immediately on completion
     const { deducted, warning } = await performDeduction(completedBd)
+
+    // Auto-create a fermentation record (status: pending_assignment) so the
+    // brewer can assign a vessel in the Fermentation Tracker without re-entering data.
+    const { error: fermErr } = await supabase.from('fermentations').insert({
+      brewery_id:           brewery.id,
+      brew_day_id:          completedBd.id,
+      recipe_id:            completedBd.recipe_id ?? null,
+      batch_number:         completedBd.batch_number ?? null,
+      beer_name:            completedBd.recipe_name || completedBd.beer_style || `Batch ${completedBd.batch_number ?? ''}`,
+      beer_style:           completedBd.beer_style ?? null,
+      status:               'pending_assignment',
+      fermentation_type:    completedBd.fermentation_type ?? 'standard',
+      volume_in_fermenter:  completedBd.volume_into_fermenter ?? null,
+      volume_unit:          completedBd.planned_batch_unit ?? 'barrels',
+      actual_og:            completedBd.actual_og ?? null,
+      target_og:            completedBd.target_og ?? null,
+      target_fg:            completedBd.target_fg ?? null,
+      target_abv:           completedBd.target_abv ?? null,
+      yeast_strain:         completedBd.yeast_strain ?? null,
+      yeast_generation:     completedBd.yeast_generation ?? 1,
+      pitch_date:           completedBd.brew_date ?? null,
+      pitch_temp:           completedBd.pitch_temp_actual ?? null,
+    })
+
+    const fermNote = fermErr ? '' : ' Fermentation record created — assign a vessel in the Fermentation Tracker.'
     const msg = warning
-      ? `Brew day marked complete. ${warning}`
-      : `Brew day complete. Inventory updated — ${deducted} ingredient${deducted !== 1 ? 's' : ''} deducted.`
+      ? `Brew day marked complete. ${warning}${fermNote}`
+      : `Brew day complete. Inventory updated — ${deducted} ingredient${deducted !== 1 ? 's' : ''} deducted.${fermNote}`
     showToast(warning ? 'warning' : 'success', msg)
   }
 
