@@ -24,6 +24,7 @@ export default function DashboardPage() {
   const [showTour, setShowTour] = useState(false)
   const [recipeStats, setRecipeStats] = useState({ count: 0, recentName: null })
   const [inventoryAlerts, setInventoryAlerts] = useState({ lowStock: 0, outOfStock: 0, expiring: 0 })
+  const [brewDayStats, setBrewDayStats] = useState({ nextBrew: null, thisMonthCount: 0, avgEfficiency: null })
 
   useEffect(() => {
     if (!brewery?.id) return
@@ -64,7 +65,36 @@ export default function DashboardPage() {
           .eq('is_active', true)
       : Promise.resolve({ data: [] })
 
-    const [deadlinesResult, grantsResult, periodsResult, recipesResult, inventoryResult] = await Promise.all([
+    // Fetch next scheduled brew and recent efficiency data
+    const today = new Date().toISOString().split('T')[0]
+    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]
+    const brewDayPromise = hasAccess('operations')
+      ? Promise.all([
+          supabase
+            .from('brew_days')
+            .select('brew_date, recipe_name, beer_style, status')
+            .eq('brewery_id', brewery.id)
+            .eq('status', 'scheduled')
+            .gte('brew_date', today)
+            .order('brew_date', { ascending: true })
+            .limit(1),
+          supabase
+            .from('brew_days')
+            .select('id')
+            .eq('brewery_id', brewery.id)
+            .gte('brew_date', monthStart),
+          supabase
+            .from('brew_days')
+            .select('actual_brewhouse_efficiency')
+            .eq('brewery_id', brewery.id)
+            .eq('status', 'completed')
+            .not('actual_brewhouse_efficiency', 'is', null)
+            .order('brew_date', { ascending: false })
+            .limit(5),
+        ])
+      : Promise.resolve([{ data: [] }, { data: [] }, { data: [] }])
+
+    const [deadlinesResult, grantsResult, periodsResult, recipesResult, inventoryResult, brewDayResult] = await Promise.all([
       supabase
         .from('brewery_deadlines')
         .select('*, compliance_deadlines(*)')
@@ -92,6 +122,7 @@ export default function DashboardPage() {
 
       recipesPromise,
       inventoryPromise,
+      brewDayPromise,
     ])
 
     setUpcomingDeadlines(deadlinesResult.data ?? [])
@@ -102,15 +133,26 @@ export default function DashboardPage() {
       recentName: recipesResult.data?.[0]?.name ?? null,
     })
 
+    // Compute brew day stats (next scheduled, month count, avg efficiency)
+    if (Array.isArray(brewDayResult)) {
+      const [nextRes, monthRes, effRes] = brewDayResult
+      const nextBrew = nextRes?.data?.[0] ?? null
+      const thisMonthCount = monthRes?.data?.length ?? 0
+      const effRows = effRes?.data ?? []
+      const avgEfficiency = effRows.length > 0
+        ? effRows.reduce((s, r) => s + parseFloat(r.actual_brewhouse_efficiency || 0), 0) / effRows.length
+        : null
+      setBrewDayStats({ nextBrew, thisMonthCount, avgEfficiency })
+    }
+
     // Compute inventory alert counts from the raw ingredient rows
-    const ings   = inventoryResult.data ?? []
-    const today  = new Date()
+    const ings = inventoryResult.data ?? []
     setInventoryAlerts({
       lowStock:   ings.filter(i => i.reorder_threshold != null && (parseFloat(i.current_stock_quantity) || 0) <= parseFloat(i.reorder_threshold) && (parseFloat(i.current_stock_quantity) || 0) > 0).length,
       outOfStock: ings.filter(i => (parseFloat(i.current_stock_quantity) || 0) === 0).length,
       expiring:   ings.filter(i => {
         if (!i.expiration_date) return false
-        return Math.ceil((new Date(i.expiration_date) - today) / 86400000) <= 30
+        return Math.ceil((new Date(i.expiration_date) - new Date()) / 86400000) <= 30
       }).length,
     })
     setLoading(false)
@@ -260,41 +302,79 @@ export default function DashboardPage() {
 
       {/* Operations summary — only shown to operations/full_suite subscribers */}
       {hasAccess('operations') && (
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <span className="text-xl">⚗️</span>
-              <h3 className="font-semibold text-navy">Operations</h3>
-              <span className="bg-amber/20 text-amber text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide">
-                {profile?.subscription_tier === 'full_suite' ? 'Full Suite' : 'Operations'}
-              </span>
+        <div className="space-y-4">
+          {/* Brew Day widget */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">🗓️</span>
+                <h3 className="font-semibold text-navy">Brew Day</h3>
+              </div>
+              <Link to="/brewday" className="text-amber text-sm hover:underline">View schedule →</Link>
             </div>
-            <Link to="/recipes" className="text-amber text-sm hover:underline">
-              View recipes →
-            </Link>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <p className="text-xs text-gray-500 mb-0.5">Next scheduled brew</p>
+                {brewDayStats.nextBrew ? (
+                  <>
+                    <p className="font-semibold text-navy text-sm">
+                      {brewDayStats.nextBrew.recipe_name || brewDayStats.nextBrew.beer_style || 'Unnamed batch'}
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      {new Date(brewDayStats.nextBrew.brew_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm text-gray-400">None scheduled</p>
+                )}
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-0.5">Brews this month</p>
+                <p className="text-2xl font-bold text-navy">{brewDayStats.thisMonthCount}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-0.5">Avg brewhouse efficiency</p>
+                {brewDayStats.avgEfficiency != null ? (
+                  <p className="text-2xl font-bold text-navy">{brewDayStats.avgEfficiency.toFixed(1)}%</p>
+                ) : (
+                  <p className="text-sm text-gray-400">No completed brews</p>
+                )}
+                {brewDayStats.avgEfficiency != null && (
+                  <p className="text-xs text-gray-400">last 5 completed</p>
+                )}
+              </div>
+            </div>
           </div>
 
-          <div className="flex items-center gap-8">
-            <div>
-              <p className="text-2xl font-bold text-navy">{recipeStats.count}</p>
-              <p className="text-xs text-gray-500 mt-0.5">active recipes</p>
-            </div>
-            {recipeStats.recentName && (
-              <div>
-                <p className="text-sm font-medium text-navy truncate max-w-xs">
-                  {recipeStats.recentName}
-                </p>
-                <p className="text-xs text-gray-500 mt-0.5">most recently updated</p>
+          {/* Recipes widget */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">⚗️</span>
+                <h3 className="font-semibold text-navy">Recipes</h3>
+                <span className="bg-amber/20 text-amber text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide">
+                  {profile?.subscription_tier === 'full_suite' ? 'Full Suite' : 'Operations'}
+                </span>
               </div>
-            )}
-            {recipeStats.count === 0 && (
-              <p className="text-sm text-gray-400">
-                No recipes yet —{' '}
-                <Link to="/recipes" className="text-amber hover:underline">
-                  create your first one
-                </Link>
-              </p>
-            )}
+              <Link to="/recipes" className="text-amber text-sm hover:underline">View recipes →</Link>
+            </div>
+            <div className="flex items-center gap-8">
+              <div>
+                <p className="text-2xl font-bold text-navy">{recipeStats.count}</p>
+                <p className="text-xs text-gray-500 mt-0.5">active recipes</p>
+              </div>
+              {recipeStats.recentName && (
+                <div>
+                  <p className="text-sm font-medium text-navy truncate max-w-xs">{recipeStats.recentName}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">most recently updated</p>
+                </div>
+              )}
+              {recipeStats.count === 0 && (
+                <p className="text-sm text-gray-400">
+                  No recipes yet — <Link to="/recipes" className="text-amber hover:underline">create your first one</Link>
+                </p>
+              )}
+            </div>
           </div>
         </div>
       )}

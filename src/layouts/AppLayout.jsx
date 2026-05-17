@@ -25,6 +25,7 @@ const MAIN_NAV = [
 // Operations tier nav items — only shown to operations/full_suite subscribers
 const OPS_NAV = [
   { path: '/inventory', label: 'Inventory', icon: '📦' },
+  { path: '/brewday',   label: 'Brew Day',  icon: '🗓️' },
   { path: '/recipes',   label: 'Recipes',   icon: '⚗️' },
 ]
 
