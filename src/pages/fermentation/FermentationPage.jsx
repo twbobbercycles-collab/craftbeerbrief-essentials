@@ -437,47 +437,41 @@ function TankSVG({ uid, fillPct = 0, status = 'empty', vesselType = 'Conical Fer
 // Tall cylinder with dome top, conical bottom tapering to a point, legs below.
 
 function ConicalSVG({ uid, fillPct, status }) {
-  // Geometry (viewBox 120 × 220)
+  // Geometry (viewBox 120 × 224) — taller cylinder, shorter cone
   const cx = 60
-  const bodyX = 20, bodyW = 80, bodyTop = 22, bodyH = 100
-  // Cone: from bottom of cylinder down to a point
-  const coneTop = bodyTop + bodyH      // y = 122
-  const coneTip = coneTop + 58         // y = 180 — tip of the cone
-  const ey = 9                         // ellipse y-radius for 3D caps
-  // Legs
-  const legY1 = coneTip + 2, legY2 = coneTip + 28
-  const legLX = cx - 18, legRX = cx + 18
+  const bodyX = 20, bodyW = 80, bodyTop = 22, bodyH = 130
+  const coneH = 40
+  const coneTop = bodyTop + bodyH        // y = 152
+  const coneTip = coneTop + coneH        // y = 192
+  const ey = 9
+  const legY2   = coneTip + 28           // y = 220
+  const legLX   = cx - 18, legRX = cx + 18
+  const cylLeft = bodyX, cylRight = bodyX + bodyW
 
-  const safeFill = Math.min(Math.max(fillPct, 0), 100)
-  // Fill splits: cone fills first (bottom), then cylinder body
-  const totalH = bodyH + 58 // total height of liquid space
-  const fillPx = Math.round(totalH * safeFill / 100)
-  const coneH  = 58
-  // How much of the cone is filled vs how much spills into the cylinder body
-  const coneFillH  = Math.min(fillPx, coneH)
-  const bodyFillH  = Math.max(0, fillPx - coneH)
-  const bodyFillY  = bodyTop + bodyH - bodyFillH
+  const safeFill  = Math.min(Math.max(fillPct, 0), 100)
+  const totalH    = bodyH + coneH        // 170 px of liquid space
+  const fillPx    = Math.round(totalH * safeFill / 100)
+  const coneFillH = Math.min(fillPx, coneH)
+  const bodyFillH = Math.max(0, fillPx - coneH)
+  const bodyFillY = bodyTop + bodyH - bodyFillH
+
+  // Cone fill geometry — proportional triangle for partial fill;
+  // expands to full base triangle once liquid rises into the cylinder body.
+  const coneFullyFilled = bodyFillH > 0
+  const coneFrac        = coneFullyFilled ? 1 : Math.min(coneFillH / coneH, 1)
+  const coneFillTopY    = coneFullyFilled ? coneTop : coneTip - coneFillH
+  const coneFillLeftX   = cx - (bodyW / 2) * coneFrac
+  const coneFillRightX  = cx + (bodyW / 2) * coneFrac
 
   const { fill, border } = tankColors(status)
   const clipId = `cc-${uid}`
 
-  // Clip path: union of cylinder body + cone area
-  // We use a polygon covering cylinder + cone to clip the fill
-  const cylLeft = bodyX, cylRight = bodyX + bodyW
-  // Cone narrows from cylLeft/cylRight at coneTop to cx at coneTip
-  const clipPoints = [
-    `${cylLeft},${bodyTop}`,
-    `${cylRight},${bodyTop}`,
-    `${cylRight},${coneTop}`,
-    `${cx},${coneTip}`,
-    `${cylLeft},${coneTop}`,
-  ].join(' ')
-
   return (
-    <svg viewBox="0 0 120 220" width={110} height={190} aria-hidden="true">
+    <svg viewBox="0 0 120 224" width={110} height={200} aria-hidden="true">
       <defs>
+        {/* Clip used by Bubbles to keep them inside the cylinder body */}
         <clipPath id={clipId}>
-          <polygon points={clipPoints} />
+          <rect x={bodyX} y={bodyTop} width={bodyW} height={bodyH} />
         </clipPath>
       </defs>
 
@@ -490,20 +484,20 @@ function ConicalSVG({ uid, fillPct, status }) {
       />
 
       {/* ── Liquid fill ── */}
+      {/* Cone fill: proportional triangle rising from tip upward */}
       {fillPx > 0 && (
         <polygon
-          points={`${cylLeft},${bodyFillH > 0 ? bodyFillY : coneTop} ${cylRight},${bodyFillH > 0 ? bodyFillY : coneTop} ${cylRight},${coneTop} ${cx},${coneTip}`}
+          points={`${coneFillLeftX},${coneFillTopY} ${coneFillRightX},${coneFillTopY} ${cx},${coneTip}`}
           fill={fill} opacity="0.72"
-          clipPath={`url(#${clipId})`}
         />
       )}
+      {/* Cylinder body fill rises from cone junction upward */}
       {bodyFillH > 0 && (
         <rect x={bodyX} y={bodyFillY} width={bodyW} height={bodyFillH}
           fill={fill} opacity="0.72" />
       )}
 
-      {/* ── Dome top cap (ellipse, drawn last so it sits above fill) ── */}
-      {/* Dome arc: use a path for a rounder cap */}
+      {/* ── Dome top cap ── */}
       <path
         d={`M ${bodyX},${bodyTop} A ${bodyW/2},${ey * 2.5} 0 0,1 ${bodyX + bodyW},${bodyTop}`}
         fill="#ECEFF4" stroke={border} strokeWidth="1.5"
@@ -519,29 +513,28 @@ function ConicalSVG({ uid, fillPct, status }) {
       <ellipse cx={cx} cy={bodyTop} rx={bodyW / 2} ry={ey}
         fill="#ECEFF4" stroke={border} strokeWidth="1.5" />
 
-      {/* ── Bottom ellipse at base of cylinder (transition to cone) ── */}
+      {/* ── Bottom ellipse at cylinder/cone junction ── */}
       <ellipse cx={cx} cy={coneTop} rx={bodyW / 2} ry={ey}
         fill={bodyFillH > 0 ? fill : '#E0E0E0'}
         opacity={bodyFillH > 0 ? '0.72' : '1'}
         stroke={border} strokeWidth="1.5" />
 
       {/* ── Cone outline ── */}
-      <line x1={cylLeft} y1={coneTop} x2={cx} y2={coneTip} stroke={border} strokeWidth="1.5" />
+      <line x1={cylLeft}  y1={coneTop} x2={cx} y2={coneTip} stroke={border} strokeWidth="1.5" />
       <line x1={cylRight} y1={coneTop} x2={cx} y2={coneTip} stroke={border} strokeWidth="1.5" />
 
-      {/* ── Small port/valve on cone side ── */}
-      <rect x={cx + 14} y={coneTop + 18} width={10} height={6} rx="1"
+      {/* ── Port/valve on cone side ── */}
+      <rect x={cx + 14} y={coneTop + 12} width={10} height={6} rx="1"
         fill="#E5E7EB" stroke={border} strokeWidth="1" />
-      <circle cx={cx + 19} cy={coneTop + 21} r="2" fill={border} opacity="0.5" />
+      <circle cx={cx + 19} cy={coneTop + 15} r="2" fill={border} opacity="0.5" />
 
       {/* ── Legs ── */}
       <line x1={legLX} y1={coneTip} x2={legLX - 6} y2={legY2} stroke={border} strokeWidth="2" strokeLinecap="round" />
       <line x1={legRX} y1={coneTip} x2={legRX + 6} y2={legY2} stroke={border} strokeWidth="2" strokeLinecap="round" />
-      {/* Leg feet */}
       <line x1={legLX - 10} y1={legY2} x2={legLX - 2} y2={legY2} stroke={border} strokeWidth="2" strokeLinecap="round" />
       <line x1={legRX + 2}  y1={legY2} x2={legRX + 10} y2={legY2} stroke={border} strokeWidth="2" strokeLinecap="round" />
 
-      {/* ── Bubbles (clipped to cylinder body only) ── */}
+      {/* ── Bubbles (clipped to cylinder body) ── */}
       <Bubbles clipId={clipId} fillY={bodyFillY} fillH={bodyFillH} bodyTop={bodyTop} status={status} />
 
       {/* ── Status icon (centre of cylinder body) ── */}
@@ -970,18 +963,15 @@ function GravityChart({ readings, fermentation, height = 320 }) {
 // and action buttons.
 
 function VesselCard({ vessel, fermentation, readings, onLogReading, onViewDetail, onAssignEmpty, isReadOnly }) {
-  // Compute fill percentage from volume vs vessel capacity
-  const fillPct = useMemo(() => {
-    if (!fermentation || !fermentation.volume_in_fermenter) return fermentation ? 55 : 0
-    if (!vessel.capacity) return 55
-    return Math.min((parseFloat(fermentation.volume_in_fermenter) / parseFloat(vessel.capacity)) * 100, 100)
-  }, [fermentation, vessel.capacity])
-
   const status = fermentation ? fermentation.status : 'empty'
 
-  // Days since yeast was pitched
+  // Fixed fill level: 75% for any active fermentation, 0% when empty/packaged/dumped
+  const ACTIVE_STATUSES = new Set(['fermenting', 'conditioning', 'lagering', 'ready_to_package'])
+  const fillPct = ACTIVE_STATUSES.has(status) ? 75 : 0
+
+  // Days since yeast was pitched — clamped to 0 so future pitch dates don't show negative
   const daysFermenting = fermentation?.pitch_date
-    ? Math.floor((new Date() - new Date(fermentation.pitch_date + 'T00:00:00')) / 86400000)
+    ? Math.max(0, Math.floor((new Date() - new Date(fermentation.pitch_date + 'T00:00:00')) / 86400000))
     : null
 
   const latestReading = readings.at(-1) ?? null
@@ -1828,9 +1818,9 @@ function FermentationDetailModal({ fermentation: initialFerm, vessels, readings:
     onReadingChanged()
   }
 
-  // Days since pitch, and estimated remaining based on latest attenuation rate
+  // Days since pitch — clamped to 0 so future pitch dates don't show negative
   const daysFermenting = ferm.pitch_date
-    ? Math.floor((new Date() - new Date(ferm.pitch_date + 'T00:00:00')) / 86400000)
+    ? Math.max(0, Math.floor((new Date() - new Date(ferm.pitch_date + 'T00:00:00')) / 86400000))
     : null
 
   const latestReading = readings.at(-1)
