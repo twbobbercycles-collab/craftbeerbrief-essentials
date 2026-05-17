@@ -130,7 +130,7 @@ export default function BrewDayPage() {
       .from('recipes')
       .select('id, name, style, base_batch_size, base_batch_size_unit, target_og, target_fg, target_abv, target_ibu, target_brewhouse_efficiency, fixed_overhead_percentage')
       .eq('brewery_id', brewery.id)
-      .neq('is_archived', true)
+      .eq('is_archived', false)
       .order('name')
     setRecipes(data ?? [])
   }

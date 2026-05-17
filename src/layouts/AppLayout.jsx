@@ -68,8 +68,9 @@ export default function AppLayout() {
       distRes,
     ] = await Promise.all([
       // Inventory: items with zero or low stock
-      supabase.from('inventory_items').select('id, current_stock_quantity, reorder_point')
-        .eq('brewery_id', brewery.id),
+      supabase.from('ingredients').select('id, current_stock_quantity, reorder_threshold')
+        .eq('brewery_id', brewery.id)
+        .eq('is_active', true),
       // Fermentation: active fermentations
       supabase.from('fermentations').select('id, status, pitch_date')
         .eq('brewery_id', brewery.id)
@@ -82,11 +83,11 @@ export default function AppLayout() {
       supabase.from('packaging_runs').select('id, status')
         .eq('brewery_id', brewery.id)
         .in('status', ['in_progress', 'planned']),
-      // Distribution: overdue keg returns
-      supabase.from('distribution_records').select('id, keg_return_expected, keg_returned, keg_return_date')
+      // Distribution: overdue keg returns (keg_return_date is the expected return date column)
+      supabase.from('distribution_records').select('id, keg_return_date, kegs_returned, keg_returned_date')
         .eq('brewery_id', brewery.id)
-        .eq('keg_return_expected', true)
-        .eq('keg_returned', false),
+        .not('keg_return_date', 'is', null)
+        .eq('kegs_returned', false),
     ])
 
     const warnings = {}
@@ -96,7 +97,7 @@ export default function AppLayout() {
     const outOfStock = invItems.filter(i => (parseFloat(i.current_stock_quantity) || 0) <= 0)
     const lowStock = invItems.filter(i => {
       const qty = parseFloat(i.current_stock_quantity) || 0
-      const reorder = parseFloat(i.reorder_point) || 0
+      const reorder = parseFloat(i.reorder_threshold) || 0
       return reorder > 0 && qty <= reorder && qty > 0
     })
     if (outOfStock.length > 0) warnings.inventory = 'red'
