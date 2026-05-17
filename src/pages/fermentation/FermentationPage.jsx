@@ -67,6 +67,17 @@ const STATUS_TRANSITIONS = {
 const INPUT_CLS = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber disabled:bg-gray-50 disabled:text-gray-400'
 const LBL = 'block text-xs text-gray-500 mb-1'
 
+// Builds a human-readable label for a fermentation: "2026-003 — TestIPA (American IPA)"
+// Suppresses beer_name when it is null, empty, or identical to the batch_number
+// (which happens when the auto-create fallback used the batch number as the name).
+function fermLabel(f) {
+  const batch = f.batch_number || 'Unknown Batch'
+  const name  = f.beer_name && f.beer_name !== f.batch_number ? f.beer_name : null
+  const style = f.beer_style ? `(${f.beer_style})` : ''
+  if (name) return `${batch} — ${name} ${style}`.trim()
+  return batch
+}
+
 // ─── Entry Point — TierGate wrapper ──────────────────────────────────────────
 
 export default function FermentationPage() {
@@ -286,6 +297,7 @@ function FermentationTracker() {
         <FermentationDetailModal
           fermentation={detailTarget}
           vessels={vessels}
+          availableVessels={vessels.filter(v => !vesselFermMap[v.id] || v.id === detailTarget?.vessel_id)}
           readings={gravityMap[detailTarget.id] ?? []}
           onClose={() => { setDetailTarget(null); loadData() }}
           onUpdated={updated => {
@@ -340,7 +352,10 @@ function PendingSection({ fermentations, vessels, onAssign, isReadOnly }) {
               return (
                 <div key={f.id} className="flex items-center justify-between px-5 py-3 flex-wrap gap-3">
                   <div className="min-w-0">
-                    <p className="font-semibold text-navy text-sm">{f.beer_name}</p>
+                    <p className="font-semibold text-navy text-sm">
+                      {f.beer_name}
+                      {f.beer_style && <span className="font-normal text-gray-400 ml-1.5">({f.beer_style})</span>}
+                    </p>
                     <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-500 mt-0.5">
                       {f.batch_number && <span className="font-mono bg-navy/10 text-navy px-1.5 py-0.5 rounded text-[10px] font-bold">{f.batch_number}</span>}
                       <span>Brew date: {brewDate}</span>
@@ -811,12 +826,10 @@ function MiniSparkline({ readings, targetFg, fermentation }) {
     )
   }
 
-  // Build chart data using days-since-pitch as x-axis
-  const pitchDate = fermentation?.pitch_date ? new Date(fermentation.pitch_date + 'T00:00:00') : null
-  const data = readings.map(r => ({
-    day: pitchDate ? Math.round((new Date(r.reading_date + 'T00:00:00') - pitchDate) / 86400000) : null,
-    gravity: parseFloat(r.gravity),
-  }))
+  // Sort chronologically then assign a sequential index as x — avoids null day values
+  // that cause recharts to collapse all points to the same x position.
+  const sorted = [...readings].sort((a, b) => a.reading_date.localeCompare(b.reading_date))
+  const data = sorted.map((r, i) => ({ i, gravity: parseFloat(r.gravity) }))
 
   const gravities = data.map(d => d.gravity)
   const tFg = targetFg ? parseFloat(targetFg) : null
@@ -829,6 +842,7 @@ function MiniSparkline({ readings, targetFg, fermentation }) {
   return (
     <ResponsiveContainer width="100%" height={80}>
       <LineChart data={data} margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
+        <XAxis dataKey="i" hide />
         {tFg !== null && (
           <ReferenceLine y={tFg} stroke="#D1D5DB" strokeDasharray="4 2" strokeWidth={1} />
         )}
@@ -1277,9 +1291,7 @@ function AssignVesselModal({ preSelectedFermentation, preSelectedVessel, ferment
               <label className={LBL}>Fermentation batch</label>
               <select className={INPUT_CLS} value={fermId} onChange={e => setFermId(e.target.value)}>
                 {fermentations.map(f => (
-                  <option key={f.id} value={f.id}>
-                    {f.beer_name}{f.batch_number ? ` (${f.batch_number})` : ''}
-                  </option>
+                  <option key={f.id} value={f.id}>{fermLabel(f)}</option>
                 ))}
               </select>
             </div>
@@ -1683,15 +1695,18 @@ function AddFermentationModal({ onClose, onSaved }) {
 // ─── FermentationDetailModal ──────────────────────────────────────────────────
 // Full detail view with four tabs: Overview, Gravity Log, Dry Hop, Notes.
 
-function FermentationDetailModal({ fermentation: initialFerm, vessels, readings: initialReadings, onClose, onUpdated, onReadingChanged }) {
+function FermentationDetailModal({ fermentation: initialFerm, vessels, availableVessels, readings: initialReadings, onClose, onUpdated, onReadingChanged }) {
   const { brewery } = useAuth()
   const { isReadOnly } = useReadOnly()
 
   const [ferm, setFerm]         = useState(initialFerm)
   const [readings, setReadings] = useState(initialReadings)
   const [tab, setTab]           = useState('overview')
-  const [saveStatus, setSaveStatus] = useState(null) // null | 'saving' | 'saved'
+  const [saveStatus, setSaveStatus]     = useState(null) // null | 'saving' | 'saved'
   const [statusChanging, setStatusChanging] = useState(false)
+  const [statusError, setStatusError]   = useState('')
+  const [showVesselChange, setShowVesselChange] = useState(false)
+  const [reassignSuccess, setReassignSuccess]   = useState('')
   const [showLogForm, setShowLogForm] = useState(false)
   const [logForm, setLogForm] = useState({ date: new Date().toISOString().slice(0, 10), gravity: '', temperature: '', notes: '' })
   const [logError, setLogError] = useState('')
@@ -1745,14 +1760,54 @@ function FermentationDetailModal({ fermentation: initialFerm, vessels, readings:
     }
   }
 
+  // Save actual_fg and auto-calculate actual_abv in one DB round-trip
+  async function saveActualFg(rawValue) {
+    const fg = rawValue === '' ? null : parseFloat(rawValue)
+    const updates = { actual_fg: fg }
+    if (fg !== null && ferm.actual_og) {
+      updates.actual_abv = parseFloat(((parseFloat(ferm.actual_og) - fg) * 131.25).toFixed(2))
+    }
+    setSaveStatus('saving')
+    const { error } = await supabase.from('fermentations').update(updates).eq('id', ferm.id)
+    if (error) { setSaveStatus(null); return }
+    const updated = { ...ferm, ...updates }
+    setFerm(updated)
+    onUpdated(updated)
+    setSaveStatus('saved')
+    setTimeout(() => setSaveStatus(s => s === 'saved' ? null : s), 2000)
+  }
+
+  // Reassign to a different vessel and show a timed success message
+  async function reassignVessel(newVesselId) {
+    if (isReadOnly) return
+    setSaveStatus('saving')
+    const { error } = await supabase.from('fermentations')
+      .update({ vessel_id: newVesselId || null })
+      .eq('id', ferm.id)
+    if (error) { setSaveStatus(null); return }
+    const updated = { ...ferm, vessel_id: newVesselId || null }
+    setFerm(updated)
+    onUpdated(updated)
+    setSaveStatus('saved')
+    setShowVesselChange(false)
+    const vName = (availableVessels ?? vessels).find(v => v.id === newVesselId)?.vessel_name
+    if (vName) {
+      setReassignSuccess(`Vessel reassigned to ${vName}`)
+      setTimeout(() => setReassignSuccess(''), 3000)
+    }
+    setTimeout(() => setSaveStatus(s => s === 'saved' ? null : s), 2000)
+  }
+
   // Advance to a new status — validates preconditions
   async function changeStatus(newStatus) {
+    setStatusError('')
     if (newStatus === 'fermenting' && !ferm.vessel_id) {
-      alert('Assign a vessel before moving to Fermenting.')
+      setStatusError('Assign a vessel before moving to Fermenting.')
       return
     }
-    if (newStatus === 'conditioning' && !ferm.actual_fg && readings.length === 0) {
-      if (!window.confirm('No gravity readings logged. Continue to Conditioning anyway?')) return
+    if (newStatus === 'conditioning' && !ferm.actual_fg) {
+      setStatusError('Please log a final gravity reading before moving to conditioning. Update the Actual FG in the Overview tab first.')
+      return
     }
     if (!window.confirm(`Move this fermentation to "${STATUS_LABELS[newStatus]}"?`)) return
 
@@ -1879,12 +1934,44 @@ function FermentationDetailModal({ fermentation: initialFerm, vessels, readings:
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className={LBL}>Vessel</label>
-                <select className={INPUT_CLS} {...si('vessel_id')} value={ferm.vessel_id ?? ''}>
-                  <option value="">— Not assigned —</option>
-                  {vessels.map(v => (
-                    <option key={v.id} value={v.id}>{v.vessel_name} — {v.vessel_type}</option>
-                  ))}
-                </select>
+                {!showVesselChange ? (
+                  <div className="flex items-center gap-2 min-h-[38px]">
+                    <span className="text-sm font-medium text-navy">
+                      {vessels.find(v => v.id === ferm.vessel_id)?.vessel_name ?? '— Not assigned —'}
+                    </span>
+                    {!isReadOnly && (
+                      <button
+                        onClick={() => setShowVesselChange(true)}
+                        className="text-[11px] text-amber underline underline-offset-2 hover:text-amber-dark shrink-0"
+                      >
+                        Change
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    <select
+                      className={INPUT_CLS}
+                      value={ferm.vessel_id ?? ''}
+                      onChange={e => reassignVessel(e.target.value)}
+                      disabled={isReadOnly}
+                    >
+                      <option value="">— Not assigned —</option>
+                      {(availableVessels ?? vessels).map(v => (
+                        <option key={v.id} value={v.id}>{v.vessel_name} — {v.vessel_type}</option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() => setShowVesselChange(false)}
+                      className="text-[11px] text-gray-400 hover:text-gray-600"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+                {reassignSuccess && (
+                  <p className="text-[11px] text-success mt-1">{reassignSuccess}</p>
+                )}
               </div>
               <div>
                 <label className={LBL}>Fermentation type</label>
@@ -1921,7 +2008,12 @@ function FermentationDetailModal({ fermentation: initialFerm, vessels, readings:
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div>
                 <label className={LBL}>Actual FG</label>
-                <input type="number" step="0.001" className={INPUT_CLS} placeholder="1.010" {...fi('actual_fg', 'number')} />
+                <input type="number" step="0.001" className={INPUT_CLS} placeholder="1.010"
+                  value={ferm?.actual_fg ?? ''}
+                  disabled={isReadOnly}
+                  onChange={e => setFerm(p => ({ ...p, actual_fg: e.target.value }))}
+                  onBlur={e => saveActualFg(e.target.value.trim())}
+                />
               </div>
               <div>
                 <label className={LBL}>Target ABV %</label>
@@ -1993,12 +2085,17 @@ function FermentationDetailModal({ fermentation: initialFerm, vessels, readings:
               <div className="border-t border-gray-100 pt-4">
                 <p className="text-xs text-gray-500 mb-2 font-medium uppercase tracking-wide">Change status</p>
                 <div className="flex flex-wrap gap-2">
-                  {nextStatuses.map(ns => (
-                    <button key={ns} onClick={() => changeStatus(ns)} disabled={statusChanging || isReadOnly}
-                      className="text-xs bg-navy text-white rounded-lg px-3 py-1.5 hover:bg-navy-light transition-colors disabled:opacity-50">
-                      → {STATUS_LABELS[ns]}
-                    </button>
-                  ))}
+                  {nextStatuses.map(ns => {
+                    const blocked = ns === 'conditioning' && ferm.status === 'fermenting' && !ferm.actual_fg
+                    return (
+                      <button key={ns} onClick={() => changeStatus(ns)}
+                        disabled={statusChanging || isReadOnly || blocked}
+                        title={blocked ? 'Set Actual FG in the Overview tab first' : undefined}
+                        className="text-xs bg-navy text-white rounded-lg px-3 py-1.5 hover:bg-navy-light transition-colors disabled:opacity-50">
+                        → {STATUS_LABELS[ns]}
+                      </button>
+                    )
+                  })}
                   {!['packaged', 'dumped'].includes(ferm.status) && (
                     <button onClick={handleDump} disabled={statusChanging || isReadOnly}
                       className="text-xs border border-danger text-danger rounded-lg px-3 py-1.5 hover:bg-red-50 transition-colors disabled:opacity-50 ml-auto">
@@ -2006,6 +2103,9 @@ function FermentationDetailModal({ fermentation: initialFerm, vessels, readings:
                     </button>
                   )}
                 </div>
+                {statusError && (
+                  <p className="text-xs text-danger mt-2">{statusError}</p>
+                )}
               </div>
             )}
           </div>

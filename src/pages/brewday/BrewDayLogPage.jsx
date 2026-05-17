@@ -167,7 +167,7 @@ export default function BrewDayLogPage() {
       brew_day_id:          completedBd.id,
       recipe_id:            completedBd.recipe_id ?? null,
       batch_number:         completedBd.batch_number ?? null,
-      beer_name:            completedBd.recipe_name || completedBd.beer_style || `Batch ${completedBd.batch_number ?? ''}`,
+      beer_name:            completedBd.recipe_name || null,
       beer_style:           completedBd.beer_style ?? null,
       status:               'pending_assignment',
       fermentation_type:    completedBd.fermentation_type ?? 'standard',
