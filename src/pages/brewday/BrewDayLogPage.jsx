@@ -95,16 +95,24 @@ export default function BrewDayLogPage() {
     if (isReadOnly) return
 
     async function autoPopulateHops() {
-      // Fetch the recipe base batch size for scaling
+      // recipe_ingredients CHECK allows: 'Mash','Boil','Whirlpool','Dry Hop','Fermentation',
+      // 'Conditioning','Packaging','Other'. 'First Wort'/'Flameout' live only on brew_day_hop_additions.
       const [recipeRes, hopIngRes] = await Promise.all([
         supabase.from('recipes').select('base_batch_size').eq('id', bd.recipe_id).single(),
         supabase.from('recipe_ingredients')
-          .select('id, name, ingredient_id, amount, unit, addition_type, addition_time, category')
+          .select('id, ingredient_name, ingredient_id, amount, unit, addition_type, addition_time')
           .eq('recipe_id', bd.recipe_id)
-          .in('addition_type', ['Boil', 'Whirlpool', 'Dry Hop', 'First Wort', 'Flameout'])
-          .order('addition_time', { ascending: false }),
+          .in('addition_type', ['Boil', 'Whirlpool', 'Dry Hop'])
+          .order('sort_order'),
       ])
+
       const hopIngs = hopIngRes.data ?? []
+      console.log('[BrewDayLogPage] autoPopulateHops:', {
+        recipe_id:    bd.recipe_id,
+        hopIngError:  hopIngRes.error,
+        hopIngCount:  hopIngs.length,
+        hopIngs,
+      })
       if (hopIngs.length === 0) return
 
       const scale = (recipeRes.data?.base_batch_size && bd.planned_batch_size)
@@ -114,7 +122,7 @@ export default function BrewDayLogPage() {
       const inserts = hopIngs.map(h => ({
         brew_day_id:     bd.id,
         brewery_id:      brewery.id,
-        ingredient_name: h.name,
+        ingredient_name: h.ingredient_name,   // correct column name on recipe_ingredients
         ingredient_id:   h.ingredient_id ?? null,
         planned_amount:  h.amount != null ? Math.round(parseFloat(h.amount) * scale * 100) / 100 : null,
         unit:            h.unit ?? 'oz',
@@ -122,11 +130,12 @@ export default function BrewDayLogPage() {
         planned_time:    h.addition_time ?? null,
       }))
 
-      const { data: created } = await supabase
+      const { data: created, error: insertErr } = await supabase
         .from('brew_day_hop_additions')
         .insert(inserts)
         .select()
 
+      console.log('[BrewDayLogPage] hop additions created:', { count: created?.length ?? 0, insertErr })
       if (created?.length > 0) {
         setHopAdditions(prev => [...prev, ...created])
         setHopAutoPopulated(true)

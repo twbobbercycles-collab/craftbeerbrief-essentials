@@ -96,9 +96,12 @@ function SparklineTooltip({ active, payload, label, unit = '' }) {
   const date = d?.payload?.date
     ? new Date(d.payload.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
     : label
+  const formatted = unit === '°F'
+    ? (d?.value?.toFixed(1) ?? d?.value)
+    : (d?.value?.toFixed(3) ?? d?.value)
   return (
     <div className="bg-white border border-gray-200 rounded-md shadow-sm px-2 py-1.5">
-      <p className="text-xs text-navy font-semibold">{d?.value}{unit}</p>
+      <p className="text-xs text-navy font-semibold">{formatted}{unit}</p>
       <p className="text-xs text-gray-400">{date}</p>
     </div>
   )
@@ -908,7 +911,7 @@ function MiniTempSparkline({ readings }) {
   return (
     <div className="mt-3">
       <div className="flex justify-between items-center mb-1">
-        <p className="text-[11px] text-gray-400">Fermentation Temperature</p>
+        <p className="text-[11px] text-gray-400">Temperature</p>
         {latest && (
           <p className="text-[11px] font-semibold text-blue-600">
             {latest.temp.toFixed(1)}°F
@@ -941,6 +944,14 @@ function MiniTempSparkline({ readings }) {
 function GravityChart({ readings, fermentation, height = 320 }) {
   const pitchDate = fermentation?.pitch_date ? new Date(fermentation.pitch_date + 'T00:00:00') : null
   const tFg = fermentation?.target_fg ? parseFloat(fermentation.target_fg) : null
+
+  // Stage boundary days (days since pitch) for vertical divider lines and dot coloring
+  const conditioningDay = fermentation?.conditioning_start_date && pitchDate
+    ? Math.round((new Date(fermentation.conditioning_start_date + 'T00:00:00') - pitchDate) / 86400000)
+    : null
+  const lageringDay = fermentation?.lagering_start_date && pitchDate
+    ? Math.round((new Date(fermentation.lagering_start_date + 'T00:00:00') - pitchDate) / 86400000)
+    : null
 
   // Convert readings to chart data points keyed by days-since-pitch
   const actual = readings.map(r => ({
@@ -1008,7 +1019,7 @@ function GravityChart({ readings, fermentation, height = 320 }) {
           width={55}
         />
         <Tooltip
-          formatter={(v, name) => [v?.toFixed(4), name === 'gravity' ? 'Gravity' : 'Projected']}
+          formatter={(v, name) => [v?.toFixed(3), name === 'gravity' ? 'Gravity' : 'Projected']}
           labelFormatter={d => `Day ${d}`}
           contentStyle={{ fontSize: 12 }}
         />
@@ -1020,12 +1031,37 @@ function GravityChart({ readings, fermentation, height = 320 }) {
             label={{ value: `Target FG: ${tFg.toFixed(3)}`, position: 'right', fontSize: 10, fill: '#9CA3AF' }}
           />
         )}
+        {conditioningDay !== null && (
+          <ReferenceLine
+            x={conditioningDay}
+            stroke="#3B82F6"
+            strokeDasharray="6 3"
+            strokeWidth={1.5}
+            label={{ value: '→ Conditioning', position: 'top', fontSize: 9, fill: '#3B82F6' }}
+          />
+        )}
+        {lageringDay !== null && (
+          <ReferenceLine
+            x={lageringDay}
+            stroke="#6366F1"
+            strokeDasharray="6 3"
+            strokeWidth={1.5}
+            label={{ value: '→ Lagering', position: 'top', fontSize: 9, fill: '#6366F1' }}
+          />
+        )}
         <Line
           type="monotone"
           dataKey="gravity"
           stroke="#F59E0B"
           strokeWidth={2.5}
-          dot={{ r: 4, fill: '#F59E0B', strokeWidth: 0 }}
+          dot={(props) => {
+            const { cx, cy, payload } = props
+            const color =
+              lageringDay !== null && payload.day >= lageringDay ? '#6366F1' :
+              conditioningDay !== null && payload.day >= conditioningDay ? '#3B82F6' :
+              '#F59E0B'
+            return <circle key={payload.day} cx={cx} cy={cy} r={4} fill={color} />
+          }}
           connectNulls={false}
           isAnimationActive={false}
           name="Actual"
@@ -1368,10 +1404,10 @@ function AssignVesselModal({ preSelectedFermentation, preSelectedVessel, ferment
     setSaving(true)
     const today = new Date().toISOString().slice(0, 10)
 
-    // Fetch fermentation to check pitch_date, volume, and brew_day link
+    // Fetch fermentation to check pitch_date, volume, volume_unit, and brew_day link
     const { data: f } = await supabase
       .from('fermentations')
-      .select('pitch_date, brew_day_id, volume_in_fermenter')
+      .select('pitch_date, brew_day_id, volume_in_fermenter, volume_unit')
       .eq('id', fermId)
       .single()
 
@@ -1392,6 +1428,37 @@ function AssignVesselModal({ preSelectedFermentation, preSelectedVessel, ferment
       if (bd?.volume_into_fermenter != null) {
         update.volume_in_fermenter = bd.volume_into_fermenter
         if (bd.planned_batch_unit) update.volume_unit = bd.planned_batch_unit
+      }
+    }
+
+    // Capacity check — convert both volumes to barrels before comparing
+    const bbl = (val, unit) => {
+      const v = parseFloat(val)
+      if (!v) return 0
+      const u = (unit || 'barrels').toLowerCase()
+      if (u === 'gallons' || u === 'gallon') return v / 31
+      if (u === 'liters' || u === 'litres' || u === 'l') return v / 117.35
+      return v // assume barrels
+    }
+    const vessel    = vessels.find(v => v.id === vesselId)
+    const batchVol  = update.volume_in_fermenter ?? f?.volume_in_fermenter
+    const batchUnit = update.volume_unit          ?? f?.volume_unit
+    if (vessel?.capacity && batchVol) {
+      const batchBbl  = bbl(batchVol, batchUnit)
+      const vesselBbl = bbl(vessel.capacity, vessel.capacity_unit)
+      console.log('[handleAssign] capacity check', {
+        vessel: vessel.vessel_name,
+        vesselCapacity: `${vessel.capacity} ${vessel.capacity_unit}`,
+        vesselBbl,
+        batchVolume: `${batchVol} ${batchUnit}`,
+        batchBbl,
+      })
+      if (batchBbl > vesselBbl) {
+        setError(
+          `Cannot assign — batch is ${batchBbl.toFixed(2)} bbl but ${vessel.vessel_name} only holds ${vesselBbl.toFixed(2)} bbl. Please select a larger vessel.`
+        )
+        setSaving(false)
+        return
       }
     }
 
@@ -1843,6 +1910,9 @@ function FermentationDetailModal({ fermentation: initialFerm, vessels, available
   const [stageFormOpen, setStageFormOpen] = useState(false)  // 'conditioning' | 'lagering' | false
   const [stageForm, setStageForm] = useState({ temp_target: '', duration_days: '', notes: '' })
   const [pendingStatus, setPendingStatus] = useState(null)
+
+  // Stage History collapse state — all open by default
+  const [stageCollapse, setStageCollapse] = useState({ primary: true, conditioning: true, lagering: true })
 
   // Reload readings when the log changes externally (e.g. from vessel card Log Reading button)
   useEffect(() => { setReadings(initialReadings) }, [initialReadings])
@@ -2379,45 +2449,347 @@ function FermentationDetailModal({ fermentation: initialFerm, vessels, available
             </div>
 
             {/* Part 2D: Stage History */}
-            {(ferm.pitch_date || ferm.conditioning_start_date || ferm.lagering_start_date) && (
-              <div className="mt-4 border-t pt-4">
-                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Stage History</h4>
-                <div className="space-y-2 text-sm">
-                  {ferm.pitch_date && (
-                    <div className="bg-amber/5 rounded-lg px-3 py-2">
-                      <p className="font-medium text-navy">Primary Fermentation</p>
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        Pitched {ferm.pitch_date}
-                        {ferm.pitch_temp && ` at ${ferm.pitch_temp}°F`}
-                        {ferm.yeast_strain && ` — ${ferm.yeast_strain}`}
-                      </p>
-                    </div>
-                  )}
-                  {ferm.conditioning_start_date && (
-                    <div className="bg-blue-50 rounded-lg px-3 py-2">
-                      <p className="font-medium text-blue-800">Conditioning</p>
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        Started {ferm.conditioning_start_date}
-                        {ferm.conditioning_temp_target && ` · Target: ${ferm.conditioning_temp_target}°F`}
-                        {ferm.conditioning_duration_days && ` · ${ferm.conditioning_duration_days} days`}
-                      </p>
-                      {ferm.conditioning_notes && <p className="text-xs text-gray-600 mt-1">{ferm.conditioning_notes}</p>}
-                    </div>
-                  )}
-                  {ferm.lagering_start_date && (
-                    <div className="bg-indigo-50 rounded-lg px-3 py-2">
-                      <p className="font-medium text-indigo-800">Lagering</p>
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        Started {ferm.lagering_start_date}
-                        {ferm.lagering_temp_target && ` · Target: ${ferm.lagering_temp_target}°F`}
-                        {ferm.lagering_duration_days && ` · ${ferm.lagering_duration_days} days`}
-                      </p>
-                      {ferm.lagering_notes && <p className="text-xs text-gray-600 mt-1">{ferm.lagering_notes}</p>}
-                    </div>
-                  )}
+            {(ferm.pitch_date || ferm.conditioning_start_date || ferm.lagering_start_date) && (() => {
+              const today_ = new Date().toISOString().slice(0, 10)
+              const sortedReadings = [...readings].sort((a, b) => a.reading_date.localeCompare(b.reading_date))
+              const primaryReadings = sortedReadings.filter(r =>
+                !ferm.conditioning_start_date || r.reading_date < ferm.conditioning_start_date
+              )
+              const condReadings = sortedReadings.filter(r =>
+                ferm.conditioning_start_date &&
+                r.reading_date >= ferm.conditioning_start_date &&
+                (!ferm.lagering_start_date || r.reading_date < ferm.lagering_start_date)
+              )
+              const lagerReadings = sortedReadings.filter(r =>
+                ferm.lagering_start_date && r.reading_date >= ferm.lagering_start_date
+              )
+              return (
+                <div className="mt-4 border-t pt-4">
+                  <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Stage History</h4>
+                  <div className="space-y-3">
+
+                    {/* ── Primary Fermentation ── */}
+                    {ferm.pitch_date && (() => {
+                      const endDate = ferm.conditioning_start_date ?? today_
+                      const daysInPrimary = Math.floor(
+                        (new Date(endDate + 'T00:00:00') - new Date(ferm.pitch_date + 'T00:00:00')) / 86400000
+                      )
+                      const yeastDisplay = ferm.yeast_strain ?? brewDayYeastStrain
+                      const startG = primaryReadings[0]?.gravity ?? ferm.actual_og
+                      const endG   = primaryReadings.at(-1)?.gravity
+                      const attn   = startG && endG && primaryReadings.length > 1
+                        ? Math.round(((parseFloat(startG) - parseFloat(endG)) / (parseFloat(startG) - 1.0)) * 100)
+                        : null
+                      const isOpen = stageCollapse.primary
+                      return (
+                        <div className="border border-amber/30 rounded-lg overflow-hidden">
+                          <button
+                            className="w-full flex items-center justify-between px-3 py-2.5 bg-amber/5 text-left"
+                            onClick={() => setStageCollapse(p => ({ ...p, primary: !p.primary }))}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-full bg-amber shrink-0" />
+                              <span className="font-semibold text-navy text-sm">Primary Fermentation</span>
+                            </div>
+                            <span className="text-gray-400 text-xs">{isOpen ? '▲' : '▼'}</span>
+                          </button>
+                          {isOpen && (
+                            <div className="px-3 pb-3 pt-2 space-y-3 bg-white">
+                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2">
+                                <div>
+                                  <p className="text-[10px] text-gray-400 uppercase tracking-wide">Pitch Date</p>
+                                  <p className="text-xs font-medium text-gray-700">{ferm.pitch_date}</p>
+                                </div>
+                                {ferm.pitch_temp && (
+                                  <div>
+                                    <p className="text-[10px] text-gray-400 uppercase tracking-wide">Pitch Temp</p>
+                                    <p className="text-xs font-medium text-gray-700">{ferm.pitch_temp}°F</p>
+                                  </div>
+                                )}
+                                {ferm.fermentation_temp_target && (
+                                  <div>
+                                    <p className="text-[10px] text-gray-400 uppercase tracking-wide">Ferm Temp Target</p>
+                                    <p className="text-xs font-medium text-gray-700">{ferm.fermentation_temp_target}°F</p>
+                                  </div>
+                                )}
+                                <div>
+                                  <p className="text-[10px] text-gray-400 uppercase tracking-wide">Days in Primary</p>
+                                  <p className="text-xs font-medium text-gray-700">
+                                    {daysInPrimary} day{daysInPrimary !== 1 ? 's' : ''}
+                                    {!ferm.conditioning_start_date && ferm.status === 'fermenting' && ' (ongoing)'}
+                                  </p>
+                                </div>
+                                {yeastDisplay && (
+                                  <div>
+                                    <p className="text-[10px] text-gray-400 uppercase tracking-wide">Yeast Strain</p>
+                                    <p className="text-xs font-medium text-gray-700">{yeastDisplay}</p>
+                                  </div>
+                                )}
+                                {ferm.yeast_generation && (
+                                  <div>
+                                    <p className="text-[10px] text-gray-400 uppercase tracking-wide">Generation</p>
+                                    <p className="text-xs font-medium text-gray-700">Gen {ferm.yeast_generation}</p>
+                                  </div>
+                                )}
+                                {startG && (
+                                  <div>
+                                    <p className="text-[10px] text-gray-400 uppercase tracking-wide">Starting Gravity</p>
+                                    <p className="text-xs font-medium text-gray-700">{parseFloat(startG).toFixed(3)}</p>
+                                  </div>
+                                )}
+                                {endG && primaryReadings.length > 1 && (
+                                  <div>
+                                    <p className="text-[10px] text-gray-400 uppercase tracking-wide">Ending Gravity</p>
+                                    <p className="text-xs font-medium text-gray-700">{parseFloat(endG).toFixed(3)}</p>
+                                  </div>
+                                )}
+                                {attn !== null && (
+                                  <div>
+                                    <p className="text-[10px] text-gray-400 uppercase tracking-wide">Attenuation</p>
+                                    <p className="text-xs font-medium text-gray-700">{attn}%</p>
+                                  </div>
+                                )}
+                              </div>
+                              {primaryReadings.length >= 2 && (
+                                <MiniSparkline readings={primaryReadings} targetFg={ferm.target_fg} fermentation={ferm} />
+                              )}
+                              {primaryReadings.length > 0 ? (
+                                <div className="overflow-x-auto">
+                                  <table className="w-full text-xs">
+                                    <thead>
+                                      <tr className="text-[10px] text-gray-400 uppercase tracking-wide border-b border-amber/20">
+                                        <th className="text-left pb-1.5">Date</th>
+                                        <th className="text-right pb-1.5">Gravity</th>
+                                        <th className="text-right pb-1.5">Temp °F</th>
+                                        <th className="text-left pb-1.5 pl-3">Notes</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-amber/10">
+                                      {primaryReadings.map(r => (
+                                        <tr key={r.id}>
+                                          <td className="py-1.5 text-gray-600">
+                                            {new Date(r.reading_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                          </td>
+                                          <td className="py-1.5 text-right font-mono font-semibold text-amber">{parseFloat(r.gravity).toFixed(3)}</td>
+                                          <td className="py-1.5 text-right text-gray-500">{r.temperature ?? '—'}</td>
+                                          <td className="py-1.5 pl-3 text-gray-500">{r.notes ?? ''}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              ) : (
+                                <p className="text-xs text-gray-400">No gravity readings logged during primary fermentation.</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })()}
+
+                    {/* ── Conditioning ── */}
+                    {ferm.conditioning_start_date && (() => {
+                      const endDate = ferm.lagering_start_date ?? today_
+                      const days = Math.floor(
+                        (new Date(endDate + 'T00:00:00') - new Date(ferm.conditioning_start_date + 'T00:00:00')) / 86400000
+                      )
+                      const startG = condReadings[0]?.gravity
+                      const endG   = condReadings.at(-1)?.gravity
+                      const isOpen = stageCollapse.conditioning
+                      return (
+                        <div className="border border-blue-200 rounded-lg overflow-hidden">
+                          <button
+                            className="w-full flex items-center justify-between px-3 py-2.5 bg-blue-50 text-left"
+                            onClick={() => setStageCollapse(p => ({ ...p, conditioning: !p.conditioning }))}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" />
+                              <span className="font-semibold text-blue-800 text-sm">Conditioning</span>
+                            </div>
+                            <span className="text-gray-400 text-xs">{isOpen ? '▲' : '▼'}</span>
+                          </button>
+                          {isOpen && (
+                            <div className="px-3 pb-3 pt-2 space-y-3 bg-white">
+                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2">
+                                <div>
+                                  <p className="text-[10px] text-gray-400 uppercase tracking-wide">Start Date</p>
+                                  <p className="text-xs font-medium text-gray-700">{ferm.conditioning_start_date}</p>
+                                </div>
+                                {ferm.conditioning_temp_target && (
+                                  <div>
+                                    <p className="text-[10px] text-gray-400 uppercase tracking-wide">Temp Target</p>
+                                    <p className="text-xs font-medium text-gray-700">{ferm.conditioning_temp_target}°F</p>
+                                  </div>
+                                )}
+                                {ferm.conditioning_duration_days && (
+                                  <div>
+                                    <p className="text-[10px] text-gray-400 uppercase tracking-wide">Target Duration</p>
+                                    <p className="text-xs font-medium text-gray-700">{ferm.conditioning_duration_days} days</p>
+                                  </div>
+                                )}
+                                <div>
+                                  <p className="text-[10px] text-gray-400 uppercase tracking-wide">Days in Conditioning</p>
+                                  <p className="text-xs font-medium text-gray-700">
+                                    {days} day{days !== 1 ? 's' : ''}
+                                    {!ferm.lagering_start_date && ferm.status === 'conditioning' && ' (ongoing)'}
+                                  </p>
+                                </div>
+                                {startG && (
+                                  <div>
+                                    <p className="text-[10px] text-gray-400 uppercase tracking-wide">Starting Gravity</p>
+                                    <p className="text-xs font-medium text-gray-700">{parseFloat(startG).toFixed(3)}</p>
+                                  </div>
+                                )}
+                                {endG && condReadings.length > 1 && (
+                                  <div>
+                                    <p className="text-[10px] text-gray-400 uppercase tracking-wide">Ending Gravity</p>
+                                    <p className="text-xs font-medium text-gray-700">{parseFloat(endG).toFixed(3)}</p>
+                                  </div>
+                                )}
+                              </div>
+                              {ferm.conditioning_notes && (
+                                <p className="text-xs text-gray-600 bg-blue-50 rounded px-2 py-1.5">{ferm.conditioning_notes}</p>
+                              )}
+                              {condReadings.length >= 2 && (
+                                <MiniSparkline readings={condReadings} targetFg={ferm.target_fg} fermentation={ferm} />
+                              )}
+                              {condReadings.length > 0 ? (
+                                <div className="overflow-x-auto">
+                                  <table className="w-full text-xs">
+                                    <thead>
+                                      <tr className="text-[10px] text-gray-400 uppercase tracking-wide border-b border-blue-200">
+                                        <th className="text-left pb-1.5">Date</th>
+                                        <th className="text-right pb-1.5">Gravity</th>
+                                        <th className="text-right pb-1.5">Temp °F</th>
+                                        <th className="text-left pb-1.5 pl-3">Notes</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-blue-100">
+                                      {condReadings.map(r => (
+                                        <tr key={r.id}>
+                                          <td className="py-1.5 text-gray-600">
+                                            {new Date(r.reading_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                          </td>
+                                          <td className="py-1.5 text-right font-mono font-semibold text-blue-700">{parseFloat(r.gravity).toFixed(3)}</td>
+                                          <td className="py-1.5 text-right text-gray-500">{r.temperature ?? '—'}</td>
+                                          <td className="py-1.5 pl-3 text-gray-500">{r.notes ?? ''}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              ) : (
+                                <p className="text-xs text-gray-400">No gravity readings logged during conditioning.</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })()}
+
+                    {/* ── Lagering ── */}
+                    {ferm.lagering_start_date && (() => {
+                      const days = Math.floor(
+                        (new Date(today_ + 'T00:00:00') - new Date(ferm.lagering_start_date + 'T00:00:00')) / 86400000
+                      )
+                      const startG = lagerReadings[0]?.gravity
+                      const endG   = lagerReadings.at(-1)?.gravity
+                      const isOpen = stageCollapse.lagering
+                      return (
+                        <div className="border border-indigo-200 rounded-lg overflow-hidden">
+                          <button
+                            className="w-full flex items-center justify-between px-3 py-2.5 bg-indigo-50 text-left"
+                            onClick={() => setStageCollapse(p => ({ ...p, lagering: !p.lagering }))}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-full bg-indigo-500 shrink-0" />
+                              <span className="font-semibold text-indigo-800 text-sm">Lagering</span>
+                            </div>
+                            <span className="text-gray-400 text-xs">{isOpen ? '▲' : '▼'}</span>
+                          </button>
+                          {isOpen && (
+                            <div className="px-3 pb-3 pt-2 space-y-3 bg-white">
+                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2">
+                                <div>
+                                  <p className="text-[10px] text-gray-400 uppercase tracking-wide">Start Date</p>
+                                  <p className="text-xs font-medium text-gray-700">{ferm.lagering_start_date}</p>
+                                </div>
+                                {ferm.lagering_temp_target && (
+                                  <div>
+                                    <p className="text-[10px] text-gray-400 uppercase tracking-wide">Temp Target</p>
+                                    <p className="text-xs font-medium text-gray-700">{ferm.lagering_temp_target}°F</p>
+                                  </div>
+                                )}
+                                {ferm.lagering_duration_days && (
+                                  <div>
+                                    <p className="text-[10px] text-gray-400 uppercase tracking-wide">Target Duration</p>
+                                    <p className="text-xs font-medium text-gray-700">{ferm.lagering_duration_days} days</p>
+                                  </div>
+                                )}
+                                <div>
+                                  <p className="text-[10px] text-gray-400 uppercase tracking-wide">Days Lagering</p>
+                                  <p className="text-xs font-medium text-gray-700">
+                                    {days} day{days !== 1 ? 's' : ''}
+                                    {ferm.status === 'lagering' && ' (ongoing)'}
+                                  </p>
+                                </div>
+                                {startG && (
+                                  <div>
+                                    <p className="text-[10px] text-gray-400 uppercase tracking-wide">Starting Gravity</p>
+                                    <p className="text-xs font-medium text-gray-700">{parseFloat(startG).toFixed(3)}</p>
+                                  </div>
+                                )}
+                                {endG && lagerReadings.length > 1 && (
+                                  <div>
+                                    <p className="text-[10px] text-gray-400 uppercase tracking-wide">Ending Gravity</p>
+                                    <p className="text-xs font-medium text-gray-700">{parseFloat(endG).toFixed(3)}</p>
+                                  </div>
+                                )}
+                              </div>
+                              {ferm.lagering_notes && (
+                                <p className="text-xs text-gray-600 bg-indigo-50 rounded px-2 py-1.5">{ferm.lagering_notes}</p>
+                              )}
+                              {lagerReadings.length >= 2 && (
+                                <MiniSparkline readings={lagerReadings} targetFg={ferm.target_fg} fermentation={ferm} />
+                              )}
+                              {lagerReadings.length > 0 ? (
+                                <div className="overflow-x-auto">
+                                  <table className="w-full text-xs">
+                                    <thead>
+                                      <tr className="text-[10px] text-gray-400 uppercase tracking-wide border-b border-indigo-200">
+                                        <th className="text-left pb-1.5">Date</th>
+                                        <th className="text-right pb-1.5">Gravity</th>
+                                        <th className="text-right pb-1.5">Temp °F</th>
+                                        <th className="text-left pb-1.5 pl-3">Notes</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-indigo-100">
+                                      {lagerReadings.map(r => (
+                                        <tr key={r.id}>
+                                          <td className="py-1.5 text-gray-600">
+                                            {new Date(r.reading_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                          </td>
+                                          <td className="py-1.5 text-right font-mono font-semibold text-indigo-700">{parseFloat(r.gravity).toFixed(3)}</td>
+                                          <td className="py-1.5 text-right text-gray-500">{r.temperature ?? '—'}</td>
+                                          <td className="py-1.5 pl-3 text-gray-500">{r.notes ?? ''}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              ) : (
+                                <p className="text-xs text-gray-400">No gravity readings logged during lagering.</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })()}
+
+                  </div>
                 </div>
-              </div>
-            )}
+              )
+            })()}
 
             {/* Status progression */}
             {(nextStatuses.length > 0 || !['packaged', 'dumped'].includes(ferm.status)) && (
@@ -2528,7 +2900,7 @@ function FermentationDetailModal({ fermentation: initialFerm, vessels, available
                         <td className="py-2 text-gray-600">
                           {new Date(r.reading_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                         </td>
-                        <td className="py-2 text-right font-mono font-semibold text-navy">{parseFloat(r.gravity).toFixed(4)}</td>
+                        <td className="py-2 text-right font-mono font-semibold text-navy">{parseFloat(r.gravity).toFixed(3)}</td>
                         <td className="py-2 text-right text-gray-500">{r.temperature ?? '—'}</td>
                         <td className="py-2 pl-4 text-gray-500 text-xs">{r.notes ?? ''}</td>
                         <td className="py-2 text-right">

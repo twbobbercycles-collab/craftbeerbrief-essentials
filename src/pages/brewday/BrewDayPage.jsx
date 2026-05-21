@@ -126,12 +126,13 @@ export default function BrewDayPage() {
   // Load recipes for the recipe dropdown inside the schedule modal
   async function loadRecipes() {
     if (!brewery?.id) return
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('recipes')
-      .select('id, name, style, base_batch_size, base_batch_size_unit, target_og, target_fg, target_abv, target_ibu, target_brewhouse_efficiency, fixed_overhead_percentage')
+      .select('id, name, style, base_batch_size, base_batch_size_unit, target_og, target_fg, target_abv, target_ibu, fixed_overhead_percentage')
       .eq('brewery_id', brewery.id)
       .eq('is_archived', false)
       .order('name')
+    console.log('[BrewDayPage] loadRecipes:', { brewery_id: brewery.id, count: data?.length ?? 0, first: data?.[0]?.name ?? null, error })
     setRecipes(data ?? [])
   }
 
@@ -193,30 +194,31 @@ export default function BrewDayPage() {
       target_fg:   rec.target_fg ? String(rec.target_fg) : '',
       target_abv:  rec.target_abv ? String(rec.target_abv) : '',
       target_ibu:  rec.target_ibu ? String(rec.target_ibu) : '',
-      target_brewhouse_efficiency: rec.target_brewhouse_efficiency ? String(rec.target_brewhouse_efficiency) : '72',
+      target_brewhouse_efficiency: '72',
     }
 
-    // Fetch yeast ingredient name for this recipe.
-    // We select category and addition_type so we can use addition_type as a fallback
-    // if the ilike category search returns nothing (some rows store type in addition_type).
-    const { data: yeastIngredients } = await supabase
+    // Fetch yeast ingredient for this recipe.
+    // recipe_ingredients has no 'category' column — category lives on the ingredients table.
+    // Yeast rows use addition_type = 'Fermentation' OR have an ingredient with category = 'Yeast'.
+    const { data: allIngs } = await supabase
       .from('recipe_ingredients')
-      .select('name, category, addition_type')
+      .select('ingredient_name, addition_type, ingredient:ingredients(category)')
       .eq('recipe_id', rec.id)
-      .ilike('category', '%yeast%')
-      .order('name')
-      .limit(1)
 
-    if (yeastIngredients && yeastIngredients.length > 0) {
-      next.yeast_strain = yeastIngredients[0].name
-    }
+    const yeastRow = (allIngs ?? []).find(r =>
+      r.addition_type === 'Fermentation' || r.ingredient?.category === 'Yeast'
+    )
+    const yeastName = yeastRow?.ingredient_name ?? null
+    if (yeastName) next.yeast_strain = yeastName
 
     setForm(next)
     draft.saveDraft(next)
 
     console.log('[BrewDayPage] Recipe selected:', {
       recipe: rec,
-      yeastIngredients,
+      allIngs,
+      yeastRow,
+      yeastName,
       populatedForm: next,
     })
 
