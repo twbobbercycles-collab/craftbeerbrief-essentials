@@ -102,30 +102,67 @@ function pintsPerUnit(volumeUnit) {
 }
 
 // Normalize a planned split regardless of whether it came from the recipe builder
-// (which uses container_type / volume_barrels) or from a previous packaging run
-// (which uses package_type / total_volume).
+// (which uses container_type / volume_barrels / container_size_label / packaging_yield)
+// or from a previous packaging run (which uses package_type / total_volume).
+//
+// For recipe splits, volume_barrels is the GROSS volume and packaging_yield (0-100) gives
+// the net packagable fraction. Units stored in the split were calculated from net volume,
+// so total_volume is set to the net value to keep everything consistent:
+//   net_volume = volume_barrels × (packaging_yield / 100)
+//
+// container_size_label stores values like "16oz pour", "12oz", "1/2 bbl (15.5 gal)".
+// When the label starts with a number followed by "oz" we parse that as oz-per-unit.
 function normalizePlannedSplit(p) {
+  // Prefer explicit volume_per_unit; otherwise try to parse oz from the size label
+  let volumePerUnit = p.volume_per_unit ?? null
+  if (volumePerUnit == null && p.container_size_label) {
+    const match = String(p.container_size_label).match(/^(\d+(?:\.\d+)?)\s*oz/i)
+    if (match) volumePerUnit = parseFloat(match[1])
+  }
+
+  // Compute net packagable volume from gross × yield%, when both are present.
+  // Falls back to total_volume (native packaging run format) or gross volume as-is.
+  const grossVolume    = parseFloat(p.total_volume ?? p.volume_barrels) || null
+  const packagingYield = parseFloat(p.packaging_yield) || null
+  const netVolume      = grossVolume != null && packagingYield != null
+    ? grossVolume * (packagingYield / 100)
+    : null
+  const totalVolume    = netVolume ?? grossVolume
+
   return {
-    package_type:    p.package_type    || p.container_type || '',
-    units:           p.units           ?? null,
-    total_volume:    p.total_volume    ?? p.volume_barrels  ?? null,
-    volume_per_unit: p.volume_per_unit ?? null,
+    package_type:         p.package_type || p.container_type || '',
+    units:                p.units        ?? null,
+    total_volume:         totalVolume,
+    gross_volume:         grossVolume,
+    net_volume:           netVolume,
+    packaging_yield:      packagingYield,
+    volume_per_unit:      volumePerUnit,
+    container_size_label: p.container_size_label ?? null,
   }
 }
 
-// Auto-fill volume_per_unit (in barrels) for standard package types so the
-// brewer does not have to calculate it manually.
+// Auto-fill volume_per_unit for standard package types.
+// Kegs and multi-packs store bbl/unit; cans, bottles, growlers, and draft store oz/unit.
 const PKG_TYPE_DEFAULTS = {
+  // Keg formats — bbl per unit
   'Keg Half Barrel':        '0.5',
   'Keg Quarter Barrel':     '0.25',
   'Keg Sixth Barrel':       '0.167',
-  'Growler 64oz':           '0.01613',  // 64 oz ÷ 3968 oz/bbl
-  'Crowler 32oz':           '0.00806',  // 32 oz ÷ 3968 oz/bbl
-  '4-Pack (Cans)':          String((4  * 12 / 3968).toFixed(5)), // 4 × 12oz cans in bbl
-  '6-Pack (Cans)':          String((6  * 12 / 3968).toFixed(5)), // 6 × 12oz
-  '12-Pack (Cans)':         String((12 * 12 / 3968).toFixed(5)), // 12 × 12oz
-  '24-Pack / Case (Cans)':  String((24 * 12 / 3968).toFixed(5)), // 24 × 12oz
-  'Draft/Taproom':          String((16 / 3968).toFixed(6)),       // 16 oz serving in bbl
+  // Can / bottle formats — oz per unit
+  'Can 12oz':               '12',
+  'Can 16oz':               '16',
+  'Bottle 12oz':            '12',
+  'Bottle 22oz':            '22',
+  'Bottle 750ml':           '25.36',   // 750 ml ≈ 25.36 oz
+  // Small containers — oz per unit
+  'Growler 64oz':           '64',
+  'Crowler 32oz':           '32',
+  'Draft/Taproom':          '16',      // 16 oz pour
+  // Multi-pack formats — bbl per pack (each pack contains N × 12oz cans)
+  '4-Pack (Cans)':          String((4  * 12 / 3968).toFixed(5)),
+  '6-Pack (Cans)':          String((6  * 12 / 3968).toFixed(5)),
+  '12-Pack (Cans)':         String((12 * 12 / 3968).toFixed(5)),
+  '24-Pack / Case (Cans)':  String((24 * 12 / 3968).toFixed(5)),
 }
 
 // Return a human-readable unit label for the volume_per_unit column based on
@@ -150,6 +187,35 @@ function pintsPerSplitUnit(packageType, volumePerUnit) {
   if (label === 'bbl/unit' || label === 'bbl/pack') return vpu * PINTS_PER_BARREL
   if (label === 'oz/unit')  return vpu / 16
   return vpu * PINTS_PER_BARREL // fallback
+}
+
+// Calculate total volume in barrels from actualUnits × volPerUnit.
+// unitLabel drives the conversion: oz→bbl divides by 3968, gal→bbl divides by 31,
+// bbl-labelled values are a direct product, and anything else is treated as bbl.
+function calcTotalVolume(actualUnits, volPerUnit, unitLabel) {
+  if (!actualUnits || !volPerUnit || actualUnits === 0) return 0
+  const units = Number(actualUnits)
+  const vol   = Number(volPerUnit)
+  if (!units || !vol) return 0
+  const label = (unitLabel || '').toLowerCase()
+  if (label.includes('oz'))  return (units * vol) / 3968        // oz → barrels
+  if (label.includes('bbl')) return  units * vol                 // already barrels
+  if (label.includes('gal')) return (units * vol) / 31          // gallons → barrels
+  return units * vol
+}
+
+// Derive unit count from a volume-in-barrels value and a per-unit size in oz.
+// Used when planned_splits don't carry an explicit unit count.
+function unitsFromVolume(volumeBarrels, ozPerUnit) {
+  if (!volumeBarrels || !ozPerUnit) return 0
+  return Math.floor((volumeBarrels * 3968) / ozPerUnit)
+}
+
+// Derive unit count from a volume-in-barrels value and a per-unit size in bbl.
+// Used for keg splits (half / quarter / sixth barrel).
+function unitsFromVolumeKeg(volumeBarrels, bblPerKeg) {
+  if (!volumeBarrels || !bblPerKeg) return 0
+  return Math.floor(volumeBarrels / bblPerKeg)
 }
 
 // ── Page root — TierGate wrapper ───────────────────────────────────────────────
@@ -355,7 +421,8 @@ function PackagingRunDetail() {
 
     // Step 1: insert the batch_packages record
     const totalVolPackaged = actualSplits.reduce((sum, s) => {
-      return sum + (parseFloat(s.units_packaged) || 0) * (parseFloat(s.volume_per_unit) || 0)
+      const lbl = volumePerUnitLabel(s.package_type)
+      return sum + calcTotalVolume(s.units_packaged, s.volume_per_unit, lbl)
     }, 0)
 
     const { data: batchPkg, error: bpErr } = await supabase
@@ -492,7 +559,7 @@ function PackagingRunDetail() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-6 space-y-8">
+    <div className="px-4 py-6 space-y-8">
 
       {/* ── Page header ── */}
       <PageHeader
@@ -795,12 +862,30 @@ function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brew
         }
       }
 
-      // Compute total_volume from units × volume_per_unit when both are available;
-      // this keeps the row internally consistent from the start.
-      const unitsStr = norm.units != null ? String(norm.units) : ''
+      // Compute total_volume (in barrels) from units × volume_per_unit when both are available;
+      // uses calcTotalVolume so oz-based types (cans, bottles) are correctly converted to bbl.
+      // When planned_splits don't carry an explicit unit count, derive it from total_volume.
+      let unitsStr = norm.units != null ? String(norm.units) : ''
+      if (!unitsStr && norm.total_volume != null && volumePerUnit) {
+        const lbl = volumePerUnitLabel(norm.package_type)
+        let derived = 0
+        if (lbl.includes('oz')) {
+          derived = unitsFromVolume(parseFloat(norm.total_volume), parseFloat(volumePerUnit))
+        } else if (lbl.includes('bbl')) {
+          derived = unitsFromVolumeKeg(parseFloat(norm.total_volume), parseFloat(volumePerUnit))
+        }
+        if (derived > 10000) {
+          console.warn('[SplitsSection] derived unit count exceeds sanity threshold — capping at 10 000',
+            { derived, total_volume: norm.total_volume, volumePerUnit, package_type: norm.package_type })
+          derived = 10000
+        }
+        if (derived > 0) unitsStr = String(derived)
+      }
+
       let totalVol = ''
       if (unitsStr && volumePerUnit) {
-        const computed = parseFloat(unitsStr) * parseFloat(volumePerUnit)
+        const lbl     = volumePerUnitLabel(norm.package_type)
+        const computed = calcTotalVolume(unitsStr, volumePerUnit, lbl)
         totalVol = computed > 0 ? computed.toFixed(4) : ''
       } else if (norm.total_volume != null) {
         totalVol = String(norm.total_volume)
@@ -836,19 +921,27 @@ function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brew
         const defaultVol = PKG_TYPE_DEFAULTS[value]
         if (defaultVol) {
           next[index].volume_per_unit = defaultVol
-          // Recalculate units from existing total_volume if available
-          const tv = parseFloat(next[index].total_volume)
+          // Recalculate units from existing total_volume (in bbl) if available.
+          // For oz-based types the formula inverts: units = total_bbl × 3968 / oz_per_unit
+          const tv  = parseFloat(next[index].total_volume) || 0
           const vpu = parseFloat(defaultVol)
+          const lbl = volumePerUnitLabel(value)
           if (tv > 0 && vpu > 0) {
-            next[index].units_packaged = Math.round(tv / vpu).toString()
+            const units = lbl.includes('oz')
+              ? Math.round((tv * 128 * 31) / vpu)
+              : Math.round(tv / vpu)
+            if (units > 0) next[index].units_packaged = String(units)
           }
         }
       }
-      // Auto-compute total_volume when units or volume_per_unit change
+      // Auto-compute total_volume (in barrels) when units or volume_per_unit change.
+      // calcTotalVolume handles the oz→bbl conversion for can/bottle/growler types.
       if (field === 'units_packaged' || field === 'volume_per_unit') {
         const units = parseFloat(field === 'units_packaged' ? value : next[index].units_packaged) || 0
         const vol   = parseFloat(field === 'volume_per_unit' ? value : next[index].volume_per_unit) || 0
-        next[index].total_volume = units && vol ? (units * vol).toFixed(4) : ''
+        const lbl   = volumePerUnitLabel(next[index].package_type)
+        const tv    = calcTotalVolume(units, vol, lbl)
+        next[index].total_volume = tv > 0 ? tv.toFixed(4) : ''
       }
       // Trigger debounced auto-save after every field change
       scheduleSplitSave(next)
@@ -986,18 +1079,18 @@ function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brew
 
       {/* Plan vs Actuals two-column table */}
       {(plannedSplits.length > 0 || actualSplits.length > 0) ? (
-        <div className="overflow-x-auto w-full rounded-lg border border-gray-200">
-          <table style={{ tableLayout: 'fixed', minWidth: '1000px' }} className="w-full text-sm">
+        <div className="w-full rounded-lg border border-gray-200">
+          <table style={{ tableLayout: 'fixed', width: '100%' }} className="text-sm">
             <colgroup>
-              <col style={{ width: '15%' }} />   {/* Package Type */}
-              <col style={{ width: '8%' }} />    {/* Planned Units */}
+              <col style={{ width: '16%' }} />   {/* Package Type */}
+              <col style={{ width: '9%' }} />    {/* Planned Units */}
               <col style={{ width: '9%' }} />    {/* Planned Vol */}
               <col style={{ width: '10%' }} />   {/* Actual Units */}
               <col style={{ width: '11%' }} />   {/* Vol/Unit */}
-              <col style={{ width: '10%' }} />   {/* Total Vol */}
-              <col style={{ width: '12%' }} />   {/* Destination */}
-              <col style={{ width: '15%' }} />   {/* Notes */}
-              <col style={{ width: '10%' }} />   {/* Remove */}
+              <col style={{ width: '11%' }} />   {/* Total Vol */}
+              <col style={{ width: '16%' }} />   {/* Destination */}
+              <col style={{ width: isReadOnly ? '18%' : '12%' }} />  {/* Notes */}
+              {!isReadOnly && <col style={{ width: '6%' }} />}        {/* Remove */}
             </colgroup>
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
@@ -1041,9 +1134,21 @@ function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brew
                       {planned ? (planned.units ?? '—') : '—'}
                     </td>
                     <td className="px-3 py-2 text-blue-700">
-                      {planned && planned.total_volume != null
-                        ? `${parseFloat(planned.total_volume).toFixed(3)} ${unit}`
-                        : '—'}
+                      {planned && planned.total_volume != null ? (
+                        <span
+                          title={planned.packaging_yield != null
+                            ? `Net packagable volume after ${planned.packaging_yield}% yield`
+                            : 'Packagable volume'}
+                          className="cursor-help"
+                        >
+                          {parseFloat(planned.total_volume).toFixed(3)} {unit}
+                          {planned.packaging_yield != null && (
+                            <span className="block text-[10px] text-blue-400 leading-tight">
+                              {planned.packaging_yield}% yield
+                            </span>
+                          )}
+                        </span>
+                      ) : '—'}
                     </td>
 
                     {/* Actual units */}
@@ -1060,27 +1165,25 @@ function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brew
                       />
                     </td>
 
-                    {/* Volume per unit — shows unit label based on package type */}
-                    <td className="px-3 py-2">
-                      <div className="flex items-center gap-1">
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.0001"
-                          className={INPUT_CLS}
-                          placeholder="0"
-                          value={s.volume_per_unit}
-                          disabled={isReadOnly}
-                          onChange={e => updateSplit(i, 'volume_per_unit', e.target.value)}
-                        />
-                        <span className="text-xs text-gray-400 whitespace-nowrap">
-                          {volumePerUnitLabel(s.package_type) || unit}
-                        </span>
-                      </div>
+                    {/* Volume per unit — unit label shown below input */}
+                    <td className="px-2 py-2">
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.0001"
+                        className={INPUT_CLS}
+                        placeholder="0"
+                        value={s.volume_per_unit}
+                        disabled={isReadOnly}
+                        onChange={e => updateSplit(i, 'volume_per_unit', e.target.value)}
+                      />
+                      <span className="text-[10px] text-gray-400 mt-0.5 block text-center">
+                        {volumePerUnitLabel(s.package_type) || unit}
+                      </span>
                     </td>
 
-                    {/* Total volume — auto-computed, display only */}
-                    <td className="px-3 py-2 text-gray-700 font-medium whitespace-nowrap">
+                    {/* Total volume — auto-computed in barrels, display only */}
+                    <td className="px-3 py-2 text-gray-700 font-medium">
                       {s.total_volume ? `${parseFloat(s.total_volume).toFixed(3)} ${unit}` : '—'}
                     </td>
 
@@ -1193,17 +1296,11 @@ function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brew
           </div>
         </div>
 
-        {/* Profit Impact panel — compares planned vs actual volume and revenue */}
+        {/* Profit Impact panel — per-split sale price entry with auto-computed revenue/profit */}
         <ProfitImpactPanel
           run={run}
-          unit={unit}
-          plannedVolume={plannedVolume}
-          actualVolume={totalPackaged}
-          plannedSplits={(run.planned_splits || []).map(normalizePlannedSplit)}
           actualSplits={actualSplits}
-          targetMarginPct={targetMarginPct}
           recipeCostPerPint={recipeCostPerPint}
-          recipeRetailPerPint={recipeRetailPerPint}
         />
       </div>
     </section>
@@ -1212,219 +1309,157 @@ function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brew
 
 // ── ProfitImpactPanel ──────────────────────────────────────────────────────────
 
-// Shows a per-split and aggregate profit breakdown comparing planned vs actual.
-// Cost and retail per pint are entered locally — not persisted to the DB.
-// Values are pre-populated from the linked recipe's cost calculator when available.
-function ProfitImpactPanel({
-  run, unit,
-  plannedSplits,  // normalized planned splits array
-  actualSplits,   // actual splits array from SplitsSection state
-  plannedVolume, actualVolume,
-  targetMarginPct, recipeCostPerPint, recipeRetailPerPint,
-}) {
-  // Local editable target margin — defaults to recipe value, user can adjust
-  const [localMarginPct, setLocalMarginPct] = useState(
-    targetMarginPct != null ? String(targetMarginPct) : ''
-  )
+// Per-split profit breakdown. Brewer enters one sale price per split; revenue,
+// cost, and profit are all computed automatically. Cost uses recipe_cost_per_pint
+// when available; if not, cost columns show '—' and revenue still displays.
+function ProfitImpactPanel({ run, actualSplits, recipeCostPerPint }) {
+  const splits = actualSplits || []
 
-  // Cost comes from recipe — read-only
-  const cost = recipeCostPerPint != null ? recipeCostPerPint : null
+  // Per-split sale prices — local only, not persisted (session entry)
+  const [salePrices, setSalePrices] = useState(() => splits.map(() => ''))
 
-  // Retail is computed from cost / (1 - margin/100) using local margin
-  const marginNum = parseFloat(localMarginPct)
-  const retail = (cost != null && !isNaN(marginNum) && marginNum > 0 && marginNum < 100)
-    ? cost / (1 - marginNum / 100)
-    : (recipeRetailPerPint != null ? recipeRetailPerPint : null)
+  // Sync length when rows are added or removed
+  useEffect(() => {
+    setSalePrices(prev => {
+      if (prev.length === splits.length) return prev
+      return splits.map((_, i) => prev[i] ?? '')
+    })
+  }, [splits.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const margin = (cost != null && retail != null && retail > cost) ? retail - cost : null
+  // Use recipeCostPerPint prop first, then fall back to stored value on the run record
+  const cost = recipeCostPerPint ?? (run.recipe_cost_per_pint != null ? parseFloat(run.recipe_cost_per_pint) : null)
 
-  // Per-split revenue/profit calculations
-  const plannedSplitCalcs = (plannedSplits || []).map(plan => {
-    const vpu = parseFloat(plan.volume_per_unit) || parseFloat(PKG_TYPE_DEFAULTS[plan.package_type]) || 0
-    const ppu = pintsPerSplitUnit(plan.package_type, vpu)
-    const units = parseFloat(plan.units) || 0
-    return {
-      rev:    retail != null ? units * retail * ppu : 0,
-      profit: margin != null ? units * margin * ppu : 0,
-    }
-  })
-  const actualSplitCalcs = (actualSplits || []).map(act => {
-    const ppu = pintsPerSplitUnit(act.package_type, act.volume_per_unit)
-    const units = parseFloat(act.units_packaged) || 0
-    return {
-      rev:    retail != null ? units * retail * ppu : 0,
-      profit: margin != null ? units * margin * ppu : 0,
-    }
+  // Build one row object per split
+  const rows = splits.map((s, i) => {
+    const actualUnits   = parseFloat(s.units_packaged) || 0
+    const salePrice     = parseFloat(salePrices[i])    || 0
+    const ppu           = pintsPerSplitUnit(s.package_type, s.volume_per_unit)
+    const costPerUnit   = cost != null ? cost * ppu : null
+    const profitPerUnit = costPerUnit != null ? salePrice - costPerUnit : null
+    const revenue       = actualUnits * salePrice
+    const totalCost     = costPerUnit  != null ? actualUnits * costPerUnit   : null
+    const totalProfit   = profitPerUnit != null ? actualUnits * profitPerUnit : null
+    return { packageType: s.package_type || '—', actualUnits, salePrice, costPerUnit, profitPerUnit, revenue, totalCost, totalProfit }
   })
 
-  const totalPlannedRevenue = plannedSplitCalcs.reduce((s, c) => s + c.rev, 0)
-  const totalActualRevenue  = actualSplitCalcs.reduce((s, c) => s + c.rev, 0)
-  const totalPlannedProfit  = plannedSplitCalcs.reduce((s, c) => s + c.profit, 0)
-  const totalActualProfit   = actualSplitCalcs.reduce((s, c) => s + c.profit, 0)
+  const totalRevenue = rows.reduce((s, r) => s + r.revenue, 0)
+  const totalCostAll = rows.reduce((s, r) => s + (r.totalCost ?? 0), 0)
+  const totalProfit  = rows.reduce((s, r) => s + (r.totalProfit ?? r.revenue), 0)
+  const marginPct    = totalRevenue > 0 && cost != null ? (totalProfit / totalRevenue) * 100 : null
 
-  const revenueDelta = totalPlannedRevenue > 0 && totalActualRevenue > 0 ? totalActualRevenue - totalPlannedRevenue : null
-  const profitDelta  = totalPlannedProfit  > 0 && totalActualProfit  > 0 ? totalActualProfit  - totalPlannedProfit  : null
-
-  const plannedVol = (plannedSplits || []).reduce((s, p) => s + (parseFloat(p.total_volume) || 0), 0)
-  const actualVol  = (actualSplits  || []).reduce((s, a) => s + (parseFloat(a.total_volume) || 0), 0)
-  const yieldVariance = plannedVol > 0 && actualVol > 0 ? ((actualVol - plannedVol) / plannedVol) * 100 : null
-
-  const hasAnySplits = (actualSplits || []).length > 0 || (plannedSplits || []).length > 0
-  const hasCostAndRetail = cost != null && retail != null
+  const hasRevenue   = rows.some(r => r.salePrice > 0)
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
       <p className="text-xs font-semibold text-navy uppercase tracking-wide">Profit Impact</p>
 
-      {/* Read-only cost and computed retail from recipe */}
-      <div className="space-y-1">
-        {cost != null ? (
-          <p className="text-xs text-gray-600">
-            Cost/pint:{' '}
-            <span className="font-semibold text-navy">{fmtDollars(cost)}</span>
-            <span className="text-gray-400 ml-1">(from recipe)</span>
-          </p>
-        ) : (
-          <p className="text-xs text-gray-400 italic">
-            {run.fermentation_id
-              ? 'Recipe cost not yet computed — open the recipe cost calculator.'
-              : 'Link a fermentation record to auto-load recipe cost.'}
-          </p>
-        )}
-        {retail != null && (
-          <p className="text-xs text-gray-600">
-            Retail/pint:{' '}
-            <span className="font-semibold text-navy">{fmtDollars(retail)}</span>
-          </p>
-        )}
-      </div>
-
-      {/* Target margin — editable so brewer can adjust the retail calc */}
-      <div>
-        <label className="block text-[10px] text-gray-500 mb-0.5">Target Margin (%)</label>
-        <input
-          type="number" step="1" min="0" max="99"
-          className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-amber"
-          placeholder={targetMarginPct != null ? String(targetMarginPct) : '0'}
-          value={localMarginPct}
-          onChange={e => setLocalMarginPct(e.target.value)}
-        />
-      </div>
-
-      {/* Attribution note */}
-      {recipeCostPerPint != null && (
-        <p className="text-[10px] text-gray-400 italic">Cost auto-populated from recipe cost calculator</p>
+      {cost != null && (
+        <p className="text-[10px] text-gray-400">
+          Cost/pint: <span className="font-semibold text-gray-600">{fmtDollars(cost)}</span>
+          <span className="ml-1">(from recipe — used to compute cost per unit)</span>
+        </p>
       )}
-
-      {/* Fallback when no cost/retail available */}
-      {!hasCostAndRetail && !run.fermentation_id && (
+      {cost == null && (
         <p className="text-xs text-gray-400 italic">
-          Link a recipe to auto-populate cost and retail per pint.
+          {run.fermentation_id
+            ? 'Recipe cost not computed — cost columns will show —. Revenue still works.'
+            : 'Link a fermentation record to auto-load recipe cost.'}
         </p>
       )}
 
-      {/* Per-split breakdown table */}
-      {hasCostAndRetail && hasAnySplits && (
-        <div className="overflow-x-auto mt-2">
-          <table className="w-full text-xs" style={{ tableLayout: 'fixed' }}>
-            <colgroup>
-              <col style={{ width: '22%' }} />
-              <col style={{ width: '13%' }} />
-              <col style={{ width: '13%' }} />
-              <col style={{ width: '13%' }} />
-              <col style={{ width: '13%' }} />
-              <col style={{ width: '13%' }} />
-              <col style={{ width: '13%' }} />
-            </colgroup>
-            <thead>
-              <tr className="border-b border-gray-200">
-                <th className="text-left text-gray-500 pb-1 font-medium">Package</th>
-                <th className="text-right text-blue-600 pb-1 font-medium">Plan Units</th>
-                <th className="text-right text-amber pb-1 font-medium">Actual Units</th>
-                <th className="text-right text-blue-600 pb-1 font-medium">Plan Rev</th>
-                <th className="text-right text-amber pb-1 font-medium">Actual Rev</th>
-                <th className="text-right text-blue-600 pb-1 font-medium">Plan Profit</th>
-                <th className="text-right text-amber pb-1 font-medium">Act Profit</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...Array(Math.max((plannedSplits || []).length, (actualSplits || []).length))].map((_, i) => {
-                const plan   = (plannedSplits || [])[i]
-                const actual = (actualSplits  || [])[i]
-                const pkgType     = actual?.package_type || plan?.package_type || ''
-                const planUnits   = parseFloat(plan?.units) || 0
-                const actualUnits = parseFloat(actual?.units_packaged) || 0
-                const vpu         = parseFloat(actual?.volume_per_unit || plan?.volume_per_unit) || 0
-                const ppu         = pintsPerSplitUnit(pkgType, vpu)
-                const revPerUnit  = retail * ppu
-                const costPerU    = cost   * ppu
-                const planRev     = planUnits   * revPerUnit
-                const actualRev   = actualUnits * revPerUnit
-                const planProfit  = planUnits   * (revPerUnit - costPerU)
-                const actProfit   = actualUnits * (revPerUnit - costPerU)
-
-                return (
-                  <tr key={i} className="border-b border-gray-100">
-                    <td className="py-1 text-gray-700 truncate">{pkgType || '—'}</td>
-                    <td className="py-1 text-right text-blue-600">{planUnits || '—'}</td>
-                    <td className="py-1 text-right text-amber">{actualUnits || '—'}</td>
-                    <td className="py-1 text-right text-blue-600">{planRev   > 0 ? fmtDollars(planRev)   : '—'}</td>
-                    <td className="py-1 text-right text-amber">  {actualRev  > 0 ? fmtDollars(actualRev)  : '—'}</td>
-                    <td className="py-1 text-right text-blue-600">{planProfit > 0 ? fmtDollars(planProfit) : '—'}</td>
-                    <td className="py-1 text-right text-amber">   {actProfit  > 0 ? fmtDollars(actProfit)  : '—'}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* Totals and delta */}
-      {hasCostAndRetail && hasAnySplits && (
+      {splits.length > 0 ? (
         <>
-          <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-gray-100">
-            {/* Revenue */}
-            <div className="bg-blue-50 rounded px-3 py-2">
-              <div className="text-[10px] text-gray-500">Planned Revenue</div>
-              <div className="font-semibold text-navy text-sm">{fmtDollars(totalPlannedRevenue)}</div>
-            </div>
-            <div className="bg-amber/5 rounded px-3 py-2">
-              <div className="text-[10px] text-gray-500">Actual Revenue</div>
-              <div className="font-semibold text-navy text-sm">{fmtDollars(totalActualRevenue)}</div>
-            </div>
-            {/* Profit */}
-            <div className="bg-blue-50 rounded px-3 py-2">
-              <div className="text-[10px] text-gray-500">Planned Profit</div>
-              <div className="font-semibold text-navy text-sm">{fmtDollars(totalPlannedProfit)}</div>
-            </div>
-            <div className="bg-amber/5 rounded px-3 py-2">
-              <div className="text-[10px] text-gray-500">Actual Profit</div>
-              <div className="font-semibold text-navy text-sm">{fmtDollars(totalActualProfit)}</div>
-            </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs" style={{ tableLayout: 'fixed', minWidth: '400px' }}>
+              <colgroup>
+                <col style={{ width: '22%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '14%' }} />
+                <col style={{ width: '13%' }} />
+                <col style={{ width: '13%' }} />
+                <col style={{ width: '14%' }} />
+                <col style={{ width: '14%' }} />
+              </colgroup>
+              <thead>
+                <tr className="border-b border-gray-200">
+                  <th className="text-left text-gray-500 pb-1.5 font-medium">Package</th>
+                  <th className="text-right text-gray-500 pb-1.5 font-medium">Units</th>
+                  <th className="text-right text-amber pb-1.5 font-medium">Sale/Unit ($)</th>
+                  <th className="text-right text-gray-500 pb-1.5 font-medium">Revenue</th>
+                  <th className="text-right text-gray-500 pb-1.5 font-medium">Cost/Unit</th>
+                  <th className="text-right text-gray-500 pb-1.5 font-medium">Profit/Unit</th>
+                  <th className="text-right text-gray-500 pb-1.5 font-medium">Total Profit</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={i} className="border-b border-gray-100">
+                    <td className="py-1.5 text-gray-700 truncate pr-1">{r.packageType}</td>
+                    <td className="py-1.5 text-right text-gray-600">{r.actualUnits || '—'}</td>
+                    <td className="py-1.5 text-right">
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="0.00"
+                        className="w-full border border-gray-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-amber text-right"
+                        value={salePrices[i] ?? ''}
+                        onChange={e => setSalePrices(prev => {
+                          const next = [...prev]; next[i] = e.target.value; return next
+                        })}
+                      />
+                    </td>
+                    <td className="py-1.5 text-right text-gray-700">
+                      {r.salePrice > 0 ? fmtDollars(r.revenue) : '—'}
+                    </td>
+                    <td className="py-1.5 text-right text-gray-500">
+                      {r.costPerUnit != null ? fmtDollars(r.costPerUnit) : '—'}
+                    </td>
+                    <td className={`py-1.5 text-right font-medium ${r.profitPerUnit != null && r.profitPerUnit >= 0 ? 'text-success' : r.profitPerUnit != null ? 'text-danger' : 'text-gray-400'}`}>
+                      {r.salePrice > 0 && r.profitPerUnit != null ? fmtDollars(r.profitPerUnit) : '—'}
+                    </td>
+                    <td className={`py-1.5 text-right font-semibold ${r.totalProfit != null && r.totalProfit >= 0 ? 'text-success' : r.totalProfit != null ? 'text-danger' : 'text-gray-400'}`}>
+                      {r.salePrice > 0 ? fmtDollars(r.totalProfit ?? r.revenue) : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
 
-          {/* Delta revenue */}
-          {revenueDelta !== null && (
-            <div className={`text-xs font-semibold mt-1 ${revenueDelta >= 0 ? 'text-success' : 'text-danger'}`}>
-              Revenue delta: {revenueDelta >= 0 ? '+' : ''}{fmtDollars(revenueDelta)}
-            </div>
-          )}
-
-          {/* Summary sentence */}
-          {yieldVariance !== null && profitDelta !== null && (
-            <p className="text-xs text-gray-500 mt-1">
-              Yield variance of{' '}
-              <span className={yieldVariance >= 0 ? 'text-success font-semibold' : 'text-danger font-semibold'}>
-                {yieldVariance >= 0 ? '+' : ''}{yieldVariance.toFixed(1)}%
-              </span>{' '}
-              results in estimated profit impact of{' '}
-              <span className={profitDelta >= 0 ? 'text-success font-semibold' : 'text-danger font-semibold'}>
-                {profitDelta >= 0 ? '+' : ''}{fmtDollars(profitDelta)}
-              </span>
+          {!hasRevenue && (
+            <p className="text-xs text-gray-400 text-center py-1">
+              Enter a sale price per unit to see revenue and profit.
             </p>
           )}
+
+          {hasRevenue && (
+            <div className="border-t border-gray-100 pt-3 grid grid-cols-2 gap-2">
+              <div className="bg-gray-50 rounded px-3 py-2">
+                <div className="text-[10px] text-gray-500">Total Revenue</div>
+                <div className="font-semibold text-navy text-sm">{fmtDollars(totalRevenue)}</div>
+              </div>
+              <div className="bg-gray-50 rounded px-3 py-2">
+                <div className="text-[10px] text-gray-500">Total Cost</div>
+                <div className="font-semibold text-navy text-sm">{cost != null ? fmtDollars(totalCostAll) : '—'}</div>
+              </div>
+              <div className={`rounded px-3 py-2 ${totalProfit >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
+                <div className="text-[10px] text-gray-500">Total Profit</div>
+                <div className={`font-semibold text-sm ${totalProfit >= 0 ? 'text-success' : 'text-danger'}`}>
+                  {fmtDollars(totalProfit)}
+                </div>
+              </div>
+              <div className="bg-gray-50 rounded px-3 py-2">
+                <div className="text-[10px] text-gray-500">Margin %</div>
+                <div className={`font-semibold text-sm ${marginPct != null && marginPct >= 0 ? 'text-success' : 'text-gray-600'}`}>
+                  {marginPct != null ? `${marginPct.toFixed(1)}%` : '—'}
+                </div>
+              </div>
+            </div>
+          )}
         </>
+      ) : (
+        <p className="text-xs text-gray-400 italic">Add package splits above to see profit impact.</p>
       )}
     </div>
   )
