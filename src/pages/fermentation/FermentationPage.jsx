@@ -1269,6 +1269,10 @@ function LogReadingModal({ fermentation, onClose, onSaved }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
+  useEffect(() => {
+    console.log('[LogReadingModal] ModalShell + useModalDraft active')
+  }, [])
+
   // Persist draft to sessionStorage whenever the form changes
   useEffect(() => { draft.saveDraft(form) }, [form])
 
@@ -1393,10 +1397,19 @@ function LogReadingModal({ fermentation, onClose, onSaved }) {
 
 function AssignVesselModal({ preSelectedFermentation, preSelectedVessel, fermentations, vessels, onClose, onAssigned }) {
   const { brewery } = useAuth()
-  const [fermId,   setFermId]   = useState(preSelectedFermentation?.id ?? (fermentations[0]?.id ?? ''))
-  const [vesselId, setVesselId] = useState(preSelectedVessel?.id ?? (vessels[0]?.id ?? ''))
+  const { loadDraft, saveDraft, clearDraft } = useModalDraft('modal_draft_fermentation_assign_vessel')
+
+  const initialFermId   = preSelectedFermentation?.id ?? (fermentations[0]?.id ?? '')
+  const initialVesselId = preSelectedVessel?.id        ?? (vessels[0]?.id       ?? '')
+
+  const [fermId,   setFermId]   = useState(() => { const d = loadDraft(false); return d?.fermId   ?? initialFermId   })
+  const [vesselId, setVesselId] = useState(() => { const d = loadDraft(false); return d?.vesselId ?? initialVesselId })
   const [saving, setSaving]     = useState(false)
   const [error,  setError]      = useState('')
+
+  useEffect(() => {
+    console.log('[AssignVesselModal] ModalShell + useModalDraft active')
+  }, [])
 
   async function handleAssign() {
     if (!fermId)   { setError('Select a fermentation batch.'); return }
@@ -1464,6 +1477,7 @@ function AssignVesselModal({ preSelectedFermentation, preSelectedVessel, ferment
 
     const { error: err } = await supabase.from('fermentations').update(update).eq('id', fermId)
     if (err) { setError(err.message); setSaving(false); return }
+    clearDraft()
     onAssigned()
   }
 
@@ -1480,7 +1494,7 @@ function AssignVesselModal({ preSelectedFermentation, preSelectedVessel, ferment
           <>
             <div>
               <label className={LBL}>Fermentation batch</label>
-              <select className={INPUT_CLS} value={fermId} onChange={e => setFermId(e.target.value)}>
+              <select className={INPUT_CLS} value={fermId} onChange={e => { setFermId(e.target.value); saveDraft({ fermId: e.target.value, vesselId }) }}>
                 {fermentations.map(f => (
                   <option key={f.id} value={f.id}>{fermLabel(f)}</option>
                 ))}
@@ -1492,7 +1506,7 @@ function AssignVesselModal({ preSelectedFermentation, preSelectedVessel, ferment
               {vessels.length === 0 ? (
                 <p className="text-xs text-amber">No empty vessels available. All vessels have active fermentations.</p>
               ) : (
-                <select className={INPUT_CLS} value={vesselId} onChange={e => setVesselId(e.target.value)}>
+                <select className={INPUT_CLS} value={vesselId} onChange={e => { setVesselId(e.target.value); saveDraft({ fermId, vesselId: e.target.value }) }}>
                   {vessels.map(v => (
                     <option key={v.id} value={v.id}>
                       {v.vessel_name} — {v.vessel_type}{v.capacity ? ` (${v.capacity} ${v.capacity_unit})` : ''}
@@ -1529,8 +1543,6 @@ function AssignVesselModal({ preSelectedFermentation, preSelectedVessel, ferment
 // Lists all vessels with edit/deactivate, and an inline add form.
 
 function ManageVesselsModal({ vessels, onClose, onChanged }) {
-  console.log('[ManageVesselsModal] draft persistence applied')
-
   const { brewery } = useAuth()
   const vesselDraft = useModalDraft('modal_draft_fermentation_add_vessel')
 
@@ -1541,6 +1553,10 @@ function ManageVesselsModal({ vessels, onClose, onChanged }) {
   const [saving, setSaving]     = useState(false)
   const [error, setError]       = useState('')
   const [savingOrder, setSavingOrder] = useState(false)
+
+  useEffect(() => {
+    console.log('[ManageVesselsModal] ModalShell + useModalDraft active')
+  }, [])
 
   // Persist add-vessel form to sessionStorage whenever form changes (add mode only)
   useEffect(() => {
@@ -1761,6 +1777,10 @@ function AddFermentationModal({ onClose, onSaved }) {
   })
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState('')
+
+  useEffect(() => {
+    console.log('[AddFermentationModal] ModalShell + useModalDraft active')
+  }, [])
 
   useEffect(() => { draft.saveDraft(form) }, [form])
 

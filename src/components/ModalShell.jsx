@@ -1,3 +1,5 @@
+// RULE: ALL modals in this app must use this component. Never create a modal without ModalShell and useModalDraft.
+
 /**
  * ModalShell — shared wrapper for all add/edit modals.
  *

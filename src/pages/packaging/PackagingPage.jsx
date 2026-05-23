@@ -389,6 +389,7 @@ function NewPackagingRunModal({ onClose, onSaved }) {
 
   // On mount: restore any saved draft, then load eligible fermentations
   useEffect(() => {
+    console.log('[NewPackagingRunModal] ModalShell + useModalDraft active')
     const draft = loadDraft()
     if (draft) {
       setLinkFerm(draft.linkFerm ?? false)

@@ -484,9 +484,12 @@ function PackagingRunDetail() {
     const { error: updateErr } = await supabase
       .from('packaging_runs')
       .update({
-        status:           'complete',
-        batch_package_id: batchPackageId,
+        status:               'complete',
+        batch_package_id:     batchPackageId,
         total_volume_packaged: totalVolPackaged || null,
+        // Persist the full production cost (ingredients + packaging + labor + utilities + overhead)
+        // so DistributionPage can pull it from packaging_runs.recipe_cost_per_pint
+        ...(recipeCostPerPint > 0 && { recipe_cost_per_pint: recipeCostPerPint }),
       })
       .eq('id', run.id)
 
@@ -1714,8 +1717,6 @@ function QualityControlSection({ run, qcChecks, isReadOnly, qcModalOpen, setQcMo
 // ── AddQCCheckModal ────────────────────────────────────────────────────────────
 
 function AddQCCheckModal({ run, brewery, onClose, onSaved }) {
-  console.log('[AddQCCheckModal] draft persistence applied')
-
   const DRAFT_KEY = `modal_draft_packaging_qc_${run.id}`
   const { loadDraft, saveDraft, clearDraft, draftRestored, dismissDraftBanner } = useModalDraft(DRAFT_KEY)
 
@@ -1742,6 +1743,10 @@ function AddQCCheckModal({ run, brewery, onClose, onSaved }) {
   })
   const [saving, setSaving] = useState(false)
   const [error,  setError]  = useState(null)
+
+  useEffect(() => {
+    console.log('[AddQCCheckModal] ModalShell + useModalDraft active')
+  }, [])
 
   function set(field, val) {
     const next = { ...form, [field]: val }

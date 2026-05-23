@@ -476,8 +476,6 @@ function ingCostPerUnit(packageType, sizeSpec, recipeCostPerPint) {
 // ── AssignSplitsModal ──────────────────────────────────────────────────────────
 
 function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = false, onClose, onSaved }) {
-  console.log('[AssignSplitsModal] draft persistence applied')
-
   const DRAFT_KEY = `modal_draft_distribution_assign_${run.id}`
   const { loadDraft, saveDraft, clearDraft, draftRestored, dismissDraftBanner } = useModalDraft(DRAFT_KEY)
 
@@ -485,6 +483,7 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
 
   // Log all split data so the profit calculation can be verified in the browser console
   useEffect(() => {
+    console.log('[AssignSplitsModal] ModalShell + useModalDraft active')
     console.log('[AssignSplitsModal] opened', {
       beer_name:            run.beer_name,
       recipe_cost_per_pint: run.recipe_cost_per_pint,
@@ -869,7 +868,7 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
                           </div>
 
                           <div className="flex justify-between text-gray-500">
-                            <span>Ingredient cost</span>
+                            <span>Total production cost <span className="text-xs text-gray-400">(from recipe)</span></span>
                             <span>− {ingCost > 0 ? fmtDollars(ingCost) : <span className="text-gray-400 text-xs">no recipe cost</span>}</span>
                           </div>
 
@@ -1192,8 +1191,6 @@ function DeliveriesTab({ distRecords, accounts, onRefresh, isReadOnly }) {
 // ── EditDeliveryModal ──────────────────────────────────────────────────────────
 
 function EditDeliveryModal({ record, accounts, onClose, onSaved }) {
-  console.log('[EditDeliveryModal] draft persistence applied')
-
   const DRAFT_KEY = `modal_draft_distribution_edit_delivery_${record.id}`
   const { loadDraft, saveDraft, clearDraft, draftRestored, dismissDraftBanner } = useModalDraft(DRAFT_KEY)
 
@@ -1217,6 +1214,10 @@ function EditDeliveryModal({ record, accounts, onClose, onSaved }) {
 
   const [saving, setSaving] = useState(false)
   const [error,  setError]  = useState(null)
+
+  useEffect(() => {
+    console.log('[EditDeliveryModal] ModalShell + useModalDraft active')
+  }, [])
 
   // Read-only costs stored on the record at insert time
   const ingCost  = parseFloat(record.ingredient_cost_per_unit)  || 0
@@ -1371,7 +1372,7 @@ function EditDeliveryModal({ record, accounts, onClose, onSaved }) {
           </div>
 
           <div className="flex justify-between text-gray-500">
-            <span>Ingredient cost <span className="text-xs text-gray-400">(from recipe)</span></span>
+            <span>Total production cost <span className="text-xs text-gray-400">(from recipe)</span></span>
             <span>− {ingCost > 0 ? fmtDollars(ingCost) : <span className="text-gray-400 text-xs">no recipe cost</span>}</span>
           </div>
 
@@ -1793,8 +1794,6 @@ function ContactsEditor({ contacts, onChange }) {
 // ── AddAccountModal ────────────────────────────────────────────────────────────
 
 function AddAccountModal({ breweryId, onClose, onSaved }) {
-  console.log('[AddAccountModal] draft persistence applied')
-
   const { loadDraft, saveDraft, clearDraft, draftRestored, dismissDraftBanner } =
     useModalDraft('modal_draft_distribution_add_account')
 
@@ -1819,6 +1818,10 @@ function AddAccountModal({ breweryId, onClose, onSaved }) {
   })
   const [saving, setSaving]     = useState(false)
   const [error,  setError]      = useState(null)
+
+  useEffect(() => {
+    console.log('[AddAccountModal] ModalShell + useModalDraft active')
+  }, [])
 
   function set(field, val) {
     const next = { ...form, [field]: val }
@@ -1919,8 +1922,6 @@ function AddAccountModal({ breweryId, onClose, onSaved }) {
 // ── EditAccountModal ───────────────────────────────────────────────────────────
 
 function EditAccountModal({ account, onClose, onSaved }) {
-  console.log('[EditAccountModal] draft persistence applied')
-
   const DRAFT_KEY = `modal_draft_distribution_edit_account_${account.id}`
   const { loadDraft, saveDraft, clearDraft, draftRestored, dismissDraftBanner } = useModalDraft(DRAFT_KEY)
 
@@ -1945,6 +1946,10 @@ function EditAccountModal({ account, onClose, onSaved }) {
   })
   const [saving, setSaving]     = useState(false)
   const [error,  setError]      = useState(null)
+
+  useEffect(() => {
+    console.log('[EditAccountModal] ModalShell + useModalDraft active')
+  }, [])
 
   function set(field, val) {
     const next = { ...form, [field]: val }
