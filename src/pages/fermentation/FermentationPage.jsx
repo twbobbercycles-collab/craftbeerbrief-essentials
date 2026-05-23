@@ -1529,7 +1529,10 @@ function AssignVesselModal({ preSelectedFermentation, preSelectedVessel, ferment
 // Lists all vessels with edit/deactivate, and an inline add form.
 
 function ManageVesselsModal({ vessels, onClose, onChanged }) {
+  console.log('[ManageVesselsModal] draft persistence applied')
+
   const { brewery } = useAuth()
+  const vesselDraft = useModalDraft('modal_draft_fermentation_add_vessel')
 
   const emptyForm = { vessel_name: '', vessel_type: 'Conical Fermenter', capacity: '', capacity_unit: 'barrels', has_temperature_control: false, location: '', notes: '' }
   const [editing, setEditing]   = useState(null)  // vessel object being edited, or null for new
@@ -1539,8 +1542,19 @@ function ManageVesselsModal({ vessels, onClose, onChanged }) {
   const [error, setError]       = useState('')
   const [savingOrder, setSavingOrder] = useState(false)
 
-  // Open the add form
-  function openAdd() { setEditing(null); setForm(emptyForm); setShowAdd(true); setError('') }
+  // Persist add-vessel form to sessionStorage whenever form changes (add mode only)
+  useEffect(() => {
+    if (showAdd && !editing) vesselDraft.saveDraft(form)
+  }, [form, showAdd, editing]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Open the add form — restore any saved draft
+  function openAdd() {
+    setEditing(null)
+    const draft = vesselDraft.loadDraft(false)
+    setForm(draft ?? emptyForm)
+    setShowAdd(true)
+    setError('')
+  }
 
   // Open edit form for an existing vessel
   function openEdit(v) {
@@ -1581,6 +1595,7 @@ function ManageVesselsModal({ vessels, onClose, onChanged }) {
       }))
     }
     if (err) { setError(err.message); setSaving(false); return }
+    if (!editing) vesselDraft.clearDraft()
     setShowAdd(false)
     setSaving(false)
     onChanged()

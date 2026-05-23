@@ -20,6 +20,7 @@ import ModalShell from '../../components/ModalShell'
 import TierGate from '../../components/TierGate'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import WorkflowWarningBanner from '../../components/WorkflowWarningBanner'
+import { useModalDraft } from '../../hooks/useModalDraft'
 import {
   calculateTotalIngredientCost,
   calculatePackagingCostPerBatch,
@@ -1712,14 +1713,18 @@ function QualityControlSection({ run, qcChecks, isReadOnly, qcModalOpen, setQcMo
 
 // ── AddQCCheckModal ────────────────────────────────────────────────────────────
 
-// Modal for adding a new QC check record — no draft needed (simple, fast form)
 function AddQCCheckModal({ run, brewery, onClose, onSaved }) {
-  const [form, setForm] = useState({
+  console.log('[AddQCCheckModal] draft persistence applied')
+
+  const DRAFT_KEY = `modal_draft_packaging_qc_${run.id}`
+  const { loadDraft, saveDraft, clearDraft, draftRestored, dismissDraftBanner } = useModalDraft(DRAFT_KEY)
+
+  const defaultForm = {
     check_date:         todayStr(),
     checked_by:         '',
     clarity:            CLARITY_OPTIONS[0],
     clarity_notes:      '',
-    carbonation_level:  CARBONATION_OPTIONS[1], // default: Correct
+    carbonation_level:  CARBONATION_OPTIONS[1],
     carbonation_notes:  '',
     appearance_notes:   '',
     aroma_notes:        '',
@@ -1729,13 +1734,19 @@ function AddQCCheckModal({ run, brewery, onClose, onSaved }) {
     ph_measured:        '',
     passed_qc:          true,
     qc_notes:           '',
+  }
+
+  const [form, setForm] = useState(() => {
+    const draft = loadDraft(false)
+    return draft?.form ?? defaultForm
   })
   const [saving, setSaving] = useState(false)
   const [error,  setError]  = useState(null)
 
-  // Update a single field in the QC form
   function set(field, val) {
-    setForm(f => ({ ...f, [field]: val }))
+    const next = { ...form, [field]: val }
+    setForm(next)
+    saveDraft({ form: next })
   }
 
   // Insert the QC check record then close the modal
@@ -1768,6 +1779,7 @@ function AddQCCheckModal({ run, brewery, onClose, onSaved }) {
       return
     }
 
+    clearDraft()
     onSaved()
   }
 
@@ -1778,6 +1790,8 @@ function AddQCCheckModal({ run, brewery, onClose, onSaved }) {
       title="Add QC Check"
       maxWidth="max-w-2xl"
       isDirty={!!form.checked_by}
+      draftRestored={draftRestored}
+      onDismissDraft={dismissDraftBanner}
     >
       <div className="space-y-4">
         {error && <div className="text-danger text-sm bg-red-50 rounded-lg px-3 py-2">{error}</div>}

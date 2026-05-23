@@ -15,8 +15,10 @@ import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../services/supabase'
 import TierGate from '../../components/TierGate'
 import ModalShell from '../../components/ModalShell'
+import DraftNoticeBar from '../../components/DraftNoticeBar'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import WorkflowWarningBanner from '../../components/WorkflowWarningBanner'
+import { useModalDraft } from '../../hooks/useModalDraft'
 import { useReadOnly } from '../../hooks/useReadOnly'
 
 // ── Shared CSS helpers ─────────────────────────────────────────────────────────
@@ -30,6 +32,31 @@ const ACCOUNT_TYPES = [
   'Restaurant', 'Bar', 'Taproom', 'Retail Store', 'Distributor', 'Event', 'Other',
 ]
 
+// Package types must match the exact names used by the recipe builder so that
+// account pricing entries auto-populate when assigning distribution splits.
+const PRICEABLE_PACKAGE_TYPES = [
+  'Can', 'Bottle',
+  'Keg Sixth Barrel', 'Keg Quarter Barrel', 'Keg Half Barrel',
+  'Draft/Taproom',
+  'Growler', 'Crowler',
+  '4-Pack', '6-Pack', '12-Pack', '24-Pack/Case',
+]
+
+// Size specs per package type — values mirror what the recipe builder stores in splits
+// so that exact matching works in handleAccountChange.
+// Keg types omitted: their size is already encoded in the package_type name.
+const SIZE_SPECS = {
+  'Can':           ['8oz', '10oz', '12oz', '16oz', '19.2oz', '32oz'],
+  'Bottle':        ['12oz', '16oz', '22oz', '375ml', '500ml', '750ml'],
+  'Draft/Taproom': ['12oz pour', '16oz pint', '20oz imperial pint'],
+  'Growler':       ['32oz', '64oz'],
+  'Crowler':       ['16oz', '32oz'],
+  '4-Pack':        ['4-pack 12oz', '4-pack 16oz'],
+  '6-Pack':        ['6-pack 12oz', '6-pack 16oz'],
+  '12-Pack':       ['12-pack 12oz'],
+  '24-Pack/Case':  ['24-pack 12oz'],
+}
+
 // Determines if a package_type string represents a returnable keg
 function isKegType(type) {
   return (type || '').toLowerCase().includes('keg')
@@ -40,19 +67,16 @@ const TAB_KEY = 'distribution_active_tab'
 
 // ── Utility helpers ────────────────────────────────────────────────────────────
 
-// Format a YYYY-MM-DD date string to a human-readable short date
 function fmtDate(str) {
   if (!str) return '—'
   const [y, m, d] = str.split('-').map(Number)
   return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-// Return today's date as YYYY-MM-DD for use as a default input value
 function todayStr() {
   return new Date().toISOString().slice(0, 10)
 }
 
-// Format a number as a USD dollar string
 function fmtDollars(n) {
   if (n == null || isNaN(n)) return '—'
   return '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -79,7 +103,6 @@ function DistributionTracker() {
   const { brewery } = useAuth()
   const { isReadOnly } = useReadOnly()
 
-  // Restore last-used tab from localStorage; default to 'assign'
   const [activeTab, setActiveTab] = useState(
     () => localStorage.getItem(TAB_KEY) || 'assign'
   )
@@ -90,13 +113,14 @@ function DistributionTracker() {
   const [loading,          setLoading]          = useState(true)
   const [addAccountOpen,   setAddAccountOpen]   = useState(false)
 
-  // Persist the active tab to localStorage on every change
+  // Draft tracking for Add Account modal — shown as DraftNoticeBar in Accounts tab
+  const addAccountDraft = useModalDraft('modal_draft_distribution_add_account')
+
   function switchTab(tab) {
     setActiveTab(tab)
     localStorage.setItem(TAB_KEY, tab)
   }
 
-  // Load all three relevant tables in parallel
   const loadAll = useCallback(async () => {
     if (!brewery?.id) return
     setLoading(true)
@@ -132,7 +156,8 @@ function DistributionTracker() {
   if (!brewery?.id || loading) return <LoadingSpinner message="Loading distribution data…" />
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-6 space-y-5">
+    // Fix 1: full browser width minus sidebar — no max-w constraint
+    <div className="w-full px-4 py-6 space-y-5">
 
       {/* ── Page header ── */}
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -143,7 +168,6 @@ function DistributionTracker() {
           </p>
         </div>
 
-        {/* Show "+ Add Account" only on the Accounts tab */}
         {activeTab === 'accounts' && !isReadOnly && (
           <button
             onClick={() => setAddAccountOpen(true)}
@@ -176,6 +200,14 @@ function DistributionTracker() {
           ))}
         </div>
       </div>
+
+      {/* DraftNoticeBar for Add Account modal — shown only on Accounts tab */}
+      {activeTab === 'accounts' && addAccountDraft.hasDraft && !addAccountOpen && (
+        <DraftNoticeBar
+          onContinue={() => { setAddAccountOpen(true) }}
+          onDiscard={() => { addAccountDraft.clearDraft() }}
+        />
+      )}
 
       {/* ── Tab content ── */}
       {activeTab === 'assign' && (
@@ -219,18 +251,15 @@ function DistributionTracker() {
 
 // ── AssignTab ──────────────────────────────────────────────────────────────────
 
-// Lists all complete packaging runs. Each row has an "Assign Splits" button
-// that opens AssignSplitsModal to map splits to distribution accounts.
 function AssignTab({ packagingRuns, accounts, distRecords, breweryId, onRefresh, isReadOnly }) {
   const [assignTarget, setAssignTarget] = useState(null)
+  const [reAssign,     setReAssign]     = useState(false)
 
-  // Compute workflow warnings for distribution
   const distributionWarnings = []
 
-  // Required: kegs overdue for return
   const today = new Date().toISOString().slice(0, 10)
   const overdueKegs = distRecords.filter(r =>
-    r.keg_return_expected && !r.keg_returned &&
+    r.returnable_kegs && !r.kegs_returned &&
     r.keg_return_date && r.keg_return_date < today
   )
   if (overdueKegs.length > 0) {
@@ -240,7 +269,6 @@ function AssignTab({ packagingRuns, accounts, distRecords, breweryId, onRefresh,
     })
   }
 
-  // Recommended: complete runs with no distribution records assigned
   const assignedBatchIds = new Set(distRecords.map(r => r.batch_package_id).filter(Boolean))
   const unassigned = packagingRuns.filter(r => r.batch_package_id && !assignedBatchIds.has(r.batch_package_id))
   if (unassigned.length > 0) {
@@ -250,9 +278,8 @@ function AssignTab({ packagingRuns, accounts, distRecords, breweryId, onRefresh,
     })
   }
 
-  // Recommended: deliveries scheduled >7 days ago with no return confirmation
   const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10)
-  const pendingDeliveries = distRecords.filter(r => r.delivery_date && r.delivery_date < sevenDaysAgo && !r.keg_returned && r.keg_return_expected)
+  const pendingDeliveries = distRecords.filter(r => r.delivery_date && r.delivery_date < sevenDaysAgo && !r.kegs_returned && r.returnable_kegs)
   if (pendingDeliveries.length > 0) {
     distributionWarnings.push({
       message: `${pendingDeliveries.length} keg deliver${pendingDeliveries.length > 1 ? 'ies' : 'y'} pending return confirmation`,
@@ -275,54 +302,52 @@ function AssignTab({ packagingRuns, accounts, distRecords, breweryId, onRefresh,
   return (
     <div className="space-y-4">
       <WorkflowWarningBanner warnings={distributionWarnings} />
+
+      {/* Fix 1: table-layout fixed with specified column widths */}
       <div className="overflow-x-auto rounded-xl border border-gray-200">
-        <table className="min-w-full text-sm">
+        <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
-              {['Batch', 'Beer', 'Style', 'Pkg Date', 'Total Packaged', 'Splits', 'Actions'].map(h => (
-                <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
-                  {h}
-                </th>
-              ))}
+              <th style={{ width: '8%' }}  className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Batch</th>
+              <th style={{ width: '15%' }} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Beer</th>
+              <th style={{ width: '10%' }} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Style</th>
+              <th style={{ width: '9%' }}  className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Pkg Date</th>
+              <th style={{ width: '10%' }} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Total Packaged</th>
+              <th style={{ width: '28%' }} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Splits</th>
+              <th style={{ width: '10%' }} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {packagingRuns.map(run => {
-              // Use actual_splits if available, fall back to planned_splits
               const splits = (run.actual_splits?.length ? run.actual_splits : run.planned_splits) || []
 
               return (
                 <tr key={run.id} className="hover:bg-gray-50 transition-colors">
-                  {/* Batch number badge */}
                   <td className="px-4 py-3 whitespace-nowrap">
                     <span className="bg-navy/10 text-navy text-xs font-mono font-semibold px-2 py-1 rounded">
                       {run.batch_number || '—'}
                     </span>
                   </td>
 
-                  {/* Beer name */}
                   <td className="px-4 py-3">
-                    <div className="font-semibold text-gray-800">{run.beer_name}</div>
+                    <div className="font-semibold text-gray-800 truncate">{run.beer_name}</div>
                   </td>
 
-                  {/* Beer style */}
-                  <td className="px-4 py-3 text-gray-500 text-xs">
+                  <td className="px-4 py-3 text-gray-500 text-xs truncate">
                     {run.beer_style || '—'}
                   </td>
 
-                  {/* Packaging date */}
-                  <td className="px-4 py-3 whitespace-nowrap text-gray-600">
+                  <td className="px-4 py-3 whitespace-nowrap text-gray-600 text-xs">
                     {fmtDate(run.packaging_date)}
                   </td>
 
-                  {/* Total volume packaged */}
-                  <td className="px-4 py-3 whitespace-nowrap text-gray-600">
+                  {/* Fix 2: toFixed(2) for total volume */}
+                  <td className="px-4 py-3 whitespace-nowrap text-gray-600 text-xs">
                     {run.total_volume_packaged != null
-                      ? `${run.total_volume_packaged} ${run.volume_unit || 'bbl'}`
+                      ? `${Number(run.total_volume_packaged).toFixed(2)} ${run.volume_unit || 'bbl'}`
                       : '—'}
                   </td>
 
-                  {/* Split badge pills — one per package_type in the splits array */}
                   <td className="px-4 py-3">
                     {splits.length > 0 ? (
                       <div className="flex flex-wrap gap-1">
@@ -340,17 +365,34 @@ function AssignTab({ packagingRuns, accounts, distRecords, breweryId, onRefresh,
                     )}
                   </td>
 
-                  {/* Assign Splits action */}
                   <td className="px-4 py-3 whitespace-nowrap">
-                    {!isReadOnly && (
-                      <button
-                        onClick={() => setAssignTarget(run)}
-                        className="text-amber text-xs font-semibold hover:underline"
-                      >
-                        Assign Splits
-                      </button>
-                    )}
                     {isReadOnly && <span className="text-xs text-gray-400">Read only</span>}
+                    {!isReadOnly && (() => {
+                      const hasAssigned = splits.some(s =>
+                        distRecords.some(d =>
+                          d.batch_package_id === run.batch_package_id &&
+                          d.package_type === s.package_type
+                        )
+                      )
+                      return (
+                        <div className="flex flex-col gap-1">
+                          <button
+                            onClick={() => { setAssignTarget(run); setReAssign(false) }}
+                            className="text-amber text-xs font-semibold hover:underline whitespace-nowrap"
+                          >
+                            Assign Splits
+                          </button>
+                          {hasAssigned && (
+                            <button
+                              onClick={() => { setAssignTarget(run); setReAssign(true) }}
+                              className="text-blue-600 text-xs font-semibold hover:underline whitespace-nowrap"
+                            >
+                              Re-assign
+                            </button>
+                          )}
+                        </div>
+                      )
+                    })()}
                   </td>
                 </tr>
               )
@@ -359,109 +401,233 @@ function AssignTab({ packagingRuns, accounts, distRecords, breweryId, onRefresh,
         </table>
       </div>
 
-      {/* Assign splits modal */}
       {assignTarget && (
         <AssignSplitsModal
           run={assignTarget}
           accounts={accounts}
           distRecords={distRecords}
           breweryId={breweryId}
-          onClose={() => setAssignTarget(null)}
-          onSaved={() => { setAssignTarget(null); onRefresh() }}
+          reAssign={reAssign}
+          onClose={() => { setAssignTarget(null); setReAssign(false) }}
+          onSaved={() => { setAssignTarget(null); setReAssign(false); onRefresh() }}
         />
       )}
     </div>
   )
 }
 
-// ── costPerUnit helper ─────────────────────────────────────────────────────────
+// ── getPintsPerUnit ────────────────────────────────────────────────────────────
+// Returns pints of beer in one unit. Searches packageType + sizeSpec together.
 
-// Converts a recipe cost-per-pint into a cost-per-unit for a given package type.
-// Returns null if costPerPint is falsy or the package type is unknown.
-function costPerUnit(packageType, costPerPint) {
-  if (!costPerPint) return null
-  // Pints of beer per unit, by package type
-  const pints = {
-    'Half Barrel':    248,
-    'Quarter Barrel': 124,
-    'Sixth Barrel':    82,
-    '1/6 bbl':         82,
-    '30L':             79,
-    'Keg':            248,
-    '12oz Cans':     0.75,
-    '16oz Cans':     1,
-    '22oz Bottles':  1.375,
-    '750ml Bottles': 1.583,
-    'Draft/Taproom': 1,
+function getPintsPerUnit(packageType, sizeSpec) {
+  const type     = (packageType || '').toLowerCase()
+  const spec     = (sizeSpec    || '').toLowerCase()
+  const combined = (type + ' ' + spec).trim()
+
+  // 1. Kegs — size may be embedded in the package_type name or in sizeSpec
+  if (combined.includes('sixth')   || combined.includes('5.16') || combined.includes('1/6'))  return 41.28
+  if (combined.includes('quarter') || combined.includes('7.75') || combined.includes('1/4'))  return 62
+  if (combined.includes('half')    || combined.includes('15.5') || combined.includes('1/2'))  return 124
+  if (combined.includes('50l')     || combined.includes('european'))                          return 105.6
+  if (type.includes('keg'))                                                                   return 124  // fallback: half barrel
+
+  // 2. Multi-packs — must run before the oz regex so we multiply correctly
+  //    package_type '6-Pack' + sizeSpec '6-pack 16oz' → (6 × 16) / 16 = 6 pints
+  if (type.includes('pack') || type.includes('case')) {
+    const packCount = type.match(/(\d+)[\s-]pack/)            // count from type name
+    const ozPerUnit = combined.match(/(\d+(?:\.\d+)?)oz/)    // oz value anywhere
+    if (packCount && ozPerUnit) {
+      return (Number(packCount[1]) * Number(ozPerUnit[1])) / 16
+    }
   }
-  const p = pints[packageType] ?? 1
-  return parseFloat(costPerPint) * p
+
+  // 3. Draft / taproom — handle before ozMatch; spec may contain "oz" but unit is per pour
+  if (type.includes('draft') || type.includes('taproom')) {
+    if (combined.includes('20') || combined.includes('imperial')) return 1.25
+    if (combined.includes('12'))                                  return 0.75
+    return 1  // default 16oz pint
+  }
+
+  // 4. Single-serve cans, bottles, growlers, crowlers — oz or ml spec
+  const ozMatch = spec.match(/(\d+(?:\.\d+)?)\s*oz/)
+  if (ozMatch) return Number(ozMatch[1]) / 16
+
+  const mlMatch = spec.match(/(\d+)\s*ml/)
+  if (mlMatch) return Number(mlMatch[1]) / 473.2   // 1 pint = 473.2 ml
+
+  return 1  // default 1 pint
+}
+
+// Ingredient cost per unit = recipe_cost_per_pint × pints_per_unit
+function ingCostPerUnit(packageType, sizeSpec, recipeCostPerPint) {
+  if (!recipeCostPerPint) return 0
+  const pints = getPintsPerUnit(packageType, sizeSpec)
+  const cost  = parseFloat(recipeCostPerPint) * pints
+  console.log('[ingCostPerUnit]', {
+    packageType,
+    sizeSpec,
+    pintsPerUnit: pints,
+    recipeCostPerPint: parseFloat(recipeCostPerPint),
+    ingredientCostPerUnit: cost,
+  })
+  return cost
 }
 
 // ── AssignSplitsModal ──────────────────────────────────────────────────────────
 
-// For each split in the packaging run, shows a row where the user can choose
-// an account, delivery date, and sale price, then saves distribution_records.
-function AssignSplitsModal({ run, accounts, distRecords, breweryId, onClose, onSaved }) {
-  // Use actual_splits if present, otherwise planned_splits
+function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = false, onClose, onSaved }) {
+  console.log('[AssignSplitsModal] draft persistence applied')
+
+  const DRAFT_KEY = `modal_draft_distribution_assign_${run.id}`
+  const { loadDraft, saveDraft, clearDraft, draftRestored, dismissDraftBanner } = useModalDraft(DRAFT_KEY)
+
   const splits = (run.actual_splits?.length ? run.actual_splits : run.planned_splits) || []
 
-  // Build initial row state: one entry per split
-  const [rows, setRows] = useState(() =>
-    splits.map((s, i) => ({
-      key: i,
-      package_type:        s.package_type || '',
-      units_packaged:      s.units_packaged ?? '',
-      volume:              s.total_volume ?? '',
-      account_id:          '',
-      delivery_date:       todayStr(),
-      sale_price:          '',
-      keg_return_expected: isKegType(s.package_type || ''),
-      keg_return_date:     '',
-    }))
-  )
+  // Log all split data so the profit calculation can be verified in the browser console
+  useEffect(() => {
+    console.log('[AssignSplitsModal] opened', {
+      beer_name:            run.beer_name,
+      recipe_cost_per_pint: run.recipe_cost_per_pint,
+      reAssign,
+      splits: splits.map(s => ({
+        package_type:            s.package_type,
+        size_spec:               s.size_spec,
+        units_packaged:          s.units_packaged,
+        packaging_cost_per_unit: s.packaging_cost_per_unit,
+        label_cost_per_unit:     s.label_cost_per_unit,
+        carrier_cost_per_unit:   s.carrier_cost_per_unit,
+      })),
+    })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const buildDefaultRows = () =>
+    splits.map((s, i) => {
+      // Pre-populate from any existing distribution record for this split
+      const existing = distRecords.find(
+        d => d.batch_package_id === run.batch_package_id &&
+             d.package_type     === (s.package_type || '')
+      )
+      return {
+        key:                   i,
+        package_type:          s.package_type || '',
+        size_spec:             s.size_spec    || '',
+        units_packaged:        s.units_packaged ?? '',
+        volume:                s.total_volume ?? '',
+        pkg_cost_per_unit:     parseFloat(s.packaging_cost_per_unit || 0),
+        label_cost_per_unit:   parseFloat(s.label_cost_per_unit     || 0),
+        carrier_cost_per_unit: parseFloat(s.carrier_cost_per_unit   || 0),
+        // Pre-fill from existing record when re-assigning
+        account_id:            existing?.account_id || '',
+        delivery_date:         existing?.delivery_date || todayStr(),
+        sale_price:            existing?.sale_price_per_unit != null ? String(existing.sale_price_per_unit) : '',
+        distribution_cost:     existing?.distribution_cost_per_unit != null ? String(existing.distribution_cost_per_unit) : '0',
+        notes:                 existing?.notes || '',
+        keg_return_expected:   existing != null ? existing.returnable_kegs : isKegType(s.package_type || ''),
+        keg_return_date:       existing?.keg_return_date || '',
+        existing_record_id:    existing?.id || null,
+      }
+    })
+
+  const [rows, setRows] = useState(() => {
+    // Re-assign mode always uses fresh rows pre-populated from existing records
+    if (reAssign) return buildDefaultRows()
+    const draft = loadDraft(false)
+    if (draft?.rows) return draft.rows
+    return buildDefaultRows()
+  })
 
   const [saving, setSaving] = useState(false)
   const [error,  setError]  = useState(null)
 
-  // When an account is selected, auto-populate sale price from the account's pricing array
+  // Persist rows to draft on every change
+  useEffect(() => {
+    saveDraft({ rows })
+  }, [rows]) // eslint-disable-line react-hooks/exhaustive-deps
+
   function handleAccountChange(idx, accountId) {
-    const account = accounts.find(a => a.id === accountId)
+    const account     = accounts.find(a => a.id === accountId)
     const packageType = rows[idx].package_type
+    const sizeSpec    = rows[idx].size_spec || ''
+    const ptLower     = (packageType || '').toLowerCase()
+    const ssLower     = sizeSpec.toLowerCase()
+    // First word of package_type for loose matching: 'Draft/Taproom' → 'draft', 'Keg Half Barrel' → 'keg'
+    const ptFirst     = ptLower.split(/[\s/\-]/)[0]
     let autoPrice = ''
-    if (account?.pricing) {
-      // Fuzzy match: look for pricing row where package_type matches (case-insensitive, partial)
-      const priceRow = account.pricing.find(p =>
-        p.package_type && packageType &&
-        (p.package_type.toLowerCase() === packageType.toLowerCase() ||
-         packageType.toLowerCase().includes(p.package_type.toLowerCase()) ||
-         p.package_type.toLowerCase().includes(packageType.toLowerCase()))
+
+    console.log('[handleAccountChange]', {
+      splitPackageType: packageType,
+      sizeSpec,
+      accountPricing: account?.pricing ?? [],
+    })
+
+    if (account?.pricing?.length) {
+      let priceRow
+
+      // 1. Exact match on both package_type AND size_spec
+      priceRow = account.pricing.find(p =>
+        p.package_type?.toLowerCase() === ptLower &&
+        (p.size_spec || '').toLowerCase() === ssLower
       )
+
+      // 2. Exact match on package_type only
+      if (!priceRow) {
+        priceRow = account.pricing.find(p =>
+          p.package_type?.toLowerCase() === ptLower
+        )
+      }
+
+      // 3. Draft/Taproom normalization — 'Draft/Taproom', 'Draft Pint', 'Draft', 'Taproom'
+      //    all treated as equivalent regardless of which side set the name
+      if (!priceRow) {
+        const isDraft = ptLower.includes('draft') || ptLower.includes('taproom')
+        if (isDraft) {
+          priceRow = account.pricing.find(p => {
+            const pl = (p.package_type || '').toLowerCase()
+            return pl.includes('draft') || pl.includes('taproom')
+          })
+        }
+      }
+
+      // 4. Substring match (e.g. pricing 'Keg' matches split 'Keg Half Barrel')
+      if (!priceRow) {
+        priceRow = account.pricing.find(p => {
+          const pl = (p.package_type || '').toLowerCase()
+          return ptLower.includes(pl) || pl.includes(ptLower)
+        })
+      }
+
+      // 5. First-word match (last resort): 'Keg Half Barrel' → 'keg', 'Can' → 'can'
+      if (!priceRow && ptFirst) {
+        priceRow = account.pricing.find(p => {
+          const pl      = (p.package_type || '').toLowerCase()
+          const plFirst = pl.split(/[\s/\-]/)[0]
+          return plFirst === ptFirst
+        })
+      }
+
+      console.log('[handleAccountChange] match result:', priceRow ?? 'no match found')
       if (priceRow) autoPrice = String(priceRow.price_per_unit)
     }
-    // Update the split row's accountId and salePrice
+
     setRows(prev => prev.map((r, i) =>
       i === idx ? { ...r, account_id: accountId, sale_price: autoPrice || r.sale_price } : r
     ))
   }
 
-  // Check if a distribution_record already exists for this run + package_type
   function isAlreadyAssigned(packageType) {
     return distRecords.some(
       d => d.batch_package_id === run.batch_package_id && d.package_type === packageType
     )
   }
 
-  // Update a single field in one row
   function updateRow(index, field, value) {
     setRows(prev => prev.map((r, i) => i === index ? { ...r, [field]: value } : r))
   }
 
-  // Insert one distribution_record per row that has an account selected
   async function handleSave() {
-    const toInsert = rows.filter(r => r.account_id)
+    const toProcess = rows.filter(r => r.account_id)
 
-    if (toInsert.length === 0) {
+    if (toProcess.length === 0) {
       setError('Select at least one account to assign a split.')
       return
     }
@@ -469,36 +635,81 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, onClose, onS
     setSaving(true)
     setError(null)
 
-    const inserts = toInsert.map(r => {
-      const units = parseFloat(r.units_packaged) || 0
-      const price = parseFloat(r.sale_price) || 0
-      return {
-        brewery_id:          breweryId,
-        batch_package_id:    run.batch_package_id || null,
-        account_id:          r.account_id,
-        delivery_date:       r.delivery_date || null,
-        package_type:        r.package_type || null,
-        units_delivered:     units || null,
-        sale_price_per_unit: price || null,
-        total_sale_value:    units && price ? units * price : null,
-        keg_return_expected: r.keg_return_expected,
-        keg_return_date:     r.keg_return_expected && r.keg_return_date ? r.keg_return_date : null,
-        notes:               '',
+    const toInsert = []
+    const toUpdate = []
+
+    for (const r of toProcess) {
+      const account  = accounts.find(a => a.id === r.account_id) || {}
+      const contacts = account.contacts || []
+      const primary  = contacts.find(c => c.is_primary) || contacts[0] || {}
+      const qty      = Math.round(parseFloat(r.units_packaged)) || 1
+      const price    = parseFloat(r.sale_price) || null
+      const distCost = parseFloat(r.distribution_cost) || null
+      const ingCost  = ingCostPerUnit(r.package_type, r.size_spec || '', run.recipe_cost_per_pint) || null
+      const pkgCost  = pkgCostForRow(r) || null
+
+      const payload = {
+        account_id:                  r.account_id,
+        account_name:                account.account_name || 'Unknown',
+        account_type:                account.account_type || null,
+        contact_name:                primary.name  || null,
+        contact_email:               primary.email || null,
+        contact_phone:               primary.phone || null,
+        package_type:                r.package_type || null,
+        quantity:                    qty,
+        delivery_date:               r.delivery_date || null,
+        sale_price_per_unit:         price,
+        ingredient_cost_per_unit:    ingCost,
+        packaging_cost_per_unit:     pkgCost,
+        distribution_cost_per_unit:  distCost,
+        notes:                       r.notes || null,
+        returnable_kegs:             r.keg_return_expected,
+        keg_return_date:             r.keg_return_expected && r.keg_return_date ? r.keg_return_date : null,
       }
-    })
 
-    const { error: err } = await supabase.from('distribution_records').insert(inserts)
+      if (r.existing_record_id) {
+        toUpdate.push({ id: r.existing_record_id, ...payload })
+      } else {
+        toInsert.push({
+          brewery_id:       breweryId,
+          batch_package_id: run.batch_package_id || null,
+          package_split_id: null,
+          ...payload,
+        })
+      }
+    }
 
-    if (err) { setError(err.message); setSaving(false); return }
+    const ops = []
+    if (toInsert.length > 0) {
+      ops.push(supabase.from('distribution_records').insert(toInsert))
+    }
+    for (const { id, ...updateData } of toUpdate) {
+      ops.push(supabase.from('distribution_records').update(updateData).eq('id', id))
+    }
+
+    const results = await Promise.all(ops)
+    const firstErr = results.find(r => r.error)
+    if (firstErr) { setError(firstErr.error.message); setSaving(false); return }
+    clearDraft()
     onSaved()
   }
+
+  // Compute total packaging material cost for a row
+  function pkgCostForRow(row) {
+    return (row.pkg_cost_per_unit || 0) + (row.label_cost_per_unit || 0) + (row.carrier_cost_per_unit || 0)
+  }
+
+  const isDirty = rows.some(r => r.account_id || r.sale_price || r.notes || r.distribution_cost !== '0')
 
   return (
     <ModalShell
       isOpen
-      onClose={onClose}
-      title={`Assign Distribution — ${run.beer_name}`}
-      maxWidth="max-w-4xl"
+      onClose={() => { onClose() }}
+      title={reAssign ? `Re-assign Distribution — ${run.beer_name}` : `Assign Distribution — ${run.beer_name}`}
+      maxWidth="max-w-5xl"
+      isDirty={isDirty}
+      draftRestored={draftRestored}
+      onDismissDraft={dismissDraftBanner}
     >
       <div className="space-y-5">
         {error && (
@@ -510,124 +721,109 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, onClose, onS
             This packaging run has no splits recorded. Add splits in the Packaging module first.
           </div>
         ) : (
-          <div className="space-y-4">
-            {/* Column headers */}
-            <div className="grid grid-cols-12 gap-2 text-xs text-gray-500 font-semibold uppercase tracking-wide px-1">
-              <div className="col-span-2">Package Type</div>
-              <div className="col-span-1 text-center">Units</div>
-              <div className="col-span-3">Assign to Account</div>
-              <div className="col-span-2">Delivery Date</div>
-              <div className="col-span-2">Sale Price/Unit ($)</div>
-              <div className="col-span-2">Keg Return</div>
-            </div>
-
+          <div className="space-y-5">
             {rows.map((row, i) => {
-              const assigned = isAlreadyAssigned(row.package_type)
+              // In re-assign mode all splits show the form; otherwise hide already-assigned ones
+              const assigned  = !reAssign && isAlreadyAssigned(row.package_type)
+              const salePrice = parseFloat(row.sale_price) || 0
+              const qty       = parseFloat(row.units_packaged) || 0
+              // Fix 2: use getPintsPerUnit-based calculation
+              const ingCost   = ingCostPerUnit(row.package_type, row.size_spec || '', run.recipe_cost_per_pint)
+              const pkgCost   = pkgCostForRow(row)
+              const distCost  = parseFloat(row.distribution_cost) || 0
+              const totalCost = ingCost + pkgCost + distCost
+              const profitPU  = salePrice > 0 ? salePrice - totalCost : null
+              const margin    = salePrice > 0 && profitPU != null ? (profitPU / salePrice) * 100 : null
+
               return (
                 <div
                   key={row.key}
-                  className={`grid grid-cols-12 gap-2 items-start px-1 py-2 rounded-lg ${assigned ? 'bg-green-50' : 'bg-gray-50'}`}
+                  className={`rounded-xl border ${assigned ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-gray-50'} p-4 space-y-3`}
                 >
-                  {/* Package type — read-only display */}
-                  <div className="col-span-2">
-                    <div className="text-sm font-medium text-gray-800">{row.package_type}</div>
-                    {row.volume != null && row.volume !== '' && (
-                      <div className="text-xs text-gray-400">{row.volume} {run.volume_unit || 'bbl'}</div>
-                    )}
-                  </div>
-
-                  {/* Units */}
-                  <div className="col-span-1 text-center text-sm text-gray-700 pt-1">
-                    {row.units_packaged !== '' ? row.units_packaged : '—'}
-                  </div>
-
-                  {/* Account selector */}
-                  <div className="col-span-3">
-                    <select
-                      className={INPUT_CLS}
-                      value={row.account_id}
-                      onChange={e => handleAccountChange(i, e.target.value)}
-                      disabled={assigned}
-                    >
-                      <option value="">— Select account —</option>
-                      {accounts.map(a => (
-                        <option key={a.id} value={a.id}>{a.account_name}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Delivery date */}
-                  <div className="col-span-2">
-                    <input
-                      type="date"
-                      className={INPUT_CLS}
-                      value={row.delivery_date}
-                      onChange={e => updateRow(i, 'delivery_date', e.target.value)}
-                      disabled={assigned}
-                    />
-                  </div>
-
-                  {/* Sale price per unit */}
-                  <div className="col-span-2">
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      className={INPUT_CLS}
-                      placeholder="e.g. 185.00"
-                      value={row.sale_price}
-                      onChange={e => updateRow(i, 'sale_price', e.target.value)}
-                      disabled={assigned}
-                    />
-                    {parseFloat(row.sale_price) > 0 && parseFloat(row.units_packaged) > 0 && (
-                      <div className="text-xs text-gray-500 mt-1">
-                        Total: <span className="font-semibold text-navy">
-                          ${(parseFloat(row.sale_price) * parseFloat(row.units_packaged)).toFixed(2)}
-                        </span>
-                      </div>
-                    )}
-                    {/* ── Cost / profit breakdown ── */}
-                    {parseFloat(row.sale_price) > 0 && run?.recipe_cost_per_pint && (() => {
-                      const costPU   = costPerUnit(row.package_type, run.recipe_cost_per_pint)
-                      const profitPU = costPU != null ? parseFloat(row.sale_price) - costPU : null
-                      const qty      = parseFloat(row.units_packaged) || 0
-                      return (
-                        <div className="bg-gray-50 rounded-lg px-4 py-3 text-sm space-y-1 mt-2">
-                          <div className="flex justify-between text-gray-600">
-                            <span>Cost per unit</span>
-                            <span>${costPU?.toFixed(2) ?? '—'}</span>
-                          </div>
-                          <div className="flex justify-between text-gray-600">
-                            <span>Sale price per unit</span>
-                            <span>${parseFloat(row.sale_price).toFixed(2)}</span>
-                          </div>
-                          <div className="flex justify-between font-medium text-navy border-t pt-1 mt-1">
-                            <span>Profit per unit</span>
-                            <span className={profitPU >= 0 ? 'text-success' : 'text-danger'}>
-                              ${profitPU?.toFixed(2) ?? '—'}
-                            </span>
-                          </div>
-                          {qty > 0 && profitPU != null && (
-                            <div className="flex justify-between font-semibold border-t pt-1 mt-1">
-                              <span>Total profit ({qty} units)</span>
-                              <span className={profitPU >= 0 ? 'text-success' : 'text-danger'}>
-                                ${(profitPU * qty).toFixed(2)}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })()}
-                  </div>
-
-                  {/* Keg return toggle + expected return date */}
-                  <div className="col-span-2 space-y-1.5">
-                    {assigned ? (
-                      <span className="bg-green-100 text-success text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap">
-                        Assigned
+                  {/* Row header: package type + units */}
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <span className="font-semibold text-gray-800 text-sm">{row.package_type || 'Unknown'}</span>
+                    {row.units_packaged !== '' && (
+                      <span className="bg-navy/10 text-navy text-xs px-2 py-0.5 rounded-full">
+                        {row.units_packaged} units
                       </span>
-                    ) : (
-                      <>
+                    )}
+                    {row.volume != null && row.volume !== '' && (
+                      <span className="text-xs text-gray-400">{row.volume} {run.volume_unit || 'bbl'}</span>
+                    )}
+                    {assigned && (
+                      <span className="bg-green-100 text-success text-xs font-semibold px-2 py-0.5 rounded-full ml-auto">
+                        Already Assigned ✓
+                      </span>
+                    )}
+                    {!assigned && row.existing_record_id && (
+                      <span className="bg-blue-50 text-blue-600 text-xs font-semibold px-2 py-0.5 rounded-full ml-auto">
+                        Re-assigning ✎
+                      </span>
+                    )}
+                  </div>
+
+                  {!assigned && (
+                    <>
+                      {/* Assignment fields */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                        {/* Account */}
+                        <div>
+                          <label className={LBL}>Assign to Account</label>
+                          <select
+                            className={INPUT_CLS}
+                            value={row.account_id}
+                            onChange={e => handleAccountChange(i, e.target.value)}
+                          >
+                            <option value="">— Select account —</option>
+                            {accounts.map(a => (
+                              <option key={a.id} value={a.id}>{a.account_name}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Delivery date */}
+                        <div>
+                          <label className={LBL}>Delivery Date</label>
+                          <input
+                            type="date"
+                            className={INPUT_CLS}
+                            value={row.delivery_date}
+                            onChange={e => updateRow(i, 'delivery_date', e.target.value)}
+                          />
+                        </div>
+
+                        {/* Sale price */}
+                        <div>
+                          <label className={LBL}>Sale Price / Unit ($)</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            className={INPUT_CLS}
+                            placeholder="e.g. 185.00"
+                            value={row.sale_price}
+                            onChange={e => updateRow(i, 'sale_price', e.target.value)}
+                          />
+                        </div>
+
+                        {/* Distribution cost */}
+                        <div>
+                          <label className={LBL}>Delivery Cost / Unit ($)</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            className={INPUT_CLS}
+                            placeholder="0.00"
+                            value={row.distribution_cost}
+                            onChange={e => updateRow(i, 'distribution_cost', e.target.value)}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Keg return */}
+                      <div className="flex flex-wrap items-center gap-4">
                         <label className="flex items-center gap-1.5 cursor-pointer">
                           <input
                             type="checkbox"
@@ -635,23 +831,87 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, onClose, onS
                             checked={row.keg_return_expected}
                             onChange={e => updateRow(i, 'keg_return_expected', e.target.checked)}
                           />
-                          <span className="text-xs text-gray-600">Return expected</span>
+                          <span className="text-xs text-gray-600">Keg return expected</span>
                         </label>
-                        {/* Show expected return date when keg return is expected */}
                         {row.keg_return_expected && (
-                          <div>
-                            <label className={LBL}>Expected Return Date</label>
+                          <div className="flex items-center gap-2">
+                            <label className="text-xs text-gray-500">Return by:</label>
                             <input
                               type="date"
-                              className={INPUT_CLS}
+                              className="border border-gray-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-amber"
                               value={row.keg_return_date || ''}
                               onChange={e => updateRow(i, 'keg_return_date', e.target.value)}
                             />
                           </div>
                         )}
-                      </>
-                    )}
-                  </div>
+                      </div>
+
+                      {/* Notes */}
+                      <div>
+                        <label className={LBL}>Notes (optional)</label>
+                        <input
+                          type="text"
+                          className={INPUT_CLS}
+                          placeholder="Delivery notes, special instructions…"
+                          value={row.notes}
+                          onChange={e => updateRow(i, 'notes', e.target.value)}
+                        />
+                      </div>
+
+                      {/* Fix 4: True profit breakdown */}
+                      {salePrice > 0 && (
+                        <div className="bg-white rounded-lg border border-gray-200 px-4 py-3 text-sm space-y-1.5">
+                          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Profit Breakdown</div>
+
+                          <div className="flex justify-between text-gray-600">
+                            <span>Sale price per unit</span>
+                            <span className="font-medium text-navy">{fmtDollars(salePrice)}</span>
+                          </div>
+
+                          <div className="flex justify-between text-gray-500">
+                            <span>Ingredient cost</span>
+                            <span>− {ingCost > 0 ? fmtDollars(ingCost) : <span className="text-gray-400 text-xs">no recipe cost</span>}</span>
+                          </div>
+
+                          <div className="flex justify-between text-gray-500">
+                            <span>Packaging materials</span>
+                            <span>− {fmtDollars(pkgCost)}</span>
+                          </div>
+
+                          <div className="flex justify-between text-gray-500">
+                            <span>Distribution / delivery cost</span>
+                            <span>− {fmtDollars(distCost)}</span>
+                          </div>
+
+                          <div className={`flex justify-between font-semibold border-t border-gray-200 pt-1.5 mt-1.5 ${profitPU != null && profitPU >= 0 ? 'text-success' : 'text-danger'}`}>
+                            <span>Net profit per unit</span>
+                            <span>{profitPU != null ? fmtDollars(profitPU) : '—'}</span>
+                          </div>
+
+                          {margin != null && (
+                            <div className="flex justify-between text-xs text-gray-400">
+                              <span>Net margin</span>
+                              <span>{margin.toFixed(1)}%</span>
+                            </div>
+                          )}
+
+                          {qty > 0 && profitPU != null && (
+                            <div className={`flex justify-between font-bold border-t border-gray-200 pt-1.5 mt-1.5 ${profitPU >= 0 ? 'text-success' : 'text-danger'}`}>
+                              <span>Total profit ({qty} units)</span>
+                              <span>{fmtDollars(profitPU * qty)}</span>
+                            </div>
+                          )}
+
+                          {qty > 0 && salePrice > 0 && (
+                            <div className="flex justify-between text-xs text-gray-500 font-medium">
+                              <span>Total revenue</span>
+                              <span>{fmtDollars(salePrice * qty)}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               )
             })}
@@ -681,38 +941,52 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, onClose, onS
 
 // ── DeliveriesTab ──────────────────────────────────────────────────────────────
 
-// Full delivery log: summary stats, filterable table, inline keg return toggle,
-// and edit/delete per row.
-function DeliveriesTab({ distRecords, accounts, breweryId, onRefresh, isReadOnly }) {
+function DeliveriesTab({ distRecords, accounts, onRefresh, isReadOnly }) {
   const [editTarget, setEditTarget] = useState(null)
 
-  // Build account lookup map: id → account_name
   const accountMap = useMemo(() => {
     const m = {}
     for (const a of accounts) m[a.id] = a.account_name
     return m
   }, [accounts])
 
-  // ── Summary stats ──────────────────────────────────────────────────────────
   const totalDeliveries = distRecords.length
   const totalRevenue    = distRecords.reduce((sum, d) => sum + (parseFloat(d.total_sale_value) || 0), 0)
-  const kegsOut         = distRecords.filter(d => d.keg_return_expected && !d.keg_returned).length
+  const kegsOut         = distRecords.filter(d => d.returnable_kegs && !d.kegs_returned).length
 
-  // ── Inline keg return toggle ───────────────────────────────────────────────
-  // Records both the boolean and the actual return date when toggled
+  // Per-record profit helper
+  function recordProfit(d) {
+    const sale     = parseFloat(d.sale_price_per_unit)   || 0
+    const ing      = parseFloat(d.ingredient_cost_per_unit)  || 0
+    const pkg      = parseFloat(d.packaging_cost_per_unit)   || 0
+    const dist     = parseFloat(d.distribution_cost_per_unit) || 0
+    const qty      = parseFloat(d.quantity) || 0
+    const profitPU = sale > 0 ? sale - ing - pkg - dist : null
+    const total    = profitPU != null ? profitPU * qty : null
+    const margin   = sale > 0 && profitPU != null ? (profitPU / sale) * 100 : null
+    return { sale, ing, pkg, dist, qty, profitPU, total, margin }
+  }
+
+  // Summary profit aggregates
+  const totalCost = distRecords.reduce((sum, d) => {
+    const { ing, pkg, dist, qty } = recordProfit(d)
+    return sum + (ing + pkg + dist) * qty
+  }, 0)
+  const totalProfit  = totalRevenue - totalCost
+  const avgMargin    = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : null
+
   async function handleKegReturned(recordId, returned) {
     const today = new Date().toISOString().slice(0, 10)
     await supabase
       .from('distribution_records')
       .update({
-        keg_returned:      returned,
+        kegs_returned:     returned,
         keg_returned_date: returned ? today : null,
       })
       .eq('id', recordId)
     onRefresh()
   }
 
-  // ── Delete a delivery record ───────────────────────────────────────────────
   async function handleDelete(record) {
     if (!window.confirm('Delete this delivery record? This cannot be undone.')) return
     await supabase.from('distribution_records').delete().eq('id', record.id)
@@ -722,27 +996,45 @@ function DeliveriesTab({ distRecords, accounts, breweryId, onRefresh, isReadOnly
   return (
     <div className="space-y-6">
 
-      {/* ── Summary stats bar ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      {/* ── Summary cards ── */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         <div className="bg-white border border-gray-200 rounded-xl p-4">
-          <div className="text-xs text-gray-500 mb-1">Total Deliveries</div>
+          <div className="text-xs text-gray-500 mb-1">Deliveries</div>
           <div className="text-2xl font-bold text-navy">{totalDeliveries}</div>
         </div>
         <div className="bg-white border border-gray-200 rounded-xl p-4">
           <div className="text-xs text-gray-500 mb-1">Total Revenue</div>
-          <div className="text-2xl font-bold text-success">
+          <div className="text-xl font-bold text-navy">
             {totalRevenue > 0 ? fmtDollars(totalRevenue) : '—'}
           </div>
         </div>
-        <div className={`bg-white border rounded-xl p-4 ${kegsOut > 0 ? 'border-amber' : 'border-gray-200'}`}>
-          <div className="text-xs text-gray-500 mb-1">Kegs Out</div>
-          <div className={`text-2xl font-bold ${kegsOut > 0 ? 'text-amber' : 'text-navy'}`}>
-            {kegsOut}
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <div className="text-xs text-gray-500 mb-1">Total Cost</div>
+          <div className="text-xl font-bold text-gray-700">
+            {totalCost > 0 ? fmtDollars(totalCost) : '—'}
+          </div>
+        </div>
+        <div className={`bg-white border rounded-xl p-4 ${totalProfit < 0 ? 'border-red-200' : 'border-gray-200'}`}>
+          <div className="text-xs text-gray-500 mb-1">Total Profit</div>
+          <div className={`text-xl font-bold ${totalProfit >= 0 ? 'text-success' : 'text-danger'}`}>
+            {totalRevenue > 0 ? fmtDollars(totalProfit) : '—'}
+          </div>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <div className="text-xs text-gray-500 mb-1">Avg Margin</div>
+          <div className={`text-xl font-bold ${avgMargin != null && avgMargin >= 0 ? 'text-success' : 'text-danger'}`}>
+            {avgMargin != null ? `${avgMargin.toFixed(1)}%` : '—'}
           </div>
         </div>
       </div>
 
-      {/* ── Delivery table ── */}
+      {/* ── Kegs out alert ── */}
+      {kegsOut > 0 && (
+        <div className="flex items-center gap-2 bg-amber/10 border border-amber rounded-lg px-4 py-2 text-sm text-amber font-medium">
+          {kegsOut} keg{kegsOut > 1 ? 's' : ''} currently out — awaiting return
+        </div>
+      )}
+
       {distRecords.length === 0 ? (
         <div className="border-2 border-dashed border-gray-200 rounded-xl p-12 text-center">
           <div className="text-4xl mb-3">🚚</div>
@@ -756,7 +1048,7 @@ function DeliveriesTab({ distRecords, accounts, breweryId, onRefresh, isReadOnly
           <table className="min-w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                {['Delivery Date', 'Account', 'Package Type', 'Units', 'Price/Unit', 'Total Value', 'Keg Return', 'Notes', 'Actions'].map(h => (
+                {['Date', 'Account', 'Package', 'Units', 'Sale/Unit', 'Net Profit/Unit', 'Total Profit', 'Margin', 'Keg Return', 'Notes', 'Actions'].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
                     {h}
                   </th>
@@ -765,51 +1057,64 @@ function DeliveriesTab({ distRecords, accounts, breweryId, onRefresh, isReadOnly
             </thead>
             <tbody className="divide-y divide-gray-100">
               {distRecords.map(d => {
-                const accountName = d.account_id ? (accountMap[d.account_id] || '—') : '—'
+                const { sale, profitPU, total, margin } = recordProfit(d)
                 return (
                   <tr key={d.id} className="hover:bg-gray-50 transition-colors">
-                    {/* Delivery date */}
-                    <td className="px-4 py-3 whitespace-nowrap text-gray-600">
+                    <td className="px-4 py-3 whitespace-nowrap text-gray-600 text-xs">
                       {fmtDate(d.delivery_date)}
                     </td>
 
-                    {/* Account name */}
-                    <td className="px-4 py-3 font-medium text-gray-800">
-                      {accountName}
+                    <td className="px-4 py-3 font-medium text-gray-800 text-xs">
+                      {d.account_name || accountMap[d.account_id] || '—'}
                     </td>
 
-                    {/* Package type */}
-                    <td className="px-4 py-3 text-gray-600">{d.package_type || '—'}</td>
+                    <td className="px-4 py-3 text-gray-600 text-xs">{d.package_type || '—'}</td>
 
-                    {/* Units delivered */}
-                    <td className="px-4 py-3 text-gray-700">{d.units_delivered ?? '—'}</td>
+                    <td className="px-4 py-3 text-gray-700 text-xs">{d.quantity ?? '—'}</td>
 
-                    {/* Sale price per unit */}
-                    <td className="px-4 py-3 text-gray-700">
-                      {d.sale_price_per_unit != null ? fmtDollars(d.sale_price_per_unit) : '—'}
+                    <td className="px-4 py-3 text-gray-700 text-xs">
+                      {sale > 0 ? fmtDollars(sale) : '—'}
                     </td>
 
-                    {/* Total sale value */}
-                    <td className="px-4 py-3 font-semibold text-gray-800">
-                      {fmtDollars(d.total_sale_value)}
+                    {/* Net Profit/Unit — green if positive, red if negative */}
+                    <td className="px-4 py-3 text-xs font-semibold whitespace-nowrap">
+                      {profitPU != null ? (
+                        <span className={profitPU >= 0 ? 'text-success' : 'text-danger'}>
+                          {fmtDollars(profitPU)}
+                        </span>
+                      ) : '—'}
                     </td>
 
-                    {/* Keg return status + inline toggle */}
+                    <td className="px-4 py-3 text-xs font-semibold whitespace-nowrap">
+                      {total != null ? (
+                        <span className={total >= 0 ? 'text-success' : 'text-danger'}>
+                          {fmtDollars(total)}
+                        </span>
+                      ) : '—'}
+                    </td>
+
+                    <td className="px-4 py-3 text-xs whitespace-nowrap">
+                      {margin != null ? (
+                        <span className={margin >= 0 ? 'text-success' : 'text-danger'}>
+                          {margin.toFixed(1)}%
+                        </span>
+                      ) : '—'}
+                    </td>
+
+                    {/* returnable_kegs / kegs_returned = correct column names */}
                     <td className="px-4 py-3">
-                      {d.keg_return_expected ? (
-                        d.keg_returned ? (
+                      {d.returnable_kegs ? (
+                        d.kegs_returned ? (
                           <div className="flex flex-col gap-0.5">
                             <span className="text-success text-xs font-semibold">Returned ✓</span>
-                            {/* Actual return date */}
                             {d.keg_returned_date && (
                               <span className="text-xs text-gray-400">
-                                Returned on: {fmtDate(d.keg_returned_date)}
+                                on: {fmtDate(d.keg_returned_date)}
                               </span>
                             )}
                           </div>
                         ) : (
                           <div className="flex flex-col gap-0.5">
-                            {/* Expected return date with overdue/upcoming color coding */}
                             {d.keg_return_date && (() => {
                               const today = new Date().toISOString().slice(0, 10)
                               const isOverdue = d.keg_return_date < today
@@ -842,29 +1147,27 @@ function DeliveriesTab({ distRecords, accounts, breweryId, onRefresh, isReadOnly
                       )}
                     </td>
 
-                    {/* Notes */}
                     <td className="px-4 py-3 text-gray-500 text-xs max-w-[150px] truncate">
                       {d.notes || '—'}
                     </td>
 
-                    {/* Edit / Delete actions */}
                     <td className="px-4 py-3 whitespace-nowrap">
-                      {!isReadOnly && (
-                        <div className="flex gap-3 items-center">
-                          <button
-                            onClick={() => setEditTarget(d)}
-                            className="text-amber text-xs font-semibold hover:underline"
-                          >
-                            Edit
-                          </button>
+                      <div className="flex gap-3 items-center">
+                        <button
+                          onClick={() => setEditTarget(d)}
+                          className="text-amber text-xs font-semibold hover:underline"
+                        >
+                          {isReadOnly ? 'View' : 'Edit'}
+                        </button>
+                        {!isReadOnly && (
                           <button
                             onClick={() => handleDelete(d)}
                             className="text-danger text-xs font-semibold hover:underline"
                           >
                             Delete
                           </button>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </td>
                   </tr>
                 )
@@ -874,7 +1177,6 @@ function DeliveriesTab({ distRecords, accounts, breweryId, onRefresh, isReadOnly
         </div>
       )}
 
-      {/* Edit delivery modal */}
       {editTarget && (
         <EditDeliveryModal
           record={editTarget}
@@ -889,57 +1191,81 @@ function DeliveriesTab({ distRecords, accounts, breweryId, onRefresh, isReadOnly
 
 // ── EditDeliveryModal ──────────────────────────────────────────────────────────
 
-// Edit an existing distribution_record
 function EditDeliveryModal({ record, accounts, onClose, onSaved }) {
-  const [form, setForm] = useState({
-    delivery_date:       record.delivery_date       || '',
-    account_id:          record.account_id          || '',
-    units_delivered:     record.units_delivered     ?? '',
-    sale_price_per_unit: record.sale_price_per_unit ?? '',
-    keg_return_expected: record.keg_return_expected || false,
-    keg_return_date:     record.keg_return_date     || '',
-    keg_returned:        record.keg_returned        || false,
-    keg_returned_date:   record.keg_returned_date   || '',
-    notes:               record.notes               || '',
+  console.log('[EditDeliveryModal] draft persistence applied')
+
+  const DRAFT_KEY = `modal_draft_distribution_edit_delivery_${record.id}`
+  const { loadDraft, saveDraft, clearDraft, draftRestored, dismissDraftBanner } = useModalDraft(DRAFT_KEY)
+
+  const defaultForm = {
+    delivery_date:               record.delivery_date              || '',
+    account_id:                  record.account_id                 || '',
+    quantity:                    record.quantity                   ?? '',
+    sale_price_per_unit:         record.sale_price_per_unit        ?? '',
+    distribution_cost_per_unit:  record.distribution_cost_per_unit ?? '',
+    returnable_kegs:             record.returnable_kegs            || false,
+    keg_return_date:             record.keg_return_date            || '',
+    kegs_returned:               record.kegs_returned              || false,
+    keg_returned_date:           record.keg_returned_date          || '',
+    notes:                       record.notes                      || '',
+  }
+
+  const [form, setForm] = useState(() => {
+    const draft = loadDraft(false)
+    return draft?.form ?? defaultForm
   })
 
   const [saving, setSaving] = useState(false)
   const [error,  setError]  = useState(null)
 
-  // Computed total sale value shown as live read-only preview
-  const computedTotal = form.units_delivered && form.sale_price_per_unit
-    ? parseFloat(form.units_delivered) * parseFloat(form.sale_price_per_unit)
-    : null
+  // Read-only costs stored on the record at insert time
+  const ingCost  = parseFloat(record.ingredient_cost_per_unit)  || 0
+  const pkgCost  = parseFloat(record.packaging_cost_per_unit)   || 0
+
+  // Live profit — recalculates as sale price or dist cost changes
+  const salePrice  = parseFloat(form.sale_price_per_unit)       || 0
+  const distCost   = parseFloat(form.distribution_cost_per_unit) || 0
+  const qty        = parseFloat(form.quantity)                  || 0
+  const totalCost  = ingCost + pkgCost + distCost
+  const profitPU   = salePrice > 0 ? salePrice - totalCost : null
+  const margin     = salePrice > 0 && profitPU != null ? (profitPU / salePrice) * 100 : null
+  const totalProfit = profitPU != null && qty > 0 ? profitPU * qty : null
 
   function set(field, val) {
-    setForm(f => ({ ...f, [field]: val }))
+    const next = { ...form, [field]: val }
+    setForm(next)
+    saveDraft({ form: next })
   }
+
+  const isDirty = JSON.stringify(form) !== JSON.stringify(defaultForm)
 
   async function handleSave() {
     if (!form.delivery_date) { setError('Delivery date is required.'); return }
     setSaving(true)
     setError(null)
 
-    const units = form.units_delivered !== '' ? parseFloat(form.units_delivered) : null
-    const price = form.sale_price_per_unit !== '' ? parseFloat(form.sale_price_per_unit) : null
+    const units     = form.quantity !== ''                   ? parseFloat(form.quantity)                   : null
+    const price     = form.sale_price_per_unit !== ''        ? parseFloat(form.sale_price_per_unit)        : null
+    const distCostV = form.distribution_cost_per_unit !== '' ? parseFloat(form.distribution_cost_per_unit) : null
 
     const { error: err } = await supabase
       .from('distribution_records')
       .update({
-        delivery_date:       form.delivery_date       || null,
-        account_id:          form.account_id          || null,
-        units_delivered:     units,
-        sale_price_per_unit: price,
-        total_sale_value:    units && price ? units * price : null,
-        keg_return_expected: form.keg_return_expected,
-        keg_return_date:     form.keg_return_expected && form.keg_return_date ? form.keg_return_date : null,
-        keg_returned:        form.keg_returned,
-        keg_returned_date:   form.keg_returned && form.keg_returned_date ? form.keg_returned_date : null,
-        notes:               form.notes               || null,
+        delivery_date:               form.delivery_date      || null,
+        account_id:                  form.account_id         || null,
+        quantity:                    units,
+        sale_price_per_unit:         price,
+        distribution_cost_per_unit:  distCostV,
+        returnable_kegs:             form.returnable_kegs,
+        keg_return_date:             form.returnable_kegs && form.keg_return_date ? form.keg_return_date : null,
+        kegs_returned:               form.kegs_returned,
+        keg_returned_date:           form.kegs_returned && form.keg_returned_date ? form.keg_returned_date : null,
+        notes:                       form.notes || null,
       })
       .eq('id', record.id)
 
     if (err) { setError(err.message); setSaving(false); return }
+    clearDraft()
     onSaved()
   }
 
@@ -949,15 +1275,29 @@ function EditDeliveryModal({ record, accounts, onClose, onSaved }) {
       onClose={onClose}
       title="Edit Delivery Record"
       maxWidth="max-w-2xl"
-      isDirty={true}
+      isDirty={isDirty}
+      draftRestored={draftRestored}
+      onDismissDraft={dismissDraftBanner}
     >
       <div className="space-y-4">
         {error && (
           <div className="text-danger text-sm bg-red-50 rounded-lg px-3 py-2">{error}</div>
         )}
 
+        {/* Read-only context row */}
+        <div className="grid grid-cols-2 gap-3 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-sm">
+          <div>
+            <div className="text-xs text-gray-400 mb-0.5">Account</div>
+            <div className="font-medium text-gray-800">{record.account_name || '—'}</div>
+          </div>
+          <div>
+            <div className="text-xs text-gray-400 mb-0.5">Package Type</div>
+            <div className="font-medium text-gray-800">{record.package_type || '—'}</div>
+          </div>
+        </div>
+
+        {/* Editable fields */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {/* Delivery date */}
           <div>
             <label className={LBL}>Delivery Date *</label>
             <input
@@ -968,7 +1308,6 @@ function EditDeliveryModal({ record, accounts, onClose, onSaved }) {
             />
           </div>
 
-          {/* Account select */}
           <div>
             <label className={LBL}>Account</label>
             <select
@@ -983,7 +1322,6 @@ function EditDeliveryModal({ record, accounts, onClose, onSaved }) {
             </select>
           </div>
 
-          {/* Units delivered */}
           <div>
             <label className={LBL}>Units Delivered</label>
             <input
@@ -991,12 +1329,11 @@ function EditDeliveryModal({ record, accounts, onClose, onSaved }) {
               min="0"
               className={INPUT_CLS}
               placeholder="e.g. 10"
-              value={form.units_delivered}
-              onChange={e => set('units_delivered', e.target.value)}
+              value={form.quantity}
+              onChange={e => set('quantity', e.target.value)}
             />
           </div>
 
-          {/* Sale price per unit */}
           <div>
             <label className={LBL}>Sale Price per Unit ($)</label>
             <input
@@ -1009,34 +1346,87 @@ function EditDeliveryModal({ record, accounts, onClose, onSaved }) {
               onChange={e => set('sale_price_per_unit', e.target.value)}
             />
           </div>
-        </div>
 
-        {/* Computed total — read-only display */}
-        <div>
-          <label className={LBL}>Total Sale Value (computed)</label>
-          <div className="text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 font-semibold">
-            {computedTotal != null
-              ? fmtDollars(computedTotal)
-              : <span className="text-gray-400 font-normal">Set units + price above</span>}
+          <div>
+            <label className={LBL}>Distribution / Delivery Cost per Unit ($)</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className={INPUT_CLS}
+              placeholder="0.00"
+              value={form.distribution_cost_per_unit}
+              onChange={e => set('distribution_cost_per_unit', e.target.value)}
+            />
           </div>
         </div>
 
-        {/* Keg return expected toggle */}
+        {/* Profit breakdown — recalculates live */}
+        <div className="bg-white rounded-lg border border-gray-200 px-4 py-3 text-sm space-y-1.5">
+          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Profit Breakdown</div>
+
+          <div className="flex justify-between text-gray-600">
+            <span>Sale price per unit</span>
+            <span className="font-medium text-navy">{salePrice > 0 ? fmtDollars(salePrice) : <span className="text-gray-400 text-xs">not set</span>}</span>
+          </div>
+
+          <div className="flex justify-between text-gray-500">
+            <span>Ingredient cost <span className="text-xs text-gray-400">(from recipe)</span></span>
+            <span>− {ingCost > 0 ? fmtDollars(ingCost) : <span className="text-gray-400 text-xs">no recipe cost</span>}</span>
+          </div>
+
+          <div className="flex justify-between text-gray-500">
+            <span>Packaging materials <span className="text-xs text-gray-400">(from run)</span></span>
+            <span>− {fmtDollars(pkgCost)}</span>
+          </div>
+
+          <div className="flex justify-between text-gray-500">
+            <span>Distribution / delivery cost</span>
+            <span>− {fmtDollars(distCost)}</span>
+          </div>
+
+          <div className={`flex justify-between font-semibold border-t border-gray-200 pt-1.5 mt-1.5 ${profitPU != null && profitPU >= 0 ? 'text-success' : profitPU != null ? 'text-danger' : 'text-gray-400'}`}>
+            <span>Net profit per unit</span>
+            <span>{profitPU != null ? fmtDollars(profitPU) : '—'}</span>
+          </div>
+
+          {margin != null && (
+            <div className="flex justify-between text-xs text-gray-400">
+              <span>Net margin</span>
+              <span>{margin.toFixed(1)}%</span>
+            </div>
+          )}
+
+          {totalProfit != null && qty > 0 && (
+            <div className={`flex justify-between font-bold border-t border-gray-200 pt-1.5 mt-1.5 ${totalProfit >= 0 ? 'text-success' : 'text-danger'}`}>
+              <span>Total profit ({qty} units)</span>
+              <span>{fmtDollars(totalProfit)}</span>
+            </div>
+          )}
+
+          {salePrice > 0 && qty > 0 && (
+            <div className="flex justify-between text-xs text-gray-500 font-medium">
+              <span>Total revenue</span>
+              <span>{fmtDollars(salePrice * qty)}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Keg return tracking */}
         <div className="flex items-center gap-3">
           <input
             type="checkbox"
             id="edit-keg-expected"
             className="w-4 h-4 accent-amber"
-            checked={form.keg_return_expected}
-            onChange={e => set('keg_return_expected', e.target.checked)}
+            checked={form.returnable_kegs}
+            onChange={e => set('returnable_kegs', e.target.checked)}
           />
           <label htmlFor="edit-keg-expected" className="text-sm text-gray-700 font-medium">
             Keg Return Expected
           </label>
         </div>
 
-        {/* Expected return date — only shown when keg return is expected */}
-        {form.keg_return_expected && (
+        {form.returnable_kegs && (
           <div>
             <label className={LBL}>Expected Return Date</label>
             <input
@@ -1048,22 +1438,20 @@ function EditDeliveryModal({ record, accounts, onClose, onSaved }) {
           </div>
         )}
 
-        {/* Keg returned toggle */}
         <div className="flex items-center gap-3">
           <input
             type="checkbox"
             id="edit-keg-returned"
             className="w-4 h-4 accent-amber"
-            checked={form.keg_returned}
-            onChange={e => set('keg_returned', e.target.checked)}
+            checked={form.kegs_returned}
+            onChange={e => set('kegs_returned', e.target.checked)}
           />
           <label htmlFor="edit-keg-returned" className="text-sm text-gray-700 font-medium">
             Kegs Returned
           </label>
         </div>
 
-        {/* Actual return date — only shown when kegs have been returned */}
-        {form.keg_returned && (
+        {form.kegs_returned && (
           <div>
             <label className={LBL}>Actual Return Date</label>
             <input
@@ -1075,7 +1463,6 @@ function EditDeliveryModal({ record, accounts, onClose, onSaved }) {
           </div>
         )}
 
-        {/* Notes */}
         <div>
           <label className={LBL}>Notes</label>
           <textarea
@@ -1087,7 +1474,6 @@ function EditDeliveryModal({ record, accounts, onClose, onSaved }) {
           />
         </div>
 
-        {/* Action buttons */}
         <div className="flex gap-3 pt-2">
           <button
             onClick={handleSave}
@@ -1110,12 +1496,10 @@ function EditDeliveryModal({ record, accounts, onClose, onSaved }) {
 
 // ── AccountsTab ────────────────────────────────────────────────────────────────
 
-// Account cards grid — each card shows primary contact, address, notes, and action buttons.
 function AccountsTab({ accounts, onRefresh, isReadOnly }) {
-  const [editTarget,    setEditTarget]    = useState(null)
-  const [expandedId,    setExpandedId]    = useState(null)  // which card is showing all contacts
+  const [editTarget, setEditTarget] = useState(null)
+  const [expandedId, setExpandedId] = useState(null)
 
-  // Soft-delete: set is_active = false so the account stops appearing in selects
   async function handleDeactivate(account) {
     if (!window.confirm(`Deactivate "${account.account_name}"? They won't appear in new distribution forms.`)) return
     await supabase.from('distribution_accounts').update({ is_active: false }).eq('id', account.id)
@@ -1136,10 +1520,8 @@ function AccountsTab({ accounts, onRefresh, isReadOnly }) {
 
   return (
     <div className="space-y-5">
-      {/* Account cards grid — 2 on md, 3 on xl */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {accounts.map(account => {
-          // Determine primary contact from the contacts jsonb array
           const contacts = account.contacts || []
           const primaryContact = contacts.find(c => c.is_primary) || contacts[0] || null
           const isExpanded = expandedId === account.id
@@ -1149,7 +1531,6 @@ function AccountsTab({ accounts, onRefresh, isReadOnly }) {
               key={account.id}
               className="bg-white border border-gray-200 rounded-xl p-4 space-y-3 hover:shadow-sm transition-shadow"
             >
-              {/* Account name + type badge */}
               <div className="flex items-start justify-between gap-2">
                 <div className="font-bold text-gray-800 text-base leading-snug">{account.account_name}</div>
                 <span className="bg-navy/10 text-navy text-xs font-medium px-2 py-0.5 rounded-full shrink-0">
@@ -1157,7 +1538,6 @@ function AccountsTab({ accounts, onRefresh, isReadOnly }) {
                 </span>
               </div>
 
-              {/* Primary contact info */}
               {primaryContact && (
                 <div className="space-y-0.5 text-sm text-gray-600">
                   {primaryContact.name  && <div>👤 {primaryContact.name}{primaryContact.title ? ` — ${primaryContact.title}` : ''}</div>}
@@ -1166,17 +1546,32 @@ function AccountsTab({ accounts, onRefresh, isReadOnly }) {
                 </div>
               )}
 
-              {/* Address */}
               {account.address && (
                 <div className="text-xs text-gray-400">📍 {account.address}</div>
               )}
 
-              {/* Notes (truncated) */}
               {account.notes && (
                 <p className="text-xs text-gray-500 line-clamp-2">{account.notes}</p>
               )}
 
-              {/* "View Contacts" — expands inline to list all contacts */}
+              {/* Pricing summary */}
+              {account.pricing?.length > 0 && (
+                <div className="border-t border-gray-100 pt-2">
+                  <div className="text-xs font-semibold text-gray-400 uppercase mb-1">Pricing</div>
+                  <div className="space-y-0.5">
+                    {account.pricing.slice(0, 3).map((p, idx) => (
+                      <div key={idx} className="text-xs text-gray-600 flex justify-between">
+                        <span>{p.package_type}{p.size_spec ? ` — ${p.size_spec}` : ''}</span>
+                        <span className="font-medium">{fmtDollars(p.price_per_unit)}</span>
+                      </div>
+                    ))}
+                    {account.pricing.length > 3 && (
+                      <div className="text-xs text-gray-400">+{account.pricing.length - 3} more</div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {contacts.length > 1 && (
                 <button
                   onClick={() => setExpandedId(isExpanded ? null : account.id)}
@@ -1186,7 +1581,6 @@ function AccountsTab({ accounts, onRefresh, isReadOnly }) {
                 </button>
               )}
 
-              {/* Expanded contacts list */}
               {isExpanded && (
                 <div className="border-t border-gray-100 pt-3 space-y-2">
                   {contacts.map((c, idx) => (
@@ -1203,7 +1597,6 @@ function AccountsTab({ accounts, onRefresh, isReadOnly }) {
                 </div>
               )}
 
-              {/* Action buttons */}
               {!isReadOnly && (
                 <div className="flex gap-2 pt-1">
                   <button
@@ -1225,7 +1618,6 @@ function AccountsTab({ accounts, onRefresh, isReadOnly }) {
         })}
       </div>
 
-      {/* Edit account modal */}
       {editTarget && (
         <EditAccountModal
           account={editTarget}
@@ -1237,52 +1629,93 @@ function AccountsTab({ accounts, onRefresh, isReadOnly }) {
   )
 }
 
-// ── PricingEditor ──────────────────────────────────────────────────────────────
+// ── PricingEditor — Fix 3: size-specific pricing ───────────────────────────────
 
-// Package types that can have per-unit pricing set on a distribution account
-const PRICEABLE_PACKAGE_TYPES = [
-  'Can', 'Bottle', 'Keg Half Barrel', 'Keg Quarter Barrel', 'Keg Sixth Barrel',
-  'Growler', 'Crowler', 'Draft',
-]
-
-// Reusable pricing editor used inside AddAccountModal and EditAccountModal.
-// pricing: array of { package_type, price_per_unit }
-// onChange: (newPricing) => void
 function PricingEditor({ pricing, onChange }) {
   function addRow() {
-    onChange([...pricing, { package_type: '', price_per_unit: '' }])
+    onChange([...pricing, { package_type: '', size_spec: '', price_per_unit: '' }])
   }
   function updateRow(idx, field, val) {
-    onChange(pricing.map((r, i) => i === idx ? { ...r, [field]: val } : r))
+    const next = pricing.map((r, i) => {
+      if (i !== idx) return r
+      const updated = { ...r, [field]: val }
+      // Reset size_spec when package_type changes
+      if (field === 'package_type') updated.size_spec = ''
+      return updated
+    })
+    onChange(next)
   }
   function removeRow(idx) {
     onChange(pricing.filter((_, i) => i !== idx))
   }
+
   return (
     <div className="space-y-2">
-      {pricing.map((row, idx) => (
-        <div key={idx} className="flex items-center gap-2">
-          <select
-            value={row.package_type}
-            onChange={e => updateRow(idx, 'package_type', e.target.value)}
-            className={INPUT_CLS}
-          >
-            <option value="">Package type…</option>
-            {PRICEABLE_PACKAGE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
-          <div className="relative w-32 shrink-0">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-            <input
-              type="number" step="0.01" min="0"
-              value={row.price_per_unit}
-              onChange={e => updateRow(idx, 'price_per_unit', e.target.value)}
-              placeholder="0.00"
-              className={INPUT_CLS + ' pl-6'}
-            />
-          </div>
-          <button onClick={() => removeRow(idx)} className="text-danger text-xs hover:underline shrink-0">Remove</button>
+      {pricing.length > 0 && (
+        <div className="grid grid-cols-12 gap-2 text-xs text-gray-400 font-medium px-1">
+          <div className="col-span-4">Package Type</div>
+          <div className="col-span-4">Size / Spec</div>
+          <div className="col-span-3">Price / Unit</div>
+          <div className="col-span-1" />
         </div>
-      ))}
+      )}
+      {pricing.map((row, idx) => {
+        const sizeOptions = SIZE_SPECS[row.package_type] || []
+        return (
+          <div key={idx} className="grid grid-cols-12 gap-2 items-center">
+            {/* Package type */}
+            <div className="col-span-4">
+              <select
+                value={row.package_type}
+                onChange={e => updateRow(idx, 'package_type', e.target.value)}
+                className={INPUT_CLS}
+              >
+                <option value="">Type…</option>
+                {PRICEABLE_PACKAGE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+
+            {/* Size / spec */}
+            <div className="col-span-4">
+              {sizeOptions.length > 0 ? (
+                <select
+                  value={row.size_spec}
+                  onChange={e => updateRow(idx, 'size_spec', e.target.value)}
+                  className={INPUT_CLS}
+                >
+                  <option value="">Size…</option>
+                  {sizeOptions.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={row.size_spec}
+                  onChange={e => updateRow(idx, 'size_spec', e.target.value)}
+                  placeholder="Spec…"
+                  className={INPUT_CLS}
+                />
+              )}
+            </div>
+
+            {/* Price per unit */}
+            <div className="col-span-3 relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+              <input
+                type="number" step="0.01" min="0"
+                value={row.price_per_unit}
+                onChange={e => updateRow(idx, 'price_per_unit', e.target.value)}
+                placeholder="0.00"
+                className={INPUT_CLS + ' pl-6'}
+              />
+            </div>
+
+            {/* Remove */}
+            <div className="col-span-1 flex justify-center">
+              <button onClick={() => removeRow(idx)} className="text-danger text-xs hover:underline">✕</button>
+            </div>
+          </div>
+        )
+      })}
       <button onClick={addRow} className="text-amber text-sm font-medium hover:underline">
         + Add pricing row
       </button>
@@ -1292,41 +1725,28 @@ function PricingEditor({ pricing, onChange }) {
 
 // ── ContactsEditor ─────────────────────────────────────────────────────────────
 
-// Reusable inline contacts editor used inside AddAccountModal and EditAccountModal.
-// contacts: array of { name, title, phone, email, is_primary }
-// onChange: (newContacts) => void
 function ContactsEditor({ contacts, onChange }) {
-  // Add a blank contact row
   function addContact() {
     onChange([...contacts, { name: '', title: '', phone: '', email: '', is_primary: false }])
   }
 
-  // Remove a contact by index
   function removeContact(i) {
     onChange(contacts.filter((_, idx) => idx !== i))
   }
 
-  // Update one field on one contact
   function updateContact(i, field, value) {
-    const updated = contacts.map((c, idx) => idx === i ? { ...c, [field]: value } : c)
-    onChange(updated)
+    onChange(contacts.map((c, idx) => idx === i ? { ...c, [field]: value } : c))
   }
 
-  // Only one contact can be primary at a time — toggle clears others first
   function setPrimary(i) {
-    const updated = contacts.map((c, idx) => ({ ...c, is_primary: idx === i }))
-    onChange(updated)
+    onChange(contacts.map((c, idx) => ({ ...c, is_primary: idx === i })))
   }
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Contacts</span>
-        <button
-          type="button"
-          onClick={addContact}
-          className="text-xs text-amber font-semibold hover:underline"
-        >
+        <button type="button" onClick={addContact} className="text-xs text-amber font-semibold hover:underline">
           + Add Contact
         </button>
       </div>
@@ -1338,71 +1758,29 @@ function ContactsEditor({ contacts, onChange }) {
       {contacts.map((c, i) => (
         <div key={i} className="border border-gray-200 rounded-lg p-3 space-y-2 bg-gray-50">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {/* Contact name */}
             <div>
               <label className={LBL}>Name</label>
-              <input
-                type="text"
-                className={INPUT_CLS}
-                placeholder="Jane Smith"
-                value={c.name}
-                onChange={e => updateContact(i, 'name', e.target.value)}
-              />
+              <input type="text" className={INPUT_CLS} placeholder="Jane Smith" value={c.name} onChange={e => updateContact(i, 'name', e.target.value)} />
             </div>
-
-            {/* Title */}
             <div>
               <label className={LBL}>Title</label>
-              <input
-                type="text"
-                className={INPUT_CLS}
-                placeholder="Bar Manager"
-                value={c.title}
-                onChange={e => updateContact(i, 'title', e.target.value)}
-              />
+              <input type="text" className={INPUT_CLS} placeholder="Bar Manager" value={c.title} onChange={e => updateContact(i, 'title', e.target.value)} />
             </div>
-
-            {/* Phone */}
             <div>
               <label className={LBL}>Phone</label>
-              <input
-                type="tel"
-                className={INPUT_CLS}
-                placeholder="555-555-5555"
-                value={c.phone}
-                onChange={e => updateContact(i, 'phone', e.target.value)}
-              />
+              <input type="tel" className={INPUT_CLS} placeholder="555-555-5555" value={c.phone} onChange={e => updateContact(i, 'phone', e.target.value)} />
             </div>
-
-            {/* Email */}
             <div>
               <label className={LBL}>Email</label>
-              <input
-                type="email"
-                className={INPUT_CLS}
-                placeholder="jane@bar.com"
-                value={c.email}
-                onChange={e => updateContact(i, 'email', e.target.value)}
-              />
+              <input type="email" className={INPUT_CLS} placeholder="jane@bar.com" value={c.email} onChange={e => updateContact(i, 'email', e.target.value)} />
             </div>
           </div>
-
-          {/* Primary + Remove row */}
           <div className="flex items-center justify-between pt-1">
             <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-600">
-              <input
-                type="checkbox"
-                className="w-3.5 h-3.5 accent-amber"
-                checked={c.is_primary}
-                onChange={() => setPrimary(i)}
-              />
+              <input type="checkbox" className="w-3.5 h-3.5 accent-amber" checked={c.is_primary} onChange={() => setPrimary(i)} />
               Primary contact
             </label>
-            <button
-              type="button"
-              onClick={() => removeContact(i)}
-              className="text-danger text-xs font-semibold hover:underline"
-            >
+            <button type="button" onClick={() => removeContact(i)} className="text-danger text-xs font-semibold hover:underline">
               Remove
             </button>
           </div>
@@ -1414,22 +1792,51 @@ function ContactsEditor({ contacts, onChange }) {
 
 // ── AddAccountModal ────────────────────────────────────────────────────────────
 
-// Modal for creating a new distribution account with multi-contact support
 function AddAccountModal({ breweryId, onClose, onSaved }) {
-  const [form, setForm] = useState({
+  console.log('[AddAccountModal] draft persistence applied')
+
+  const { loadDraft, saveDraft, clearDraft, draftRestored, dismissDraftBanner } =
+    useModalDraft('modal_draft_distribution_add_account')
+
+  const defaultForm = {
     account_name: '',
     account_type: ACCOUNT_TYPES[0],
     address:      '',
     notes:        '',
+  }
+
+  const [form, setForm]         = useState(() => {
+    const draft = loadDraft(false)
+    return draft?.form ?? defaultForm
   })
-  const [contacts, setContacts] = useState([])
-  const [pricing,  setPricing]  = useState([])
-  const [saving,   setSaving]   = useState(false)
-  const [error,    setError]    = useState(null)
+  const [contacts, setContacts] = useState(() => {
+    const draft = loadDraft(false)
+    return draft?.contacts ?? []
+  })
+  const [pricing, setPricing]   = useState(() => {
+    const draft = loadDraft(false)
+    return draft?.pricing ?? []
+  })
+  const [saving, setSaving]     = useState(false)
+  const [error,  setError]      = useState(null)
 
   function set(field, val) {
-    setForm(f => ({ ...f, [field]: val }))
+    const next = { ...form, [field]: val }
+    setForm(next)
+    saveDraft({ form: next, contacts, pricing })
   }
+
+  function handleContactsChange(next) {
+    setContacts(next)
+    saveDraft({ form, contacts: next, pricing })
+  }
+
+  function handlePricingChange(next) {
+    setPricing(next)
+    saveDraft({ form, contacts, pricing: next })
+  }
+
+  const isDirty = !!form.account_name || contacts.length > 0 || pricing.length > 0
 
   async function handleSave() {
     if (!form.account_name.trim()) { setError('Account name is required.'); return }
@@ -1448,6 +1855,7 @@ function AddAccountModal({ breweryId, onClose, onSaved }) {
     })
 
     if (err) { setError(err.message); setSaving(false); return }
+    clearDraft()
     onSaved()
   }
 
@@ -1457,83 +1865,49 @@ function AddAccountModal({ breweryId, onClose, onSaved }) {
       onClose={onClose}
       title="Add Distribution Account"
       maxWidth="max-w-2xl"
-      isDirty={!!form.account_name}
+      isDirty={isDirty}
+      draftRestored={draftRestored}
+      onDismissDraft={dismissDraftBanner}
     >
       <div className="space-y-4">
         {error && (
           <div className="text-danger text-sm bg-red-50 rounded-lg px-3 py-2">{error}</div>
         )}
 
-        {/* Account name */}
         <div>
           <label className={LBL}>Account Name *</label>
-          <input
-            type="text"
-            className={INPUT_CLS}
-            placeholder="e.g. The Rusty Tap"
-            value={form.account_name}
-            onChange={e => set('account_name', e.target.value)}
-          />
+          <input type="text" className={INPUT_CLS} placeholder="e.g. The Rusty Tap" value={form.account_name} onChange={e => set('account_name', e.target.value)} />
         </div>
 
-        {/* Account type */}
         <div>
           <label className={LBL}>Account Type</label>
-          <select
-            className={INPUT_CLS}
-            value={form.account_type}
-            onChange={e => set('account_type', e.target.value)}
-          >
+          <select className={INPUT_CLS} value={form.account_type} onChange={e => set('account_type', e.target.value)}>
             {ACCOUNT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
         </div>
 
-        {/* Address */}
         <div>
           <label className={LBL}>Address</label>
-          <input
-            type="text"
-            className={INPUT_CLS}
-            placeholder="123 Main St, City, State"
-            value={form.address}
-            onChange={e => set('address', e.target.value)}
-          />
+          <input type="text" className={INPUT_CLS} placeholder="123 Main St, City, State" value={form.address} onChange={e => set('address', e.target.value)} />
         </div>
 
-        {/* Notes */}
         <div>
           <label className={LBL}>Notes</label>
-          <textarea
-            rows={3}
-            className={INPUT_CLS}
-            placeholder="Payment terms, delivery preferences, other notes…"
-            value={form.notes}
-            onChange={e => set('notes', e.target.value)}
-          />
+          <textarea rows={3} className={INPUT_CLS} placeholder="Payment terms, delivery preferences…" value={form.notes} onChange={e => set('notes', e.target.value)} />
         </div>
 
-        {/* Contacts section */}
-        <ContactsEditor contacts={contacts} onChange={setContacts} />
+        <ContactsEditor contacts={contacts} onChange={handleContactsChange} />
 
-        {/* Pricing section */}
         <div>
-          <label className={LBL}>Pricing by Package Type</label>
-          <PricingEditor pricing={pricing} onChange={setPricing} />
+          <label className={LBL}>Pricing by Package Type &amp; Size</label>
+          <PricingEditor pricing={pricing} onChange={handlePricingChange} />
         </div>
 
-        {/* Action buttons */}
         <div className="flex gap-3 pt-2">
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="bg-amber text-white font-semibold px-5 py-2 rounded-lg text-sm hover:bg-amber-dark transition-colors disabled:opacity-50"
-          >
+          <button onClick={handleSave} disabled={saving} className="bg-amber text-white font-semibold px-5 py-2 rounded-lg text-sm hover:bg-amber-dark transition-colors disabled:opacity-50">
             {saving ? 'Saving…' : 'Add Account'}
           </button>
-          <button
-            onClick={onClose}
-            className="border border-gray-300 text-gray-600 px-5 py-2 rounded-lg text-sm hover:bg-gray-50 transition-colors"
-          >
+          <button onClick={onClose} className="border border-gray-300 text-gray-600 px-5 py-2 rounded-lg text-sm hover:bg-gray-50 transition-colors">
             Cancel
           </button>
         </div>
@@ -1544,22 +1918,51 @@ function AddAccountModal({ breweryId, onClose, onSaved }) {
 
 // ── EditAccountModal ───────────────────────────────────────────────────────────
 
-// Modal for editing an existing distribution account — same fields as Add
 function EditAccountModal({ account, onClose, onSaved }) {
-  const [form, setForm] = useState({
+  console.log('[EditAccountModal] draft persistence applied')
+
+  const DRAFT_KEY = `modal_draft_distribution_edit_account_${account.id}`
+  const { loadDraft, saveDraft, clearDraft, draftRestored, dismissDraftBanner } = useModalDraft(DRAFT_KEY)
+
+  const defaultForm = {
     account_name: account.account_name || '',
     account_type: account.account_type || ACCOUNT_TYPES[0],
     address:      account.address      || '',
     notes:        account.notes        || '',
+  }
+
+  const [form, setForm]         = useState(() => {
+    const draft = loadDraft(false)
+    return draft?.form ?? defaultForm
   })
-  const [contacts, setContacts] = useState(account.contacts || [])
-  const [pricing,  setPricing]  = useState(account.pricing ?? [])
-  const [saving,   setSaving]   = useState(false)
-  const [error,    setError]    = useState(null)
+  const [contacts, setContacts] = useState(() => {
+    const draft = loadDraft(false)
+    return draft?.contacts ?? (account.contacts || [])
+  })
+  const [pricing, setPricing]   = useState(() => {
+    const draft = loadDraft(false)
+    return draft?.pricing ?? (account.pricing ?? [])
+  })
+  const [saving, setSaving]     = useState(false)
+  const [error,  setError]      = useState(null)
 
   function set(field, val) {
-    setForm(f => ({ ...f, [field]: val }))
+    const next = { ...form, [field]: val }
+    setForm(next)
+    saveDraft({ form: next, contacts, pricing })
   }
+
+  function handleContactsChange(next) {
+    setContacts(next)
+    saveDraft({ form, contacts: next, pricing })
+  }
+
+  function handlePricingChange(next) {
+    setPricing(next)
+    saveDraft({ form, contacts, pricing: next })
+  }
+
+  const isDirty = form.account_name !== defaultForm.account_name || contacts.length !== (account.contacts?.length || 0)
 
   async function handleSave() {
     if (!form.account_name.trim()) { setError('Account name is required.'); return }
@@ -1579,6 +1982,7 @@ function EditAccountModal({ account, onClose, onSaved }) {
       .eq('id', account.id)
 
     if (err) { setError(err.message); setSaving(false); return }
+    clearDraft()
     onSaved()
   }
 
@@ -1588,83 +1992,49 @@ function EditAccountModal({ account, onClose, onSaved }) {
       onClose={onClose}
       title={`Edit — ${account.account_name}`}
       maxWidth="max-w-2xl"
-      isDirty={form.account_name !== (account.account_name || '')}
+      isDirty={isDirty}
+      draftRestored={draftRestored}
+      onDismissDraft={dismissDraftBanner}
     >
       <div className="space-y-4">
         {error && (
           <div className="text-danger text-sm bg-red-50 rounded-lg px-3 py-2">{error}</div>
         )}
 
-        {/* Account name */}
         <div>
           <label className={LBL}>Account Name *</label>
-          <input
-            type="text"
-            className={INPUT_CLS}
-            placeholder="e.g. The Rusty Tap"
-            value={form.account_name}
-            onChange={e => set('account_name', e.target.value)}
-          />
+          <input type="text" className={INPUT_CLS} placeholder="e.g. The Rusty Tap" value={form.account_name} onChange={e => set('account_name', e.target.value)} />
         </div>
 
-        {/* Account type */}
         <div>
           <label className={LBL}>Account Type</label>
-          <select
-            className={INPUT_CLS}
-            value={form.account_type}
-            onChange={e => set('account_type', e.target.value)}
-          >
+          <select className={INPUT_CLS} value={form.account_type} onChange={e => set('account_type', e.target.value)}>
             {ACCOUNT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
         </div>
 
-        {/* Address */}
         <div>
           <label className={LBL}>Address</label>
-          <input
-            type="text"
-            className={INPUT_CLS}
-            placeholder="123 Main St, City, State"
-            value={form.address}
-            onChange={e => set('address', e.target.value)}
-          />
+          <input type="text" className={INPUT_CLS} placeholder="123 Main St, City, State" value={form.address} onChange={e => set('address', e.target.value)} />
         </div>
 
-        {/* Notes */}
         <div>
           <label className={LBL}>Notes</label>
-          <textarea
-            rows={3}
-            className={INPUT_CLS}
-            placeholder="Payment terms, delivery preferences, other notes…"
-            value={form.notes}
-            onChange={e => set('notes', e.target.value)}
-          />
+          <textarea rows={3} className={INPUT_CLS} placeholder="Payment terms, delivery preferences…" value={form.notes} onChange={e => set('notes', e.target.value)} />
         </div>
 
-        {/* Contacts section */}
-        <ContactsEditor contacts={contacts} onChange={setContacts} />
+        <ContactsEditor contacts={contacts} onChange={handleContactsChange} />
 
-        {/* Pricing section */}
         <div>
-          <label className={LBL}>Pricing by Package Type</label>
-          <PricingEditor pricing={pricing} onChange={setPricing} />
+          <label className={LBL}>Pricing by Package Type &amp; Size</label>
+          <PricingEditor pricing={pricing} onChange={handlePricingChange} />
         </div>
 
-        {/* Action buttons */}
         <div className="flex gap-3 pt-2">
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="bg-amber text-white font-semibold px-5 py-2 rounded-lg text-sm hover:bg-amber-dark transition-colors disabled:opacity-50"
-          >
+          <button onClick={handleSave} disabled={saving} className="bg-amber text-white font-semibold px-5 py-2 rounded-lg text-sm hover:bg-amber-dark transition-colors disabled:opacity-50">
             {saving ? 'Saving…' : 'Save Changes'}
           </button>
-          <button
-            onClick={onClose}
-            className="border border-gray-300 text-gray-600 px-5 py-2 rounded-lg text-sm hover:bg-gray-50 transition-colors"
-          >
+          <button onClick={onClose} className="border border-gray-300 text-gray-600 px-5 py-2 rounded-lg text-sm hover:bg-gray-50 transition-colors">
             Cancel
           </button>
         </div>

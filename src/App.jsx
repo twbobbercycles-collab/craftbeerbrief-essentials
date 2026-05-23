@@ -3,7 +3,7 @@
  * Defines all routes. Protected routes require login + active trial/subscription.
  * The lazy() imports mean each page only loads when the user navigates to it (faster initial load).
  */
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import ProtectedRoute from './components/ProtectedRoute'
 import LoadingSpinner from './components/LoadingSpinner'
@@ -50,6 +50,19 @@ function PageLoader() {
 }
 
 export default function App() {
+  // Warn users before closing/navigating away if any modal draft exists in sessionStorage
+  useEffect(() => {
+    function handleBeforeUnload(e) {
+      const hasDraft = Object.keys(sessionStorage).some(k => k.startsWith('modal_draft_'))
+      if (hasDraft) {
+        e.preventDefault()
+        e.returnValue = 'You have unsaved changes. Are you sure you want to leave?'
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [])
+
   return (
     <Suspense fallback={<PageLoader />}>
       <Routes>
