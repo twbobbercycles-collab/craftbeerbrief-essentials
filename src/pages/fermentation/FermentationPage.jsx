@@ -16,6 +16,7 @@ import TierGate from '../../components/TierGate'
 import ModalShell from '../../components/ModalShell'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import { useModalDraft } from '../../hooks/useModalDraft'
+import { usePersistedTab } from '../../hooks/usePersistedTab'
 import { useReadOnly } from '../../hooks/useReadOnly'
 import {
   calculateTotalIngredientCost,
@@ -1927,7 +1928,7 @@ function FermentationDetailModal({ fermentation: initialFerm, vessels, available
 
   const [ferm, setFerm]         = useState(initialFerm)
   const [readings, setReadings] = useState(initialReadings)
-  const [tab, setTab]           = useState('overview')
+  const [tab, setTab]           = usePersistedTab('fermentation_detail_tab', 'overview')
   const [saveStatus, setSaveStatus]     = useState(null) // null | 'saving' | 'saved'
   const [statusChanging, setStatusChanging] = useState(false)
   const [statusError, setStatusError]   = useState('')

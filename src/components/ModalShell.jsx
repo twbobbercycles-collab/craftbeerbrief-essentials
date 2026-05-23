@@ -1,4 +1,5 @@
 // RULE: ALL modals in this app must use this component. Never create a modal without ModalShell and useModalDraft.
+// RULE: ALL tab state in this app must use usePersistedTab hook from src/hooks/usePersistedTab.js. Never use useState for tab selection.
 
 /**
  * ModalShell — shared wrapper for all add/edit modals.

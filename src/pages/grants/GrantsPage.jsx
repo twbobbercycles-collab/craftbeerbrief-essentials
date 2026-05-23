@@ -5,6 +5,7 @@
  * bookmarking, deadline alerts, and user grant submissions with persistent draft support.
  */
 import { useEffect, useState, useMemo } from 'react'
+import { usePersistedTab } from '../../hooks/usePersistedTab'
 import { supabase } from '../../services/supabase'
 import { useAuth } from '../../context/AuthContext'
 import DismissibleDisclaimer from '../../components/DismissibleDisclaimer'
@@ -101,7 +102,7 @@ export default function GrantsPage() {
   const [loadError, setLoadError] = useState(null)
 
   // UI state
-  const [activeTab, setActiveTab]             = useState('all')  // 'all' or 'bookmarked'
+  const [activeTab, setActiveTab]             = usePersistedTab('grants_active_tab', 'all')
   const [showSubmitModal, setShowSubmitModal] = useState(false)
   const [submitSuccess, setSubmitSuccess]     = useState(false)
   // Draft data to pre-fill the modal with when opening from DraftNoticeBar or the button

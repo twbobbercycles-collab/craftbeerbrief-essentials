@@ -3,6 +3,7 @@
  * Tabs: Pending Submissions | Grant Management | Archived Grants | Sync History
  */
 import { useEffect, useState, useMemo } from 'react'
+import { usePersistedTab } from '../../hooks/usePersistedTab'
 import { supabase } from '../../services/supabase'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import EmptyState from '../../components/EmptyState'
@@ -358,7 +359,7 @@ export default function AdminPage() {
   const [loading, setLoading]               = useState(true)
 
   // UI
-  const [activeTab, setActiveTab]   = useState('pending')
+  const [activeTab, setActiveTab]   = usePersistedTab('admin_active_tab', 'pending')
   const [syncing, setSyncing]       = useState(false)
   const [syncMessage, setSyncMessage] = useState('')
 

@@ -11,6 +11,7 @@
  */
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { Link } from 'react-router-dom'
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../services/supabase'
 import TierGate from '../../components/TierGate'
@@ -18,6 +19,7 @@ import ModalShell from '../../components/ModalShell'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import WorkflowWarningBanner from '../../components/WorkflowWarningBanner'
 import { useModalDraft } from '../../hooks/useModalDraft'
+import { usePersistedTab } from '../../hooks/usePersistedTab'
 import { useReadOnly } from '../../hooks/useReadOnly'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -49,7 +51,7 @@ const PO_STATUSES = [
   { value: 'cancelled',          label: 'Cancelled',          bg: 'bg-red-100',    text: 'text-danger' },
 ]
 
-const TABS = ['Inventory', 'Packaging Materials', 'Receive Stock', 'Purchase Orders', 'Transaction History']
+const TABS = ['Inventory', 'Packaging Materials', 'Receive Stock', 'Purchase Orders', 'Transaction History', 'Supplier Intelligence']
 
 const PKG_MATERIAL_CATEGORIES = [
   'Cans', 'Bottles', 'Kegs', 'Labels', 'Carriers', 'Gas', 'Cleaning', 'Other',
@@ -91,7 +93,7 @@ function InventoryPageInner() {
   const { brewery } = useAuth()
   const { isReadOnly, ReadOnlyTooltip } = useReadOnly()
 
-  const [activeTab,    setActiveTab]    = useState('Inventory')
+  const [activeTab,    setActiveTab]    = usePersistedTab('inventory_active_tab', 'Inventory')
   const [ingredients,  setIngredients]  = useState([])
   const [transactions, setTransactions] = useState([])
   const [purchaseOrders, setPurchaseOrders] = useState([])
@@ -416,6 +418,15 @@ function InventoryPageInner() {
           filterIngId={historyIngId}
           onClearFilter={() => setHistoryIngId(null)}
           onOpenAdjust={ing => setAdjustTarget(ing)}
+        />
+      )}
+
+      {activeTab === 'Supplier Intelligence' && (
+        <SupplierIntelligenceTab
+          ingredients={ingredients}
+          transactions={transactions}
+          purchaseOrders={purchaseOrders}
+          breweryId={brewery.id}
         />
       )}
 
@@ -1040,7 +1051,7 @@ function ReceiveStockTab({ ingredients, transactions, purchaseOrders, isReadOnly
 // ─── Tab 3: Purchase Orders ────────────────────────────────────────────────────
 
 function PurchaseOrdersTab({ purchaseOrders, ingredients, breweryId, isReadOnly, ReadOnlyTooltip, onCreatePO, onViewPO, onDeletePO, onCancelPO, onEditPO }) {
-  const [subTab,         setSubTab]         = useState('orders')
+  const [subTab,         setSubTab]         = usePersistedTab('inventory_po_subtab', 'orders')
   const [showCancelled,  setShowCancelled]  = useState(false)
 
   const displayedPOs = showCancelled
@@ -3457,6 +3468,823 @@ function AdjustPackagingMaterialModal({ isOpen, material, breweryId, onClose, on
         </div>
       </form>
     </ModalShell>
+  )
+}
+
+// ─── Tab 6: Supplier Intelligence ─────────────────────────────────────────────
+
+// Distinct colors for chart lines — one per supplier, cycling if more than 8
+const CHART_COLORS = ['#F59E0B', '#1E3A5F', '#10B981', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#F97316']
+
+function SupplierIntelligenceTab({ ingredients, transactions, purchaseOrders, breweryId }) {
+
+  // ── Section 2 state ───────────────────────────────────────────────────────
+  // ID of the ingredient whose price history is displayed in the chart
+  const [selectedIngId,  setSelectedIngId]  = useState('')
+  // Received transactions fetched on-demand for the selected ingredient
+  const [priceHistory,   setPriceHistory]   = useState([])
+  const [loadingChart,   setLoadingChart]   = useState(false)
+
+  // ── Section 3 state ───────────────────────────────────────────────────────
+  // How supplier rows are sorted within each ingredient group
+  const [compSort, setCompSort] = useState('price')
+  // When true, only show ingredients that have 2+ suppliers
+  const [multiOnly, setMultiOnly] = useState(true)
+  // ID of the supplier currently being set as preferred (shows a spinner)
+  const [settingPreferred, setSettingPreferred] = useState(null)
+  // Local copy of ingredients so is_preferred updates show instantly without a full reload
+  const [localIngredients, setLocalIngredients] = useState(ingredients)
+
+  // Keep localIngredients in sync whenever the parent reloads the data
+  useEffect(() => setLocalIngredients(ingredients), [ingredients])
+
+  // ── Section 5 state ───────────────────────────────────────────────────────
+  // Global percentage threshold — alert fires when price rises by more than this
+  const [globalThreshold, setGlobalThreshold] = useState(() => {
+    try { return parseFloat(localStorage.getItem('supplier_price_alert_threshold')) || 10 }
+    catch { return 10 }
+  })
+  // Per-ingredient threshold overrides stored as { ingredientId: number }
+  const [perIngThresholds, setPerIngThresholds] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('supplier_price_alert_per_ingredient') || '{}') }
+    catch { return {} }
+  })
+  // State for the "Add Override" mini-form in Section 5
+  const [overrideIngId, setOverrideIngId] = useState('')
+  const [overrideValue, setOverrideValue] = useState('')
+
+  // ── Active ingredient list ────────────────────────────────────────────────
+  // All ingredients that have is_active = true
+  const activeIngredients = useMemo(() =>
+    localIngredients.filter(i => i.is_active),
+  [localIngredients])
+
+  // ── Section 1: Summary card computations ─────────────────────────────────
+
+  // Count of distinct supplier names across all active ingredients (active suppliers only)
+  const uniqueSupplierCount = useMemo(() => {
+    const names = new Set()
+    for (const ing of activeIngredients)
+      for (const s of (ing.ingredient_suppliers ?? []))
+        if (s.is_active !== false) names.add(s.supplier_name)
+    return names.size
+  }, [activeIngredients])
+
+  // Number of active ingredients that have 2 or more active suppliers
+  const multiSupplierCount = useMemo(() =>
+    activeIngredients.filter(i =>
+      (i.ingredient_suppliers ?? []).filter(s => s.is_active !== false).length >= 2
+    ).length,
+  [activeIngredients])
+
+  // Average quality_rating across all suppliers; null when no ratings exist
+  const avgQuality = useMemo(() => {
+    const vals = []
+    for (const ing of activeIngredients)
+      for (const s of (ing.ingredient_suppliers ?? []))
+        if (s.quality_rating != null) vals.push(s.quality_rating)
+    return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null
+  }, [activeIngredients])
+
+  // Active ingredients that have zero supplier records on file
+  const noSupplierCount = useMemo(() =>
+    activeIngredients.filter(i =>
+      (i.ingredient_suppliers ?? []).filter(s => s.is_active !== false).length === 0
+    ).length,
+  [activeIngredients])
+
+  // ── Section 2: Fetch price history when user picks an ingredient ──────────
+
+  useEffect(() => {
+    if (!selectedIngId) { setPriceHistory([]); return }
+    setLoadingChart(true)
+    // Load every received transaction for this ingredient (no 200-row cap) so the full history shows
+    supabase
+      .from('inventory_transactions')
+      .select('transaction_date, unit_cost, quantity, reference_name')
+      .eq('brewery_id', breweryId)
+      .eq('ingredient_id', selectedIngId)
+      .eq('transaction_type', 'received')
+      .not('unit_cost', 'is', null)
+      .order('transaction_date', { ascending: true })
+      .then(({ data }) => {
+        setPriceHistory(data ?? [])
+        setLoadingChart(false)
+      })
+  }, [selectedIngId, breweryId])
+
+  // Build the recharts data array — one object per unique date, fields keyed by supplier name
+  const chartData = useMemo(() => {
+    if (!priceHistory.length) return []
+    const byDate = new Map()
+    for (const tx of priceHistory) {
+      const sup = tx.reference_name ?? 'Direct'
+      if (!byDate.has(tx.transaction_date)) byDate.set(tx.transaction_date, { date: tx.transaction_date })
+      byDate.get(tx.transaction_date)[sup] = parseFloat(tx.unit_cost)
+    }
+    return [...byDate.values()]
+  }, [priceHistory])
+
+  // All distinct supplier identifiers seen in the loaded price history
+  const chartSuppliers = useMemo(() =>
+    [...new Set(priceHistory.map(t => t.reference_name ?? 'Direct'))],
+  [priceHistory])
+
+  // Per-supplier summary row: first price, latest price, % change, order count
+  const priceSummary = useMemo(() => {
+    if (!priceHistory.length) return []
+    const bySupplier = new Map()
+    for (const tx of priceHistory) {
+      const sup = tx.reference_name ?? 'Direct'
+      if (!bySupplier.has(sup)) bySupplier.set(sup, [])
+      bySupplier.get(sup).push(tx)
+    }
+    return [...bySupplier.entries()].map(([name, txs]) => {
+      const sorted     = [...txs].sort((a, b) => a.transaction_date.localeCompare(b.transaction_date))
+      const firstPrice = parseFloat(sorted[0].unit_cost)
+      const lastPrice  = parseFloat(sorted[sorted.length - 1].unit_cost)
+      const changePct  = firstPrice > 0 ? ((lastPrice - firstPrice) / firstPrice) * 100 : 0
+      return {
+        name,
+        firstPrice,
+        lastPrice,
+        changePct,
+        count:    txs.length,
+        lastDate: sorted[sorted.length - 1].transaction_date,
+      }
+    })
+  }, [priceHistory])
+
+  // ── Section 3: Price trend helper for the comparison table ───────────────
+
+  // Returns ↑, ↓, or → based on the last 3 received transactions for this supplier + ingredient
+  function getPriceTrend(supplierName, ingredientId) {
+    const txs = transactions
+      .filter(t =>
+        t.ingredient_id === ingredientId &&
+        t.transaction_type === 'received' &&
+        t.unit_cost != null &&
+        (t.reference_name ?? 'Direct') === supplierName
+      )
+      .sort((a, b) => b.transaction_date.localeCompare(a.transaction_date))
+      .slice(0, 3)
+    if (txs.length < 2) return '→'
+    const latest = parseFloat(txs[0].unit_cost)
+    const oldest = parseFloat(txs[txs.length - 1].unit_cost)
+    if (latest > oldest * 1.02) return '↑'
+    if (latest < oldest * 0.98) return '↓'
+    return '→'
+  }
+
+  // Marks a supplier as preferred for an ingredient; clears any previous preferred first
+  async function handleSetPreferred(ingredientId, supplierId) {
+    setSettingPreferred(supplierId)
+    // Clear existing preferred flag for this ingredient
+    await supabase.from('ingredient_suppliers')
+      .update({ is_preferred: false })
+      .eq('brewery_id', breweryId)
+      .eq('ingredient_id', ingredientId)
+    // Set the chosen supplier as preferred
+    await supabase.from('ingredient_suppliers')
+      .update({ is_preferred: true })
+      .eq('id', supplierId)
+    // Update local state immediately so the UI reflects the change without a full reload
+    setLocalIngredients(prev => prev.map(ing =>
+      ing.id !== ingredientId ? ing : {
+        ...ing,
+        ingredient_suppliers: (ing.ingredient_suppliers ?? []).map(s =>
+          ({ ...s, is_preferred: s.id === supplierId })
+        ),
+      }
+    ))
+    setSettingPreferred(null)
+  }
+
+  // ── Section 4: Supplier performance rolled up from ingredient_suppliers + POs ──
+
+  const supplierPerformance = useMemo(() => {
+    // Build a map of supplier_name → aggregated stats
+    const map = new Map()
+    for (const ing of activeIngredients) {
+      for (const s of (ing.ingredient_suppliers ?? [])) {
+        if (s.is_active === false) continue
+        if (!map.has(s.supplier_name)) {
+          map.set(s.supplier_name, {
+            name:          s.supplier_name,
+            ingredients:   [],
+            ratings:       [],
+            contact_name:  s.contact_name  ?? null,
+            contact_email: s.contact_email ?? null,
+            contact_phone: s.contact_phone ?? null,
+            orders:        [],
+            totalSpend:    0,
+            lastOrderDate: null,
+          })
+        }
+        const entry = map.get(s.supplier_name)
+        if (!entry.ingredients.includes(ing.name)) entry.ingredients.push(ing.name)
+        if (s.quality_rating != null) entry.ratings.push(s.quality_rating)
+      }
+    }
+
+    // Fold in purchase order data — match by supplier_name
+    for (const po of purchaseOrders) {
+      if (!map.has(po.supplier_name)) continue
+      const entry = map.get(po.supplier_name)
+      entry.orders.push(po)
+      entry.totalSpend += parseFloat(po.total_order_cost ?? 0)
+      if (!entry.lastOrderDate || po.order_date > entry.lastOrderDate) entry.lastOrderDate = po.order_date
+    }
+
+    return [...map.values()].map(s => {
+      // On-time rate: orders where actual delivery was on or before expected
+      const withDates = s.orders.filter(o => o.actual_delivery_date && o.expected_delivery_date)
+      const onTime    = withDates.filter(o => o.actual_delivery_date <= o.expected_delivery_date)
+      return {
+        ...s,
+        orderCount: s.orders.length,
+        onTimeRate: withDates.length > 0 ? (onTime.length / withDates.length) * 100 : null,
+        avgRating:  s.ratings.length   > 0 ? s.ratings.reduce((a, b) => a + b, 0) / s.ratings.length : null,
+      }
+    }).sort((a, b) => b.totalSpend - a.totalSpend) // Sort by total spend descending
+  }, [activeIngredients, purchaseOrders])
+
+  // ── Section 5: Compute active price alerts ────────────────────────────────
+
+  // Compare the last two received transactions per ingredient; alert when the increase exceeds threshold
+  const priceAlerts = useMemo(() => {
+    const alerts = []
+    for (const ing of activeIngredients) {
+      const received = transactions
+        .filter(t => t.ingredient_id === ing.id && t.transaction_type === 'received' && t.unit_cost != null)
+        .sort((a, b) => b.transaction_date.localeCompare(a.transaction_date))
+      if (received.length < 2) continue
+      const latest   = parseFloat(received[0].unit_cost)
+      const previous = parseFloat(received[1].unit_cost)
+      if (!previous || !latest) continue
+      const changePct = ((latest - previous) / previous) * 100
+      const threshold = perIngThresholds[ing.id] ?? globalThreshold
+      if (changePct > threshold) {
+        alerts.push({
+          name:      ing.name,
+          previous,
+          latest,
+          changePct,
+          supplier:  received[0].reference_name ?? 'Unknown supplier',
+          unit:      ing.stock_unit ?? '',
+        })
+      }
+    }
+    return alerts.sort((a, b) => b.changePct - a.changePct)
+  }, [activeIngredients, transactions, globalThreshold, perIngThresholds])
+
+  // Persist the global threshold to localStorage whenever it changes
+  function handleGlobalThreshold(val) {
+    const num = Math.max(1, parseFloat(val) || 10)
+    setGlobalThreshold(num)
+    try { localStorage.setItem('supplier_price_alert_threshold', String(num)) } catch {}
+  }
+
+  // Add a per-ingredient override and save to localStorage
+  function addOverride() {
+    if (!overrideIngId || !overrideValue) return
+    const num  = Math.max(1, parseFloat(overrideValue) || 10)
+    const next = { ...perIngThresholds, [overrideIngId]: num }
+    setPerIngThresholds(next)
+    try { localStorage.setItem('supplier_price_alert_per_ingredient', JSON.stringify(next)) } catch {}
+    setOverrideIngId('')
+    setOverrideValue('')
+  }
+
+  // Remove a per-ingredient override and save to localStorage
+  function removeOverride(ingId) {
+    const { [ingId]: _removed, ...rest } = perIngThresholds
+    setPerIngThresholds(rest)
+    try { localStorage.setItem('supplier_price_alert_per_ingredient', JSON.stringify(rest)) } catch {}
+  }
+
+  // Format a numeric price to 4 decimal places with a $ prefix, or — if null
+  function fmtPrice(val) {
+    return val != null && val !== '' ? `$${parseFloat(val).toFixed(4)}` : '—'
+  }
+
+  // Render a star/empty-star string for a 1-5 quality rating
+  function starRating(val) {
+    if (val == null) return '—'
+    const r = Math.round(val)
+    return '★'.repeat(r) + '☆'.repeat(5 - r)
+  }
+
+  // ─── Render ────────────────────────────────────────────────────────────────
+  return (
+    <div className="space-y-10">
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          Section 1 — Supplier Overview Dashboard
+          ══════════════════════════════════════════════════════════════════════ */}
+      <section>
+        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Supplier Overview</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+
+          {/* Active supplier count */}
+          <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
+            <p className="text-2xl font-bold text-navy">{uniqueSupplierCount}</p>
+            <p className="text-xs text-gray-500 mt-1">Active Suppliers</p>
+          </div>
+
+          {/* Total ingredients */}
+          <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
+            <p className="text-2xl font-bold text-navy">{activeIngredients.length}</p>
+            <p className="text-xs text-gray-500 mt-1">Ingredients Tracked</p>
+          </div>
+
+          {/* Ingredients with 2+ suppliers */}
+          <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
+            <p className="text-2xl font-bold text-amber">{multiSupplierCount}</p>
+            <p className="text-xs text-gray-500 mt-1">Multi-Supplier Ingredients</p>
+          </div>
+
+          {/* Average quality rating */}
+          <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
+            <p className="text-2xl font-bold text-navy">
+              {avgQuality != null ? avgQuality.toFixed(1) : '—'}
+            </p>
+            <p className="text-xs text-gray-500 mt-1">Avg Quality Rating</p>
+          </div>
+
+          {/* Ingredients with no supplier — amber border when count > 0 */}
+          <div className={`bg-white rounded-xl border p-4 text-center ${noSupplierCount > 0 ? 'border-amber' : 'border-gray-200'}`}>
+            <p className={`text-2xl font-bold ${noSupplierCount > 0 ? 'text-amber' : 'text-gray-400'}`}>
+              {noSupplierCount}
+            </p>
+            <p className="text-xs text-gray-500 mt-1">No Supplier on Record</p>
+          </div>
+        </div>
+      </section>
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          Section 2 — Price Trend Analysis
+          ══════════════════════════════════════════════════════════════════════ */}
+      <section>
+        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Price Trend Analysis</h3>
+
+        {/* Ingredient selector — picking an ingredient triggers the Supabase fetch */}
+        <div className="mb-4">
+          <select
+            value={selectedIngId}
+            onChange={e => setSelectedIngId(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber w-full sm:w-80"
+          >
+            <option value="">Select an ingredient to view price trends…</option>
+            {activeIngredients.map(i => (
+              <option key={i.id} value={i.id}>{i.name}</option>
+            ))}
+          </select>
+        </div>
+
+        {selectedIngId && (
+          <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-6">
+            {loadingChart ? (
+              <p className="text-sm text-gray-400 text-center py-10">Loading price history…</p>
+            ) : chartData.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-10">
+                No price history yet — receive stock to start tracking price trends.
+              </p>
+            ) : (
+              <>
+                {/* Line chart: one line per supplier, X = date, Y = unit cost */}
+                <ResponsiveContainer width="100%" height={260}>
+                  <LineChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fontSize: 11, fill: '#9CA3AF' }}
+                      tickFormatter={d => {
+                        const dt = new Date(d + 'T00:00:00')
+                        return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                      }}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 11, fill: '#9CA3AF' }}
+                      tickFormatter={v => `$${parseFloat(v).toFixed(2)}`}
+                      width={60}
+                    />
+                    <Tooltip
+                      contentStyle={{ fontSize: 12 }}
+                      formatter={(value, name) => [`$${parseFloat(value).toFixed(4)}/unit`, name]}
+                      labelFormatter={label => {
+                        const dt = new Date(label + 'T00:00:00')
+                        return dt.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+                      }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    {/* Render one <Line> per unique supplier name */}
+                    {chartSuppliers.map((sup, idx) => (
+                      <Line
+                        key={sup}
+                        type="monotone"
+                        dataKey={sup}
+                        stroke={CHART_COLORS[idx % CHART_COLORS.length]}
+                        strokeWidth={2}
+                        dot={{ r: 4 }}
+                        activeDot={{ r: 6 }}
+                        connectNulls
+                      />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+
+                {/* Price change summary table below the chart */}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
+                        <th className="text-left pb-2">Supplier</th>
+                        <th className="text-right pb-2">First Price</th>
+                        <th className="text-right pb-2">Latest Price</th>
+                        <th className="text-right pb-2">Change</th>
+                        <th className="text-right pb-2 hidden sm:table-cell">Orders</th>
+                        <th className="text-right pb-2 hidden md:table-cell">Last Order</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {priceSummary.map(row => (
+                        <tr key={row.name}>
+                          <td className="py-2.5 font-medium text-navy">{row.name}</td>
+                          <td className="py-2.5 text-right text-gray-600">${row.firstPrice.toFixed(4)}</td>
+                          <td className="py-2.5 text-right text-gray-600">${row.lastPrice.toFixed(4)}</td>
+                          {/* Color: red for increase, green for decrease, amber for stable */}
+                          <td className={`py-2.5 text-right font-semibold ${
+                            row.changePct > 2  ? 'text-danger'  :
+                            row.changePct < -2 ? 'text-success' : 'text-amber'
+                          }`}>
+                            {row.changePct >= 0 ? '+' : ''}{row.changePct.toFixed(1)}%
+                          </td>
+                          <td className="py-2.5 text-right text-gray-500 hidden sm:table-cell">{row.count}</td>
+                          <td className="py-2.5 text-right text-gray-400 text-xs hidden md:table-cell">{row.lastDate}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          Section 3 — Supplier Comparison Table
+          ══════════════════════════════════════════════════════════════════════ */}
+      <section>
+        <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Supplier Comparison</h3>
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Sort select — applies to all ingredient comparison tables */}
+            <select
+              value={compSort}
+              onChange={e => setCompSort(e.target.value)}
+              className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-amber"
+            >
+              <option value="price">Sort: Lowest Price</option>
+              <option value="quality">Sort: Highest Quality</option>
+              <option value="lead_time">Sort: Fastest Lead Time</option>
+            </select>
+            {/* Toggle to filter to only ingredients with 2+ suppliers */}
+            <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={multiOnly}
+                onChange={e => setMultiOnly(e.target.checked)}
+                className="rounded border-gray-300 accent-amber"
+              />
+              Only multi-supplier ingredients
+            </label>
+          </div>
+        </div>
+
+        {/* Determine which ingredients to render comparison tables for */}
+        {(() => {
+          const baseList = multiOnly
+            ? activeIngredients.filter(i =>
+                (i.ingredient_suppliers ?? []).filter(s => s.is_active !== false).length >= 2
+              )
+            : activeIngredients.filter(i =>
+                (i.ingredient_suppliers ?? []).some(s => s.is_active !== false)
+              )
+
+          if (baseList.length === 0) {
+            return (
+              <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
+                <p className="text-gray-400 text-sm">
+                  {multiOnly
+                    ? 'No ingredients have multiple suppliers yet. Add suppliers when editing an ingredient.'
+                    : 'No suppliers on record yet.'}
+                </p>
+              </div>
+            )
+          }
+
+          return (
+            <div className="space-y-4">
+              {baseList.map(ing => {
+                // Get active suppliers and apply the selected sort
+                let sups = (ing.ingredient_suppliers ?? []).filter(s => s.is_active !== false)
+                if (compSort === 'price')
+                  sups = [...sups].sort((a, b) =>
+                    (parseFloat(a.price_per_unit) || Infinity) - (parseFloat(b.price_per_unit) || Infinity)
+                  )
+                else if (compSort === 'quality')
+                  sups = [...sups].sort((a, b) => (b.quality_rating ?? 0) - (a.quality_rating ?? 0))
+                else if (compSort === 'lead_time')
+                  sups = [...sups].sort((a, b) =>
+                    (a.lead_time_days ?? Infinity) - (b.lead_time_days ?? Infinity)
+                  )
+
+                return (
+                  <div key={ing.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                    {/* Ingredient header row */}
+                    <div className="bg-gray-50 border-b border-gray-100 px-4 py-2.5 flex items-center gap-2">
+                      <span className="font-semibold text-navy text-sm">{ing.name}</span>
+                      {ing.category && (
+                        <span className="text-[11px] bg-navy/10 text-navy px-1.5 py-0.5 rounded-full">{ing.category}</span>
+                      )}
+                    </div>
+                    {/* Supplier rows — horizontally scrollable on mobile */}
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-xs text-gray-500 uppercase tracking-wide border-b border-gray-100">
+                            <th className="text-left px-4 py-2">Supplier</th>
+                            <th className="text-right px-4 py-2">List Price</th>
+                            <th className="text-right px-4 py-2 hidden sm:table-cell">Last Ordered</th>
+                            <th className="text-right px-4 py-2 hidden md:table-cell">Shipping</th>
+                            <th className="text-right px-4 py-2 hidden md:table-cell">Lead Time</th>
+                            <th className="text-center px-4 py-2 hidden lg:table-cell">Quality</th>
+                            <th className="text-right px-4 py-2 hidden lg:table-cell">Last Order Date</th>
+                            <th className="text-center px-4 py-2 hidden sm:table-cell">Trend</th>
+                            <th className="px-4 py-2"></th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50">
+                          {sups.map(sup => {
+                            const trend      = getPriceTrend(sup.supplier_name, ing.id)
+                            const trendColor = trend === '↑' ? 'text-danger' : trend === '↓' ? 'text-success' : 'text-gray-400'
+                            return (
+                              <tr
+                                key={sup.id}
+                                className={`hover:bg-gray-50 transition-colors ${sup.is_preferred ? 'bg-amber/5' : ''}`}
+                              >
+                                <td className="px-4 py-2.5">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-medium text-navy">{sup.supplier_name}</span>
+                                    {sup.is_preferred && (
+                                      <span className="text-[10px] bg-amber text-white px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap">
+                                        Preferred
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="px-4 py-2.5 text-right text-gray-700">{fmtPrice(sup.price_per_unit)}</td>
+                                <td className="px-4 py-2.5 text-right text-gray-500 hidden sm:table-cell">{fmtPrice(sup.last_ordered_price)}</td>
+                                <td className="px-4 py-2.5 text-right text-gray-500 hidden md:table-cell">
+                                  {sup.shipping_cost_per_order != null ? `$${parseFloat(sup.shipping_cost_per_order).toFixed(2)}` : '—'}
+                                </td>
+                                <td className="px-4 py-2.5 text-right text-gray-500 hidden md:table-cell">
+                                  {sup.lead_time_days != null ? `${sup.lead_time_days}d` : '—'}
+                                </td>
+                                <td className="px-4 py-2.5 text-center text-amber text-xs hidden lg:table-cell">
+                                  {starRating(sup.quality_rating)}
+                                </td>
+                                <td className="px-4 py-2.5 text-right text-gray-400 text-xs hidden lg:table-cell">
+                                  {sup.last_ordered_date ?? '—'}
+                                </td>
+                                <td className={`px-4 py-2.5 text-center font-bold hidden sm:table-cell ${trendColor}`}>
+                                  {trend}
+                                </td>
+                                <td className="px-4 py-2.5 text-right">
+                                  {/* Only show "Set Preferred" when this supplier isn't already preferred */}
+                                  {!sup.is_preferred && (
+                                    <button
+                                      onClick={() => handleSetPreferred(ing.id, sup.id)}
+                                      disabled={settingPreferred === sup.id}
+                                      className="text-xs text-gray-500 hover:text-navy border border-gray-200 hover:border-navy px-2 py-1 rounded transition-colors disabled:opacity-50 whitespace-nowrap"
+                                    >
+                                      {settingPreferred === sup.id ? 'Saving…' : 'Set Preferred'}
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )
+        })()}
+      </section>
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          Section 4 — Supplier Performance Dashboard
+          ══════════════════════════════════════════════════════════════════════ */}
+      <section>
+        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Supplier Performance</h3>
+
+        {supplierPerformance.length === 0 ? (
+          <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
+            <p className="text-gray-400 text-sm">
+              No suppliers on record yet. Add suppliers when editing an ingredient.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {supplierPerformance.map(sup => (
+              <div key={sup.name} className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
+
+                {/* Supplier name and contact info */}
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <h4 className="font-semibold text-navy">{sup.name}</h4>
+                    {sup.contact_name  && <p className="text-xs text-gray-400 mt-0.5">{sup.contact_name}</p>}
+                    {sup.contact_email && <p className="text-xs text-gray-400">{sup.contact_email}</p>}
+                    {sup.contact_phone && <p className="text-xs text-gray-400">{sup.contact_phone}</p>}
+                  </div>
+                  {/* Total spend shown top-right when data exists */}
+                  {sup.totalSpend > 0 && (
+                    <div className="text-right shrink-0">
+                      <p className="text-sm font-bold text-navy">${sup.totalSpend.toFixed(2)}</p>
+                      <p className="text-xs text-gray-400">Total spend</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Ingredient tags — all ingredients this supplier provides */}
+                <div className="flex flex-wrap gap-1">
+                  {sup.ingredients.map(name => (
+                    <span key={name} className="text-[11px] bg-navy/10 text-navy px-2 py-0.5 rounded-full">{name}</span>
+                  ))}
+                </div>
+
+                {/* KPI grid: orders, on-time rate, quality, last order */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-gray-50 rounded-lg p-2.5 text-xs">
+                    <p className="text-gray-400 mb-0.5">Total Orders</p>
+                    <p className="font-semibold text-navy">{sup.orderCount || '—'}</p>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-2.5 text-xs">
+                    <p className="text-gray-400 mb-0.5">On-Time Delivery</p>
+                    <p className={`font-semibold ${
+                      sup.onTimeRate == null ? 'text-gray-400' :
+                      sup.onTimeRate >= 90   ? 'text-success'  :
+                      sup.onTimeRate >= 70   ? 'text-amber'    : 'text-danger'
+                    }`}>
+                      {sup.onTimeRate != null ? `${sup.onTimeRate.toFixed(0)}%` : 'No data'}
+                    </p>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-2.5 text-xs">
+                    <p className="text-gray-400 mb-0.5">Avg Quality</p>
+                    <p className="font-semibold text-amber">{starRating(sup.avgRating)}</p>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-2.5 text-xs">
+                    <p className="text-gray-400 mb-0.5">Last Order</p>
+                    <p className="font-semibold text-navy">{sup.lastOrderDate ?? '—'}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          Section 5 — Price Alerts
+          ══════════════════════════════════════════════════════════════════════ */}
+      <section>
+        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Price Alerts</h3>
+
+        <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
+
+          {/* Global threshold — one number that applies to all ingredients by default */}
+          <div className="p-4">
+            <p className="text-sm font-medium text-navy mb-2">Alert Threshold</p>
+            <div className="flex items-center gap-3 flex-wrap">
+              <label className="text-sm text-gray-600">Notify when any ingredient price increases by more than</label>
+              <input
+                type="number"
+                min="1"
+                max="200"
+                step="1"
+                value={globalThreshold}
+                onChange={e => handleGlobalThreshold(e.target.value)}
+                className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm w-20 focus:outline-none focus:ring-2 focus:ring-amber"
+              />
+              <span className="text-sm text-gray-600">% (global default)</span>
+            </div>
+          </div>
+
+          {/* Per-ingredient overrides — allows tighter or looser thresholds per ingredient */}
+          <div className="p-4 space-y-3">
+            <p className="text-sm font-medium text-navy">Per-Ingredient Overrides</p>
+
+            {/* List of active overrides with a remove button */}
+            {Object.entries(perIngThresholds).length > 0 ? (
+              <div className="space-y-2">
+                {Object.entries(perIngThresholds).map(([ingId, threshold]) => {
+                  const ing = activeIngredients.find(i => i.id === ingId)
+                  if (!ing) return null
+                  return (
+                    <div key={ingId} className="flex items-center gap-3 text-sm">
+                      <span className="font-medium text-navy w-40 truncate">{ing.name}</span>
+                      <span className="text-amber font-semibold">{threshold}%</span>
+                      <button
+                        onClick={() => removeOverride(ingId)}
+                        className="text-xs text-gray-400 hover:text-danger transition-colors"
+                      >
+                        ✕ Remove
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400">No per-ingredient overrides set.</p>
+            )}
+
+            {/* Add override form — ingredient dropdown + threshold input */}
+            <div className="flex items-center gap-2 flex-wrap pt-1">
+              <select
+                value={overrideIngId}
+                onChange={e => setOverrideIngId(e.target.value)}
+                className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-amber"
+              >
+                <option value="">Select ingredient…</option>
+                {/* Only show ingredients that don't already have an override */}
+                {activeIngredients
+                  .filter(i => !(i.id in perIngThresholds))
+                  .map(i => <option key={i.id} value={i.id}>{i.name}</option>)
+                }
+              </select>
+              <input
+                type="number"
+                min="1"
+                max="200"
+                step="1"
+                placeholder="e.g. 5"
+                value={overrideValue}
+                onChange={e => setOverrideValue(e.target.value)}
+                className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs w-20 focus:outline-none focus:ring-2 focus:ring-amber"
+              />
+              <span className="text-xs text-gray-500">%</span>
+              <button
+                onClick={addOverride}
+                disabled={!overrideIngId || !overrideValue}
+                className="text-xs font-semibold bg-amber hover:bg-amber-dark text-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+              >
+                Add Override
+              </button>
+            </div>
+          </div>
+
+          {/* Active alerts — ingredients whose latest receive price exceeded their threshold */}
+          <div className="p-4">
+            <p className="text-sm font-medium text-navy mb-2">
+              Active Price Alerts
+              {priceAlerts.length > 0 && (
+                <span className="ml-2 text-xs bg-danger/10 text-danger px-2 py-0.5 rounded-full font-normal">
+                  {priceAlerts.length}
+                </span>
+              )}
+            </p>
+            {priceAlerts.length === 0 ? (
+              <p className="text-sm text-gray-400">
+                No price alerts — all recent prices are within the configured threshold.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {priceAlerts.map((alert, i) => (
+                  <div key={i} className="bg-amber/10 border border-amber/50 rounded-lg px-4 py-2.5 flex items-start gap-2.5">
+                    <span className="text-amber shrink-0 mt-0.5">⚠</span>
+                    <p className="text-sm text-amber-dark">
+                      <span className="font-semibold">{alert.name}</span> price increased{' '}
+                      <span className="font-bold">{alert.changePct.toFixed(1)}%</span> since last order
+                      {' '}(from{' '}
+                      <span className="font-medium">${alert.previous.toFixed(4)}</span> to{' '}
+                      <span className="font-medium">${alert.latest.toFixed(4)}</span>
+                      {alert.unit ? `/${alert.unit}` : ''})
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+        </div>
+      </section>
+    </div>
   )
 }
 

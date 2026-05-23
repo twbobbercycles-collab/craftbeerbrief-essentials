@@ -4,6 +4,7 @@
  * (add/edit/delete with expiration colour-coding).
  */
 import { useEffect, useState } from 'react'
+import { usePersistedTab } from '../../hooks/usePersistedTab'
 import { supabase } from '../../services/supabase'
 import { useAuth } from '../../context/AuthContext'
 import LoadingSpinner from '../../components/LoadingSpinner'
@@ -109,7 +110,7 @@ export default function StaffPage() {
   } = useModalDraft('modal_draft_certification')
 
   // ── Tab ──
-  const [activeTab, setActiveTab] = useState('staff') // 'staff' | 'certifications'
+  const [activeTab, setActiveTab] = usePersistedTab('staff_active_tab', 'staff')
 
   // ── Staff members ──
   const [staffMembers, setStaffMembers] = useState([])

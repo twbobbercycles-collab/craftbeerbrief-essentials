@@ -10,6 +10,7 @@
  * This is a tracking tool only. It does not file or communicate with the TTB.
  */
 import { useEffect, useState, useMemo } from 'react'
+import { usePersistedTab } from '../../hooks/usePersistedTab'
 import { supabase } from '../../services/supabase'
 import { useAuth } from '../../context/AuthContext'
 import ModalShell from '../../components/ModalShell'
@@ -838,7 +839,7 @@ export default function TtbPage() {
   const [loadError,     setLoadError]     = useState('')
 
   // UI
-  const [activeTab,     setActiveTab]     = useState(() => localStorage.getItem('ttb_active_tab') ?? 'dashboard')
+  const [activeTab,     setActiveTab]     = usePersistedTab('ttb_active_tab', 'dashboard')
   const [frequency,     setFrequency]     = useState(brewery?.ttb_filing_frequency ?? null)
   const [colaFilter,    setColaFilter]    = useState('all')
   const [calcBarrels,   setCalcBarrels]   = useState('')
@@ -867,11 +868,6 @@ export default function TtbPage() {
     })),
     [filedPeriods]
   )
-
-  // Persist the active tab so it survives navigation away and back
-  useEffect(() => {
-    localStorage.setItem('ttb_active_tab', activeTab)
-  }, [activeTab])
 
   // Load all data when the brewery is known
   useEffect(() => {

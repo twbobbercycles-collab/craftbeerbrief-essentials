@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useState, useCallback, useMemo } from 'react'
+import { usePersistedTab } from '../../hooks/usePersistedTab'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../services/supabase'
 import TierGate from '../../components/TierGate'
@@ -62,9 +63,6 @@ function isKegType(type) {
   return (type || '').toLowerCase().includes('keg')
 }
 
-// localStorage key for tab persistence
-const TAB_KEY = 'distribution_active_tab'
-
 // ── Utility helpers ────────────────────────────────────────────────────────────
 
 function fmtDate(str) {
@@ -103,9 +101,7 @@ function DistributionTracker() {
   const { brewery } = useAuth()
   const { isReadOnly } = useReadOnly()
 
-  const [activeTab, setActiveTab] = useState(
-    () => localStorage.getItem(TAB_KEY) || 'assign'
-  )
+  const [activeTab, setActiveTab] = usePersistedTab('distribution_active_tab', 'assign')
 
   const [packagingRuns,    setPackagingRuns]    = useState([])
   const [accounts,         setAccounts]         = useState([])
@@ -115,11 +111,6 @@ function DistributionTracker() {
 
   // Draft tracking for Add Account modal — shown as DraftNoticeBar in Accounts tab
   const addAccountDraft = useModalDraft('modal_draft_distribution_add_account')
-
-  function switchTab(tab) {
-    setActiveTab(tab)
-    localStorage.setItem(TAB_KEY, tab)
-  }
 
   const loadAll = useCallback(async () => {
     if (!brewery?.id) return
@@ -188,7 +179,7 @@ function DistributionTracker() {
           ].map(({ key, label }) => (
             <button
               key={key}
-              onClick={() => switchTab(key)}
+              onClick={() => setActiveTab(key)}
               className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
                 activeTab === key
                   ? 'border-amber text-amber'

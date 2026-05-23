@@ -4,6 +4,7 @@
  * their license and permit documents in one secure place.
  */
 import { useEffect, useState, useRef } from 'react'
+import { usePersistedTab } from '../../hooks/usePersistedTab'
 import { supabase } from '../../services/supabase'
 import { useAuth } from '../../context/AuthContext'
 import LoadingSpinner from '../../components/LoadingSpinner'
@@ -80,7 +81,7 @@ export default function DocumentsPage() {
   const [documents, setDocuments]         = useState([])
   const [loading, setLoading]             = useState(true)
   const [pageError, setPageError]         = useState('')
-  const [activeTab, setActiveTab]         = useState('all')
+  const [activeTab, setActiveTab]         = usePersistedTab('documents_active_tab', 'all')
 
   // ── Upload modal state ──
   const [uploadModalOpen, setUploadModalOpen] = useState(false)
