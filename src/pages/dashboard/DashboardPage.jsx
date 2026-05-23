@@ -28,6 +28,7 @@ export default function DashboardPage() {
   const [fermentationStats, setFermentationStats] = useState({ activeCount: 0, readyCount: 0, dryHopsDue: 0 })
   const [packagingStats, setPackagingStats] = useState({ inProgress: 0, planned: 0 })
   const [distributionStats, setDistributionStats] = useState({ batchesThisMonth: 0, kegsAwaitingReturn: 0 })
+  const [taproomStats, setTaproomStats] = useState({ activeHandles: 0, longOnTap: 0, highestMarginPct: null })
 
   useEffect(() => {
     if (!brewery?.id) return
@@ -104,6 +105,17 @@ export default function DashboardPage() {
         ])
       : Promise.resolve([{ count: 0 }, { count: 0 }, { count: 0 }, { count: 0 }])
 
+    // Active taproom handles: draft/taproom records not yet kicked, last 90 days
+    const ninetyDaysAgo = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10)
+    const taproomPromise = hasAccess('operations')
+      ? supabase
+          .from('distribution_records')
+          .select('id, package_type, delivery_date, sale_price_per_unit, ingredient_cost_per_unit, packaging_cost_per_unit')
+          .eq('brewery_id', brewery.id)
+          .or('kegs_returned.is.null,kegs_returned.eq.false')
+          .gte('delivery_date', ninetyDaysAgo)
+      : Promise.resolve({ data: [] })
+
     // Fetch next scheduled brew and recent efficiency data
     const today = new Date().toISOString().split('T')[0]
     const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]
@@ -133,7 +145,7 @@ export default function DashboardPage() {
         ])
       : Promise.resolve([{ data: [] }, { data: [] }, { data: [] }])
 
-    const [deadlinesResult, grantsResult, periodsResult, recipesResult, inventoryResult, brewDayResult, fermentationResult, packagingResult] = await Promise.all([
+    const [deadlinesResult, grantsResult, periodsResult, recipesResult, inventoryResult, brewDayResult, fermentationResult, packagingResult, taproomResult] = await Promise.all([
       supabase
         .from('brewery_deadlines')
         .select('*, compliance_deadlines(*)')
@@ -164,6 +176,7 @@ export default function DashboardPage() {
       brewDayPromise,
       fermentationPromise,
       packagingPromise,
+      taproomPromise,
     ])
 
     setUpcomingDeadlines(deadlinesResult.data ?? [])
@@ -207,6 +220,25 @@ export default function DashboardPage() {
         kegsAwaitingReturn: kegsRes?.count    ?? 0,
       })
     }
+
+    // Compute taproom stats — active handles and any that have been on 30+ days
+    const taproomRows = (taproomResult.data ?? []).filter(r => {
+      const pt = (r.package_type || '').toLowerCase()
+      return pt.includes('draft') || pt.includes('taproom')
+    })
+    const longOnTap = taproomRows.filter(r => {
+      if (!r.delivery_date) return false
+      const days = Math.floor((new Date(today) - new Date(r.delivery_date + 'T00:00:00')) / 86400000)
+      return days > 30
+    }).length
+    const highestMarginPct = taproomRows.length > 0
+      ? Math.max(...taproomRows.map(r => {
+          const sale = parseFloat(r.sale_price_per_unit) || 0
+          const cost = (parseFloat(r.ingredient_cost_per_unit) || 0) + (parseFloat(r.packaging_cost_per_unit) || 0)
+          return sale > 0 ? ((sale - cost) / sale) * 100 : 0
+        }))
+      : null
+    setTaproomStats({ activeHandles: taproomRows.length, longOnTap, highestMarginPct })
 
     // Compute inventory alert counts from the raw ingredient rows
     const ings = inventoryResult.data ?? []
@@ -494,6 +526,45 @@ export default function DashboardPage() {
                 </p>
                 {distributionStats.kegsAwaitingReturn > 0 && (
                   <p className="text-xs text-amber font-medium">Follow up needed</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Taproom widget */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">🍺</span>
+                <h3 className="font-semibold text-navy">Taproom</h3>
+              </div>
+              <Link to="/taproom" className="text-amber text-sm hover:underline">View taproom →</Link>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <p className="text-xs text-gray-500 mb-0.5">Active tap handles</p>
+                <p className="text-2xl font-bold text-navy">{taproomStats.activeHandles}</p>
+                {taproomStats.activeHandles === 0 && (
+                  <p className="text-xs text-gray-400">None on tap</p>
+                )}
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-0.5">Handles 30+ days on tap</p>
+                <p className={`text-2xl font-bold ${taproomStats.longOnTap > 0 ? 'text-amber' : 'text-navy'}`}>
+                  {taproomStats.longOnTap}
+                </p>
+                {taproomStats.longOnTap > 0 && (
+                  <p className="text-xs text-amber font-medium">May need rotating</p>
+                )}
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-0.5">Best handle margin</p>
+                {taproomStats.highestMarginPct != null ? (
+                  <p className={`text-2xl font-bold ${taproomStats.highestMarginPct >= 60 ? 'text-success' : taproomStats.highestMarginPct >= 40 ? 'text-amber' : 'text-danger'}`}>
+                    {taproomStats.highestMarginPct.toFixed(1)}%
+                  </p>
+                ) : (
+                  <p className="text-sm text-gray-400">No data yet</p>
                 )}
               </div>
             </div>
