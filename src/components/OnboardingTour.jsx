@@ -248,11 +248,16 @@ function TourCard({ step, stepIdx, total, isFirst, isLast, pos, centered, onNext
 
 // ── Main export ───────────────────────────────────────────────────────────────
 export default function OnboardingTour({ onComplete }) {
-  const [stepIdx, setStepIdx]   = useState(0)
-  const [rect,    setRect]      = useState(null)
-  const [pos,     setPos]       = useState(null)
-  const [mobile,  setMobile]    = useState(false)
-  const [ready,   setReady]     = useState(false) // true after scroll animation completes
+  const [stepIdx,      setStepIdx]      = useState(0)
+  const [rect,         setRect]         = useState(null)
+  const [pos,          setPos]          = useState(null)
+  const [mobile,       setMobile]       = useState(false)
+  // readyForStep tracks which step has finished scrolling into view.
+  // Using a number instead of a boolean makes it immune to stale state: on the
+  // first render after stepIdx changes, readyForStep still holds the old step index,
+  // so ready===false immediately — no flash of the old position on the new step.
+  const [readyForStep, setReadyForStep] = useState(-1)
+  const ready = readyForStep === stepIdx
 
   const step    = STEPS[stepIdx]
   const isFirst = stepIdx === 0
@@ -269,45 +274,49 @@ export default function OnboardingTour({ onComplete }) {
   }, [])
 
   // When advancing to a new step: expand sidebar sections if needed, scroll the target
-  // into view, wait for the animation, then set ready so the highlight renders in place.
+  // into view, wait for the animation, then mark this step ready so the highlight renders.
   useEffect(() => {
-    setReady(false)
+    setReadyForStep(-1)
     setRect(null)
     setPos(null)
 
-    // Step 9 = Operations section intro — tell AppLayout to expand Operations so the
-    // nav items are in the DOM and scrollable for steps 10–16.
+    // Step 0 = welcome modal — ensure Essentials is expanded for steps 1-8
+    if (stepIdx === 0) {
+      window.dispatchEvent(new CustomEvent('tour-expand-essentials'))
+    }
+    // Step 9 = Operations section intro — expand Operations so nav items are in the
+    // DOM and scrollable for steps 10-16
     if (stepIdx === 9) {
       window.dispatchEvent(new CustomEvent('tour-expand-ops'))
     }
 
     if (!step.target) {
-      // Centered modal steps need no scroll — show immediately
-      setReady(true)
+      // Centered modal steps need no scroll — mark ready immediately
+      setReadyForStep(stepIdx)
       return
     }
 
     const el = document.querySelector(step.target)
     if (!el) {
       // Target not found — show card centered so tour never gets stuck
-      setReady(true)
+      setReadyForStep(stepIdx)
       return
     }
 
     el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    const timer = setTimeout(() => setReady(true), 400)
+    const timer = setTimeout(() => setReadyForStep(stepIdx), 400)
     return () => clearTimeout(timer)
   }, [stepIdx])
 
-  // Compute position only after ready — element has finished scrolling into view
+  // Compute position only after this step is ready — element has finished scrolling into view
   useLayoutEffect(() => {
-    if (!ready || !step.target) { setRect(null); setPos(null); return }
+    if (readyForStep !== stepIdx || !step.target) { setRect(null); setPos(null); return }
     const el = document.querySelector(step.target)
     if (!el) { setRect(null); setPos(null); return }
     const r = el.getBoundingClientRect()
     setRect(r)
     setPos(mobile ? null : computePos(r, step.placement ?? 'right'))
-  }, [stepIdx, mobile, ready])
+  }, [stepIdx, mobile, readyForStep])
 
   function next() { isLast ? onComplete() : setStepIdx(i => i + 1) }
   function back() { setStepIdx(i => Math.max(0, i - 1)) }

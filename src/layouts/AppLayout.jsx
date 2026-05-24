@@ -224,14 +224,22 @@ export default function AppLayout() {
     })
   }
 
-  // Onboarding tour fires this to expand Operations before highlighting its items
+  // Onboarding tour fires these to expand sections before highlighting their items
   useEffect(() => {
     function handleExpandOps() {
       setOpsExpanded(true)
       localStorage.setItem('sidebar_operations_expanded', 'true')
     }
+    function handleExpandEssentials() {
+      setEssentialsExpanded(true)
+      localStorage.setItem('sidebar_essentials_expanded', 'true')
+    }
     window.addEventListener('tour-expand-ops', handleExpandOps)
-    return () => window.removeEventListener('tour-expand-ops', handleExpandOps)
+    window.addEventListener('tour-expand-essentials', handleExpandEssentials)
+    return () => {
+      window.removeEventListener('tour-expand-ops', handleExpandOps)
+      window.removeEventListener('tour-expand-essentials', handleExpandEssentials)
+    }
   }, [])
 
   // Build the main nav, adding Admin panel for admins
@@ -285,8 +293,8 @@ export default function AppLayout() {
             onClick={toggleEssentials}
             className="w-full flex items-center justify-between px-2 py-2 rounded-md hover:bg-navy-light transition-colors"
           >
-            <span className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Essentials</span>
-            <span className="text-gray-400 text-lg leading-none">{essentialsExpanded ? '▾' : '▸'}</span>
+            <span style={{ fontSize: '13px', fontWeight: '600', letterSpacing: '0.05em', color: '#9ca3af', textTransform: 'uppercase' }}>Essentials</span>
+            <span style={{ fontSize: '18px', lineHeight: 1, color: '#9ca3af' }}>{essentialsExpanded ? '▾' : '▸'}</span>
           </button>
           <div style={{ overflow: 'hidden', maxHeight: essentialsExpanded ? '800px' : '0', transition: 'max-height 0.25s ease-in-out' }}>
             <div className="space-y-1 pt-1">
@@ -313,12 +321,12 @@ export default function AppLayout() {
               className="w-full flex items-center justify-between px-2 py-2 rounded-md hover:bg-navy-light transition-colors"
             >
               <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Operations</span>
+                <span style={{ fontSize: '13px', fontWeight: '600', letterSpacing: '0.05em', color: '#9ca3af', textTransform: 'uppercase' }}>Operations</span>
                 {onActiveTrial && (
                   <span className="text-[9px] bg-amber/20 text-amber px-1.5 py-0.5 rounded font-bold">Trial</span>
                 )}
               </div>
-              <span className="text-gray-400 text-lg leading-none">{opsExpanded ? '▾' : '▸'}</span>
+              <span style={{ fontSize: '18px', lineHeight: 1, color: '#9ca3af' }}>{opsExpanded ? '▾' : '▸'}</span>
             </button>
             <div style={{ overflow: 'hidden', maxHeight: opsExpanded ? '800px' : '0', transition: 'max-height 0.25s ease-in-out' }}>
               <div className="space-y-1 pt-1">
@@ -354,7 +362,7 @@ export default function AppLayout() {
             className="w-full flex items-center justify-between px-2 py-2 rounded-md hover:bg-navy-light transition-colors"
           >
             <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Full Suite</span>
+              <span style={{ fontSize: '13px', fontWeight: '600', letterSpacing: '0.05em', color: '#9ca3af', textTransform: 'uppercase' }}>Full Suite</span>
               <span className="text-[9px] bg-gray-700 text-gray-400 px-1.5 py-0.5 rounded font-bold">Soon</span>
             </div>
             <span className="text-gray-600 text-sm">🔒</span>
