@@ -40,6 +40,14 @@ const BOTTOM_NAV = [
   { path: '/account', label: 'Account Settings', icon: '⚙️' },
 ]
 
+// Full Suite preview items — locked until Full Suite launches, always visible
+const FULL_SUITE_NAV = [
+  { label: 'Taproom Events',       icon: '🎪' },
+  { label: 'Wholesale Manager',    icon: '🤝' },
+  { label: 'Revenue Benchmarking', icon: '📈' },
+  { label: 'Regulation Playbook',  icon: '📜' },
+]
+
 // Maps OPS_NAV paths to sidebar warning keys
 const WARNING_KEYS = {
   '/inventory':    'inventory',
@@ -192,6 +200,39 @@ export default function AppLayout() {
     navigate('/login')
   }
 
+  // Collapsible sidebar sections — default expanded, persisted to localStorage
+  const [essentialsExpanded, setEssentialsExpanded] = useState(
+    () => localStorage.getItem('sidebar_essentials_expanded') !== 'false'
+  )
+  const [opsExpanded, setOpsExpanded] = useState(
+    () => localStorage.getItem('sidebar_operations_expanded') !== 'false'
+  )
+
+  function toggleEssentials() {
+    setEssentialsExpanded(prev => {
+      const next = !prev
+      localStorage.setItem('sidebar_essentials_expanded', String(next))
+      return next
+    })
+  }
+  function toggleOps() {
+    setOpsExpanded(prev => {
+      const next = !prev
+      localStorage.setItem('sidebar_operations_expanded', String(next))
+      return next
+    })
+  }
+
+  // Onboarding tour fires this to expand Operations before highlighting its items
+  useEffect(() => {
+    function handleExpandOps() {
+      setOpsExpanded(true)
+      localStorage.setItem('sidebar_operations_expanded', 'true')
+    }
+    window.addEventListener('tour-expand-ops', handleExpandOps)
+    return () => window.removeEventListener('tour-expand-ops', handleExpandOps)
+  }, [])
+
   // Build the main nav, adding Admin panel for admins
   const mainItems = isAdmin()
     ? [...MAIN_NAV, { path: '/admin', label: 'Admin Panel', icon: '🔧' }]
@@ -236,54 +277,104 @@ export default function AppLayout() {
 
       {/* Navigation links */}
       <nav className="flex-1 px-3 py-4 overflow-y-auto">
-        {/* Main nav */}
-        <div className="space-y-1">
-          {mainItems.map((item) => (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              className={navLinkClass}
-              onClick={() => setSidebarOpen(false)}
-            >
-              <span>{item.icon}</span>
-              <span>{item.label}</span>
-            </NavLink>
-          ))}
+
+        {/* ── ESSENTIALS ── */}
+        <div className="mb-1">
+          <button
+            onClick={toggleEssentials}
+            className="w-full flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-navy-light transition-colors"
+          >
+            <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Essentials</span>
+            <span className="text-gray-500 text-[10px]">{essentialsExpanded ? '▾' : '▸'}</span>
+          </button>
+          <div style={{ overflow: 'hidden', maxHeight: essentialsExpanded ? '800px' : '0', transition: 'max-height 0.25s ease-in-out' }}>
+            <div className="space-y-1 pt-1">
+              {mainItems.map((item) => (
+                <NavLink
+                  key={item.path}
+                  to={item.path}
+                  className={navLinkClass}
+                  onClick={() => setSidebarOpen(false)}
+                >
+                  <span>{item.icon}</span>
+                  <span>{item.label}</span>
+                </NavLink>
+              ))}
+            </div>
+          </div>
         </div>
 
-        {/* Operations section — only shown to operations/full_suite subscribers */}
+        {/* ── OPERATIONS ── */}
         {hasAccess('operations') && (
-          <div className="mt-5">
-            <p className="px-4 text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1">
-              Operations
-            </p>
-            <div className="space-y-1">
-              {OPS_NAV.map((item) => {
-                const warningKey = WARNING_KEYS[item.path]
-                const warnLevel  = warningKey ? sidebarWarnings[warningKey] : null
-                return (
-                  <NavLink
-                    key={item.path}
-                    to={item.path}
-                    className={navLinkClass}
-                    onClick={() => setSidebarOpen(false)}
-                  >
-                    <span>{item.icon}</span>
-                    <span>{item.label}</span>
-                    {warnLevel && (
-                      <span className={`ml-auto w-2 h-2 rounded-full shrink-0 ${
-                        warnLevel === 'red' ? 'bg-danger' : 'bg-amber'
-                      }`} />
-                    )}
-                  </NavLink>
-                )
-              })}
+          <div className="mb-1">
+            <button
+              onClick={toggleOps}
+              className="w-full flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-navy-light transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Operations</span>
+                {onActiveTrial && (
+                  <span className="text-[9px] bg-amber/20 text-amber px-1.5 py-0.5 rounded font-bold">Trial</span>
+                )}
+              </div>
+              <span className="text-gray-500 text-[10px]">{opsExpanded ? '▾' : '▸'}</span>
+            </button>
+            <div style={{ overflow: 'hidden', maxHeight: opsExpanded ? '800px' : '0', transition: 'max-height 0.25s ease-in-out' }}>
+              <div className="space-y-1 pt-1">
+                {OPS_NAV.map((item) => {
+                  const warningKey = WARNING_KEYS[item.path]
+                  const warnLevel  = warningKey ? sidebarWarnings[warningKey] : null
+                  return (
+                    <NavLink
+                      key={item.path}
+                      to={item.path}
+                      className={navLinkClass}
+                      onClick={() => setSidebarOpen(false)}
+                    >
+                      <span>{item.icon}</span>
+                      <span>{item.label}</span>
+                      {warnLevel && (
+                        <span className={`ml-auto w-2 h-2 rounded-full shrink-0 ${
+                          warnLevel === 'red' ? 'bg-danger' : 'bg-amber'
+                        }`} />
+                      )}
+                    </NavLink>
+                  )
+                })}
+              </div>
             </div>
           </div>
         )}
 
-        {/* Bottom nav — Help & Account */}
-        <div className="mt-5 space-y-1">
+        {/* ── FULL SUITE — locked preview, always visible ── */}
+        <div className="mb-1">
+          <button
+            onClick={() => navigate('/upgrade')}
+            className="w-full flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-navy-light transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Full Suite</span>
+              <span className="text-[9px] bg-gray-700 text-gray-400 px-1.5 py-0.5 rounded font-bold">Soon</span>
+            </div>
+            <span className="text-gray-600 text-xs">🔒</span>
+          </button>
+          <div className="space-y-1 pt-1">
+            {FULL_SUITE_NAV.map((item) => (
+              <div
+                key={item.label}
+                onClick={() => navigate('/upgrade')}
+                className="flex items-center gap-3 px-4 py-2.5 rounded-lg cursor-pointer opacity-40 hover:opacity-60 transition-opacity"
+              >
+                <span className="text-sm">{item.icon}</span>
+                <span className="text-sm font-medium text-gray-400">{item.label}</span>
+                <span className="ml-auto text-[10px] text-gray-500">🔒</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── BOTTOM — Help & Account, never collapsible ── */}
+        <div className="mt-3 pt-3 border-t border-navy-light space-y-1">
           {BOTTOM_NAV.map((item) => (
             <NavLink
               key={item.path}
@@ -296,6 +387,7 @@ export default function AppLayout() {
             </NavLink>
           ))}
         </div>
+
       </nav>
 
       {/* User info at the bottom of the sidebar */}

@@ -251,11 +251,13 @@ export default function OnboardingTour({ onComplete }) {
   const [rect,    setRect]      = useState(null)
   const [pos,     setPos]       = useState(null)
   const [mobile,  setMobile]    = useState(false)
+  const [ready,   setReady]     = useState(false) // true after scroll animation completes
 
   const step    = STEPS[stepIdx]
   const isFirst = stepIdx === 0
   const isLast  = stepIdx === STEPS.length - 1
-  const centered = isFirst || mobile || !pos
+  // Show as centered modal until scroll completes so the card is always visible immediately
+  const centered = isFirst || mobile || !pos || !ready
 
   // Track viewport width for mobile vs desktop layout
   useEffect(() => {
@@ -265,15 +267,46 @@ export default function OnboardingTour({ onComplete }) {
     return () => window.removeEventListener('resize', check)
   }, [])
 
-  // Find the target element and compute tooltip position whenever the step changes
+  // When advancing to a new step: expand sidebar sections if needed, scroll the target
+  // into view, wait for the animation, then set ready so the highlight renders in place.
+  useEffect(() => {
+    setReady(false)
+    setRect(null)
+    setPos(null)
+
+    // Step 9 = Operations section intro — tell AppLayout to expand Operations so the
+    // nav items are in the DOM and scrollable for steps 10–16.
+    if (stepIdx === 9) {
+      window.dispatchEvent(new CustomEvent('tour-expand-ops'))
+    }
+
+    if (!step.target) {
+      // Centered modal steps need no scroll — show immediately
+      setReady(true)
+      return
+    }
+
+    const el = document.querySelector(step.target)
+    if (!el) {
+      // Target not found — show card centered so tour never gets stuck
+      setReady(true)
+      return
+    }
+
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    const timer = setTimeout(() => setReady(true), 400)
+    return () => clearTimeout(timer)
+  }, [stepIdx])
+
+  // Compute position only after ready — element has finished scrolling into view
   useLayoutEffect(() => {
-    if (!step.target) { setRect(null); setPos(null); return }
+    if (!ready || !step.target) { setRect(null); setPos(null); return }
     const el = document.querySelector(step.target)
     if (!el) { setRect(null); setPos(null); return }
     const r = el.getBoundingClientRect()
     setRect(r)
     setPos(mobile ? null : computePos(r, step.placement ?? 'right'))
-  }, [stepIdx, mobile])
+  }, [stepIdx, mobile, ready])
 
   function next() { isLast ? onComplete() : setStepIdx(i => i + 1) }
   function back() { setStepIdx(i => Math.max(0, i - 1)) }
@@ -293,8 +326,8 @@ export default function OnboardingTour({ onComplete }) {
       {/* Semi-transparent backdrop — blocks clicks on the page behind */}
       <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.52)' }} />
 
-      {/* Amber highlight ring drawn over the target element */}
-      {rect && !mobile && (
+      {/* Amber highlight ring — only rendered after scroll animation completes */}
+      {ready && rect && !mobile && (
         <div style={{
           position:     'fixed',
           top:          rect.top    - 4,
