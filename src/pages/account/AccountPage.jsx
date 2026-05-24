@@ -2,9 +2,9 @@
  * AccountPage — subscription management, team invites, and brewery profile editing.
  */
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../services/supabase'
-import TierComparisonModal from '../../components/TierComparisonModal'
 
 // ─── Shared option lists (mirror OnboardingPage) ─────────────────────────────
 
@@ -74,11 +74,11 @@ function SectionDivider() {
 
 export default function AccountPage() {
   const { user, profile, brewery, refreshProfile } = useAuth()
+  const navigate = useNavigate()
 
   // ── Subscription / billing state ──
   const [portalLoading, setPortalLoading] = useState(false)
   const [cancelModalOpen, setCancelModalOpen] = useState(false)
-  const [tierModalOpen, setTierModalOpen] = useState(false)
   // Shows the data-retention confirmation step after the user clicks "Cancel Subscription"
   const [cancelConfirmed, setCancelConfirmed] = useState(false)
 
@@ -231,7 +231,7 @@ export default function AccountPage() {
           {/* Upgrade Plan button — hidden for Full Suite subscribers who are already at the top */}
           {profile?.subscription_tier !== 'full_suite' && (
             <button
-              onClick={() => setTierModalOpen(true)}
+              onClick={() => navigate('/upgrade')}
               className="text-sm bg-amber hover:bg-amber-dark text-white font-semibold px-4 py-2 rounded-lg transition-colors"
             >
               Upgrade Plan
@@ -304,9 +304,6 @@ export default function AccountPage() {
         </form>
         {inviteMessage && <p className="text-sm mt-3 text-gray-700">{inviteMessage}</p>}
       </div>
-
-      {/* ── Tier Comparison Modal ── */}
-      {tierModalOpen && <TierComparisonModal onClose={() => setTierModalOpen(false)} />}
 
       {/* ── Cancel Subscription Modal ── */}
       {cancelModalOpen && (

@@ -19,6 +19,7 @@
  *   children           — the actual module UI, rendered but non-interactive when locked
  */
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import TierComparisonModal from './TierComparisonModal'
 
@@ -88,12 +89,12 @@ export default function TierGate({ requiredTier, featureKey, featureName, featur
             </p>
 
             {/* Primary CTA — navigate to upgrade page */}
-            <a
-              href="/upgrade"
+            <Link
+              to="/upgrade"
               className="block w-full bg-amber hover:bg-amber-dark text-white font-semibold py-3 rounded-lg text-sm transition-colors mb-3"
             >
               Upgrade Now
-            </a>
+            </Link>
 
             {/* Secondary link — opens the full tier comparison modal */}
             <button

@@ -23,6 +23,14 @@ Deno.serve(async (req) => {
 
   const { priceId, userId, email, successUrl, cancelUrl } = await req.json()
 
+  // Validate price ID before hitting Stripe
+  if (!priceId || typeof priceId !== 'string' || !priceId.startsWith('price_')) {
+    return new Response(JSON.stringify({ error: 'Invalid or missing price_id' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+    })
+  }
+
   try {
     // Look up existing Stripe customer ID to avoid creating duplicates
     const supabase = createClient(
