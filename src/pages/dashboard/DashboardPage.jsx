@@ -31,6 +31,7 @@ export default function DashboardPage() {
   const [taproomStats, setTaproomStats] = useState({ activeHandles: 0, longOnTap: 0, highestMarginPct: null })
   const [eventStats, setEventStats] = useState({ upcomingCount: 0, nextEvent: null, lastRoi: null })
   const [wholesaleStats, setWholesaleStats] = useState({ followupDue: 0, atRisk: 0, activeCount: 0 })
+  const [trainingStats, setTrainingStats] = useState({ overdueCount: 0, expiringCount: 0 })
 
   useEffect(() => {
     if (!brewery?.id) return
@@ -112,6 +113,16 @@ export default function DashboardPage() {
       : Promise.resolve([{ count: 0 }, { count: 0 }, { count: 0 }, { count: 0 }])
 
     // Active taproom handles: draft/taproom records not yet kicked, last 90 days
+    // Staff training records for Full Suite users — expired and expiring in 30 days
+    const thirtyFromNow = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10)
+    const trainingPromise = hasAccess('full_suite')
+      ? supabase
+          .from('staff_training_records')
+          .select('expiration_date')
+          .eq('brewery_id', brewery.id)
+          .not('expiration_date', 'is', null)
+      : Promise.resolve({ data: [] })
+
     // Wholesale accounts for Full Suite users — follow-ups and at-risk counts
     const wholesalePromise = hasAccess('full_suite')
       ? Promise.all([
@@ -176,7 +187,7 @@ export default function DashboardPage() {
         ])
       : Promise.resolve([{ data: [] }, { data: [] }, { data: [] }])
 
-    const [deadlinesResult, grantsResult, periodsResult, recipesResult, inventoryResult, brewDayResult, fermentationResult, packagingResult, taproomResult, eventsResult, wholesaleResult] = await Promise.all([
+    const [deadlinesResult, grantsResult, periodsResult, recipesResult, inventoryResult, brewDayResult, fermentationResult, packagingResult, taproomResult, eventsResult, wholesaleResult, trainingResult] = await Promise.all([
       supabase
         .from('brewery_deadlines')
         .select('*, compliance_deadlines(*)')
@@ -210,6 +221,7 @@ export default function DashboardPage() {
       taproomPromise,
       eventsPromise,
       wholesalePromise,
+      trainingPromise,
     ])
 
     setUpcomingDeadlines(deadlinesResult.data ?? [])
@@ -308,6 +320,13 @@ export default function DashboardPage() {
       ).length
       setWholesaleStats({ followupDue, atRisk, activeCount: accts.filter(a => a.status === 'active').length })
     }
+
+    // Compute training stats: expired records and records expiring within 30 days
+    const trainingRows = trainingResult.data ?? []
+    setTrainingStats({
+      overdueCount:  trainingRows.filter(r => r.expiration_date < today).length,
+      expiringCount: trainingRows.filter(r => r.expiration_date >= today && r.expiration_date <= thirtyFromNow).length,
+    })
 
     // Compute inventory alert counts from the raw ingredient rows
     const ings = inventoryResult.data ?? []
@@ -707,6 +726,42 @@ export default function DashboardPage() {
                   </p>
                   {wholesaleStats.atRisk > 0 && (
                     <p className="text-xs text-danger font-medium">No orders in 60+ days</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Staff Training widget — Full Suite only */}
+          {hasAccess('full_suite') && (
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">🎓</span>
+                  <h3 className="font-semibold text-navy">Staff Training</h3>
+                  <span className="bg-amber/20 text-amber text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide">
+                    Full Suite
+                  </span>
+                </div>
+                <Link to="/training" className="text-amber text-sm hover:underline">View tracker →</Link>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-gray-500 mb-0.5">Overdue training records</p>
+                  <p className={`text-2xl font-bold ${trainingStats.overdueCount > 0 ? 'text-danger' : 'text-navy'}`}>
+                    {trainingStats.overdueCount}
+                  </p>
+                  {trainingStats.overdueCount > 0 && (
+                    <p className="text-xs text-danger font-medium">Renewal required</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-0.5">Expiring within 30 days</p>
+                  <p className={`text-2xl font-bold ${trainingStats.expiringCount > 0 ? 'text-amber' : 'text-navy'}`}>
+                    {trainingStats.expiringCount}
+                  </p>
+                  {trainingStats.expiringCount > 0 && (
+                    <p className="text-xs text-amber font-medium">Schedule renewal</p>
                   )}
                 </div>
               </div>

@@ -46,6 +46,7 @@ const BOTTOM_NAV = [
 const FULL_SUITE_NAV = [
   { path: '/events',       label: 'Taproom Events',       icon: '🎪' },
   { path: '/wholesale',    label: 'Wholesale Manager',    icon: '🤝' },
+  { path: '/training',     label: 'Staff Training',       icon: '🎓' },
   { path: '/benchmarking', label: 'Revenue Benchmarking', icon: '📈' },
   { path: '/playbook',     label: 'Regulation Playbook',  icon: '📜' },
 ]
