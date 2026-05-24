@@ -50,6 +50,10 @@ export default function DashboardPage() {
     const thirtyDaysFromNow = new Date()
     thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30)
 
+    // Declare date strings here so they are available to all promise builders below
+    const today      = new Date().toISOString().split('T')[0]
+    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]
+
     // Only query recipes and inventory if the user has Operations/Full Suite access
     const recipesPromise = hasAccess('operations')
       ? supabase
@@ -117,8 +121,6 @@ export default function DashboardPage() {
       : Promise.resolve({ data: [] })
 
     // Fetch next scheduled brew and recent efficiency data
-    const today = new Date().toISOString().split('T')[0]
-    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]
     const brewDayPromise = hasAccess('operations')
       ? Promise.all([
           supabase

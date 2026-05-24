@@ -61,9 +61,39 @@ const STEPS = [
     body: "Track municipal permits, zoning compliance, entertainment licenses, and other local requirements that state licensing doesn't cover. Built for the permits breweries most often overlook.",
   },
   {
+    target: 'a[href="/recipes"]',
+    placement: 'right',
+    title: 'Recipe Builder',
+    body: "Build recipes, calculate cost per pint, and track ingredient costs straight from your inventory. Every recipe stays in sync with your actual ingredient prices.",
+  },
+  {
+    target: 'a[href="/brewday"]',
+    placement: 'right',
+    title: 'Brew Day Scheduler',
+    body: "Schedule brew days, log actual vs. planned numbers, and automatically deduct ingredients from inventory when a brew is completed.",
+  },
+  {
+    target: 'a[href="/fermentation"]',
+    placement: 'right',
+    title: 'Fermentation Tracker',
+    body: "Track active fermentations with a visual vessel dashboard, gravity and temperature logs, dry hop scheduling, and full stage history.",
+  },
+  {
+    target: 'a[href="/packaging"]',
+    placement: 'right',
+    title: 'Packaging',
+    body: "Log packaging runs, track yield loss versus expected volume, and see the cost impact of every batch you package.",
+  },
+  {
+    target: 'a[href="/distribution"]',
+    placement: 'right',
+    title: 'Distribution & Taproom',
+    body: "Track wholesale accounts, assign package splits to accounts, and monitor taproom profitability — including margin per handle and projected revenue remaining.",
+  },
+  {
     target: null,
     title: 'You Are All Set',
-    body: "Your brewery compliance hub is ready. Start by reviewing your personalized compliance deadlines or searching the grant finder for funding opportunities. The Craft Beer Brief team is always here if you need help.",
+    body: "Your brewery operations hub is ready. You have full access to all Essentials compliance tools and Operations brewing tools during your 14-day trial. The Craft Beer Brief team is always here if you need help.",
   },
 ]
 

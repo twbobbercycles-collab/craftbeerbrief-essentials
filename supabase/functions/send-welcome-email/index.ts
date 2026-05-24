@@ -72,8 +72,9 @@ function buildEmailHtml(breweryName: string, trialEndsFormatted: string): string
 
               <!-- Opening paragraph -->
               <p style="margin:0 0 24px;color:#4a4a4a;font-size:15px;line-height:1.75;">
-                Your 14-day free trial has started. You now have full access to all three compliance tools
-                built specifically for craft breweries like yours&nbsp;&#8212; no credit card required.
+                Your 14-day free Operations trial has started. You now have full access to all brewing
+                operations tools and compliance features built specifically for craft breweries like
+                yours&nbsp;&#8212; no credit card required.
               </p>
 
               <!-- What's included card -->
@@ -83,40 +84,79 @@ function buildEmailHtml(breweryName: string, trialEndsFormatted: string): string
                   <td style="padding:20px 22px;">
 
                     <p style="margin:0 0 14px;color:#1A2744;font-size:11px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;">
-                      What&#39;s Included
+                      Operations Tools Included
                     </p>
 
-                    <!-- Core tools -->
+                    <!-- Operations tools -->
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                       <tr>
                         <td style="padding:5px 0;vertical-align:top;">
                           <span style="color:#C8871A;font-weight:bold;font-size:16px;margin-right:10px;line-height:1.4;">&#10003;</span>
-                          <span style="color:#1A2744;font-weight:bold;font-size:14px;">Grant &amp; Funding Finder</span>
-                          <span style="color:#666666;font-size:14px;"> &#8212; Search 90+ verified federal, state, and local funding programs curated specifically for craft breweries</span>
+                          <span style="color:#1A2744;font-weight:bold;font-size:14px;">Recipe Builder &amp; Cost Calculator</span>
+                          <span style="color:#666666;font-size:14px;"> &#8212; Build recipes, calculate cost per pint, and track ingredients from inventory</span>
                         </td>
                       </tr>
                       <tr>
                         <td style="padding:5px 0;vertical-align:top;">
                           <span style="color:#C8871A;font-weight:bold;font-size:16px;margin-right:10px;line-height:1.4;">&#10003;</span>
-                          <span style="color:#1A2744;font-weight:bold;font-size:14px;">TTB Filing Tracker</span>
-                          <span style="color:#666666;font-size:14px;"> &#8212; Never miss a federal excise tax deadline again</span>
+                          <span style="color:#1A2744;font-weight:bold;font-size:14px;">Ingredient Inventory &amp; Purchase Tracker</span>
+                          <span style="color:#666666;font-size:14px;"> &#8212; Track stock levels, costs, supplier orders, and every ingredient movement</span>
                         </td>
                       </tr>
                       <tr>
                         <td style="padding:5px 0;vertical-align:top;">
                           <span style="color:#C8871A;font-weight:bold;font-size:16px;margin-right:10px;line-height:1.4;">&#10003;</span>
-                          <span style="color:#1A2744;font-weight:bold;font-size:14px;">State Compliance Calendar</span>
-                          <span style="color:#666666;font-size:14px;"> &#8212; Personalized deadlines for your state and license types</span>
+                          <span style="color:#1A2744;font-weight:bold;font-size:14px;">Brew Day Scheduler &amp; Log</span>
+                          <span style="color:#666666;font-size:14px;"> &#8212; Schedule brew days, log actual vs. planned numbers, and auto-deduct inventory</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding:5px 0;vertical-align:top;">
+                          <span style="color:#C8871A;font-weight:bold;font-size:16px;margin-right:10px;line-height:1.4;">&#10003;</span>
+                          <span style="color:#1A2744;font-weight:bold;font-size:14px;">Fermentation Tracker</span>
+                          <span style="color:#666666;font-size:14px;"> &#8212; Visual vessel dashboard, gravity logs, dry hop scheduling, and stage history</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding:5px 0;vertical-align:top;">
+                          <span style="color:#C8871A;font-weight:bold;font-size:16px;margin-right:10px;line-height:1.4;">&#10003;</span>
+                          <span style="color:#1A2744;font-weight:bold;font-size:14px;">Packaging &amp; Yield Tracking</span>
+                          <span style="color:#666666;font-size:14px;"> &#8212; Log packaging runs, track yield loss, and calculate profit impact per batch</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding:5px 0;vertical-align:top;">
+                          <span style="color:#C8871A;font-weight:bold;font-size:16px;margin-right:10px;line-height:1.4;">&#10003;</span>
+                          <span style="color:#1A2744;font-weight:bold;font-size:14px;">Distribution &amp; Taproom Profitability</span>
+                          <span style="color:#666666;font-size:14px;"> &#8212; Track wholesale accounts, assign splits, and monitor margin per tap handle</span>
                         </td>
                       </tr>
                     </table>
 
-                    <!-- Bonus tools -->
+                    <!-- Essentials compliance tools -->
                     <p style="margin:16px 0 10px;color:#999999;font-size:11px;font-weight:bold;text-transform:uppercase;letter-spacing:0.8px;">
-                      Plus these bonus tools also included
+                      Plus all Essentials compliance tools included
                     </p>
 
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td style="padding:3px 0;">
+                          <span style="color:#C8871A;font-size:14px;margin-right:10px;">&#10003;</span>
+                          <span style="color:#555555;font-size:14px;">Grant &amp; Funding Finder (90+ programs)</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding:3px 0;">
+                          <span style="color:#C8871A;font-size:14px;margin-right:10px;">&#10003;</span>
+                          <span style="color:#555555;font-size:14px;">TTB Filing &amp; Excise Tax Tracker</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding:3px 0;">
+                          <span style="color:#C8871A;font-size:14px;margin-right:10px;">&#10003;</span>
+                          <span style="color:#555555;font-size:14px;">State Compliance Calendar</span>
+                        </td>
+                      </tr>
                       <tr>
                         <td style="padding:3px 0;">
                           <span style="color:#C8871A;font-size:14px;margin-right:10px;">&#10003;</span>
@@ -250,7 +290,7 @@ Deno.serve(async (req) => {
     return new Response('email is required', { status: 400, headers: CORS_HEADERS })
   }
 
-  const subject          = 'Welcome to The Craft Beer Brief Essentials — Your 14-Day Trial Has Started'
+  const subject          = 'Welcome to The Craft Beer Brief Essentials — Your 14-Day Operations Trial Has Started'
   const trialEndsFormatted = formatTrialDate(trial_expires_at)
   const htmlBody         = buildEmailHtml(brewery_name, trialEndsFormatted)
 

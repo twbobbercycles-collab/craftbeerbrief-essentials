@@ -97,13 +97,37 @@ export function AuthProvider({ children }) {
     return user?.email === adminEmail
   }
 
-  // Returns true if the user's subscription tier meets or exceeds the required tier.
+  // Returns the effective subscription tier for the current user.
+  // During an active trial, everyone gets 'operations' tier access automatically.
+  // Once the trial ends (or on a paid subscription), this returns the real tier.
+  function getEffectiveTier() {
+    // Paid subscriber — use their actual subscription tier
+    if (profile?.subscription_status === 'active') {
+      return profile.subscription_tier ?? 'essentials'
+    }
+    // Active trial — Model A: all trial users get Operations tier access
+    if (profile?.trial_expires_at && Date.parse(profile.trial_expires_at) > Date.now()) {
+      return 'operations'
+    }
+    return 'essentials'
+  }
+
+  // Returns true if the user's effective tier meets or exceeds the required tier.
   // Tier hierarchy: full_suite (2) > operations (1) > essentials (0)
-  // Pass 'operations' or 'full_suite' — essentials always returns true.
+  //
+  // Key rules:
+  //   - Trial users automatically get operations-level access (Model A trial system)
+  //   - full_suite always requires a real paid full_suite subscription — trial does NOT unlock it
+  //   - essentials always returns true
   function hasAccess(requiredTier) {
     const TIER_RANK = { essentials: 0, operations: 1, full_suite: 2 }
-    const userTier = profile?.subscription_tier ?? 'essentials'
-    return (TIER_RANK[userTier] ?? 0) >= (TIER_RANK[requiredTier] ?? 0)
+    // full_suite is gated behind a real subscription — trial does not grant it
+    if (requiredTier === 'full_suite') {
+      return profile?.subscription_tier === 'full_suite' && profile?.subscription_status === 'active'
+    }
+    // For essentials and operations, use the effective tier (trial counts as operations)
+    const effectiveTier = getEffectiveTier()
+    return (TIER_RANK[effectiveTier] ?? 0) >= (TIER_RANK[requiredTier] ?? 0)
   }
 
   // Refresh the profile from the database (call this after updating subscription status)
@@ -120,6 +144,7 @@ export function AuthProvider({ children }) {
     isSubscribed,
     isAdmin,
     hasAccess,
+    getEffectiveTier,
     refreshProfile,
   }
 

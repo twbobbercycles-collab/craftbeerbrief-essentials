@@ -105,6 +105,12 @@ export default function UpgradePage() {
   const isActiveSub = subscriptionStatus === 'active'
   const isCancelled = subscriptionStatus === 'cancelled'
 
+  // True when the user had a trial that is now expired and they haven't subscribed yet.
+  // Used to tailor card labels and show a retention warning on the Essentials card.
+  const isTrialExpired = !isActiveSub
+    && !!profile?.trial_expires_at
+    && new Date(profile.trial_expires_at) <= new Date()
+
   // Kick off Stripe checkout for the selected tier and billing cycle
   async function handleCheckout(tierKey) {
     const priceId = PRICE_IDS[tierKey]?.[billing]
@@ -198,10 +204,12 @@ export default function UpgradePage() {
           <p className="text-gray-600 mt-2">Welcome back — reactivate to regain full access.</p>
         ) : isActiveSub ? (
           <p className="text-gray-600 mt-2">Upgrade your plan to unlock more tools.</p>
-        ) : (
+        ) : isTrialExpired ? (
           <p className="text-warning font-semibold mt-2">
-            Your free trial has ended — subscribe to keep access.
+            Your 14-day Operations trial has ended — subscribe to keep access.
           </p>
+        ) : (
+          <p className="text-gray-600 mt-2">Choose the plan that fits your brewery.</p>
         )}
         <p className="text-gray-500 text-sm mt-1">Choose the plan that fits your brewery.</p>
       </div>
@@ -253,33 +261,46 @@ export default function UpgradePage() {
       <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
         {TIERS.map((tier) => {
           const isCurrentTier = tier.key === currentTier && isActiveSub
+
+          // When the trial has just expired, Operations is the user's "familiar" plan
+          const isTrialPlan = isTrialExpired && tier.key === 'operations'
+
+          // Card border highlight
+          const borderCls = isCurrentTier
+            ? 'border-amber'
+            : isTrialPlan
+              ? 'border-amber'
+              : tier.popular && !isTrialExpired
+                ? 'border-navy'
+                : 'border-gray-200'
+
           return (
+            <div key={tier.key} className="flex flex-col gap-3">
             <div
-              key={tier.key}
-              className={`bg-white rounded-xl shadow-sm flex flex-col relative border-2 ${
-                isCurrentTier
-                  ? 'border-amber'
-                  : tier.popular
-                    ? 'border-navy'
-                    : 'border-gray-200'
-              }`}
+              className={`bg-white rounded-xl shadow-sm flex flex-col relative border-2 ${borderCls}`}
             >
-              {/* Most popular badge — overlaps the top border */}
-              {tier.popular && (
+              {/* Badge — "Your Trial Plan" for trial-expired Operations, "Most Popular" otherwise */}
+              {(isTrialPlan || (tier.popular && !isTrialExpired)) && (
                 <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
                   <span className="bg-amber text-white text-xs font-bold px-3 py-1 rounded-full whitespace-nowrap">
-                    Most Popular
+                    {isTrialPlan ? 'Your Trial Plan — Recommended' : 'Most Popular'}
                   </span>
                 </div>
               )}
 
               {/* Card header */}
-              <div className={`px-6 pt-6 pb-4 border-b border-gray-100 ${tier.popular ? 'pt-8' : ''}`}>
+              <div className={`px-6 pt-6 pb-4 border-b border-gray-100 ${isTrialPlan || (tier.popular && !isTrialExpired) ? 'pt-8' : ''}`}>
                 <div className="flex items-center justify-between mb-1">
                   <h2 className="font-bold text-navy text-lg">{tier.name}</h2>
                   {isCurrentTier && (
                     <span className="bg-amber/10 text-amber text-xs font-semibold px-2 py-0.5 rounded-full">
                       Your Plan
+                    </span>
+                  )}
+                  {/* Contextual label when trial expired */}
+                  {isTrialExpired && !isCurrentTier && (
+                    <span className="text-xs text-gray-400 font-medium">
+                      {tier.key === 'essentials' ? 'Basic Plan' : tier.key === 'full_suite' ? 'Everything Included' : ''}
                     </span>
                   )}
                 </div>
@@ -322,6 +343,15 @@ export default function UpgradePage() {
               <div className="px-6 pb-6">
                 {renderButton(tier)}
               </div>
+            </div>
+
+            {/* Retention warning below Essentials card — only shown when trial has expired */}
+            {isTrialExpired && tier.key === 'essentials' && (
+              <div className="bg-red-50 border border-danger rounded-lg px-4 py-3 text-xs text-danger leading-relaxed">
+                <p className="font-semibold mb-1">Heads up before choosing Essentials:</p>
+                <p>You will lose access to the Recipe Builder, Brew Day Scheduler, Fermentation Tracker, Packaging, Distribution, and Taproom Profitability tools you used during your trial.</p>
+              </div>
+            )}
             </div>
           )
         })}

@@ -48,7 +48,15 @@ const WARNING_KEYS = {
 }
 
 export default function AppLayout() {
-  const { user, brewery, isAdmin, profile, refreshProfile, hasAccess } = useAuth()
+  const { user, brewery, isAdmin, profile, refreshProfile, hasAccess, isTrialActive } = useAuth()
+
+  // How many days remain in the trial (0 if expired or no trial)
+  const trialDaysLeft = profile?.trial_expires_at
+    ? Math.max(0, Math.ceil((new Date(profile.trial_expires_at) - new Date()) / 86400000))
+    : 0
+
+  // True only when the user is genuinely on trial (not a paid subscriber)
+  const onActiveTrial = isTrialActive() && !profile?.subscription_status
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const navigate = useNavigate()
 
@@ -167,9 +175,13 @@ export default function AppLayout() {
         <h1 className="text-white font-bold text-base leading-tight">
           🍺 The Craft Beer Brief
         </h1>
-        {/* Show a tier badge for Operations and Full Suite subscribers; plain text for Essentials */}
+        {/* Tier badge — shows trial status or actual subscription tier */}
         <p className="text-xs mt-0.5">
-          {profile?.subscription_tier === 'operations' ? (
+          {onActiveTrial ? (
+            <span className="bg-amber/20 text-amber font-semibold px-1.5 py-0.5 rounded">
+              Operations Trial
+            </span>
+          ) : profile?.subscription_tier === 'operations' ? (
             <span className="bg-amber/20 text-amber font-semibold px-1.5 py-0.5 rounded">
               Operations
             </span>
@@ -307,13 +319,34 @@ export default function AppLayout() {
           {/* Logged-in user email — right side */}
           <p className="text-gray-500 text-xs hidden sm:block">{user?.email}</p>
 
-          {/* Trial badge if still in trial */}
-          {profile && !profile.subscription_status && profile.trial_expires_at && (
-            <span className="bg-amber/10 text-amber text-xs font-medium px-2 py-1 rounded-full">
-              Trial
+          {/* Trial badge shown in the top bar */}
+          {onActiveTrial && (
+            <span className="bg-amber/10 text-amber text-xs font-medium px-2 py-1 rounded-full shrink-0">
+              {trialDaysLeft}d left
             </span>
           )}
         </header>
+
+        {/* Operations trial banner — shown for the full 14-day trial window */}
+        {onActiveTrial && (
+          <div className="bg-amber/10 border-b border-amber/30 px-4 py-2.5 flex flex-wrap items-start gap-x-4 gap-y-1">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-amber-dark">
+                You are on a free 14-day Operations trial — {trialDaysLeft} {trialDaysLeft === 1 ? 'day' : 'days'} remaining.
+                You have full access to all Essentials and Operations features.
+              </p>
+              <p className="text-xs text-amber-dark/80 mt-0.5">
+                The Regulation Playbook requires a paid Full Suite subscription.
+              </p>
+            </div>
+            <Link
+              to="/upgrade"
+              className="shrink-0 bg-amber text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-amber-dark transition-colors whitespace-nowrap"
+            >
+              Upgrade Now
+            </Link>
+          </div>
+        )}
 
         {/* Subscription status banners — only one shows at a time, never for active/trial users */}
         {profile?.subscription_status === 'cancelled' && <ReadOnlyBanner />}
