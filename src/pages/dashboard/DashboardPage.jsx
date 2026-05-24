@@ -30,6 +30,7 @@ export default function DashboardPage() {
   const [distributionStats, setDistributionStats] = useState({ batchesThisMonth: 0, kegsAwaitingReturn: 0 })
   const [taproomStats, setTaproomStats] = useState({ activeHandles: 0, longOnTap: 0, highestMarginPct: null })
   const [eventStats, setEventStats] = useState({ upcomingCount: 0, nextEvent: null, lastRoi: null })
+  const [wholesaleStats, setWholesaleStats] = useState({ followupDue: 0, atRisk: 0, activeCount: 0 })
 
   useEffect(() => {
     if (!brewery?.id) return
@@ -111,6 +112,22 @@ export default function DashboardPage() {
       : Promise.resolve([{ count: 0 }, { count: 0 }, { count: 0 }, { count: 0 }])
 
     // Active taproom handles: draft/taproom records not yet kicked, last 90 days
+    // Wholesale accounts for Full Suite users — follow-ups and at-risk counts
+    const wholesalePromise = hasAccess('full_suite')
+      ? Promise.all([
+          supabase
+            .from('wholesale_accounts')
+            .select('id, account_name, status, next_followup_date')
+            .eq('brewery_id', brewery.id)
+            .neq('status', 'lost'),
+          supabase
+            .from('distribution_records')
+            .select('account_name, account_id, delivery_date')
+            .eq('brewery_id', brewery.id)
+            .gte('delivery_date', new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10)),
+        ])
+      : Promise.resolve([{ data: [] }, { data: [] }])
+
     // Upcoming and recent taproom events for Full Suite users
     const eventsPromise = hasAccess('full_suite')
       ? supabase
@@ -159,7 +176,7 @@ export default function DashboardPage() {
         ])
       : Promise.resolve([{ data: [] }, { data: [] }, { data: [] }])
 
-    const [deadlinesResult, grantsResult, periodsResult, recipesResult, inventoryResult, brewDayResult, fermentationResult, packagingResult, taproomResult, eventsResult] = await Promise.all([
+    const [deadlinesResult, grantsResult, periodsResult, recipesResult, inventoryResult, brewDayResult, fermentationResult, packagingResult, taproomResult, eventsResult, wholesaleResult] = await Promise.all([
       supabase
         .from('brewery_deadlines')
         .select('*, compliance_deadlines(*)')
@@ -192,6 +209,7 @@ export default function DashboardPage() {
       packagingPromise,
       taproomPromise,
       eventsPromise,
+      wholesalePromise,
     ])
 
     setUpcomingDeadlines(deadlinesResult.data ?? [])
@@ -276,6 +294,20 @@ export default function DashboardPage() {
       lastRoi = cost > 0 ? ((rev - cost) / cost) * 100 : null
     }
     setEventStats({ upcomingCount: upcomingEvents.length, nextEvent, lastRoi })
+
+    // Compute wholesale stats: follow-ups due today or overdue, active accounts at risk
+    if (Array.isArray(wholesaleResult)) {
+      const [acctRes, recentOrdersRes] = wholesaleResult
+      const accts = acctRes.data ?? []
+      const recentOrders = recentOrdersRes.data ?? []
+      const recentNames = new Set(recentOrders.map(r => (r.account_name || '').toLowerCase()))
+      const followupDue = accts.filter(a => a.next_followup_date && a.next_followup_date <= today).length
+      const atRisk = accts.filter(a =>
+        a.status === 'active' &&
+        !recentNames.has((a.account_name || '').toLowerCase())
+      ).length
+      setWholesaleStats({ followupDue, atRisk, activeCount: accts.filter(a => a.status === 'active').length })
+    }
 
     // Compute inventory alert counts from the raw ingredient rows
     const ings = inventoryResult.data ?? []
@@ -637,6 +669,49 @@ export default function DashboardPage() {
               )}
             </div>
           </div>
+
+          {/* Wholesale Account Manager widget — Full Suite only */}
+          {hasAccess('full_suite') && (
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">🤝</span>
+                  <h3 className="font-semibold text-navy">Wholesale Accounts</h3>
+                  <span className="bg-amber/20 text-amber text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide">
+                    Full Suite
+                  </span>
+                </div>
+                <Link to="/wholesale" className="text-amber text-sm hover:underline">View accounts →</Link>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <p className="text-xs text-gray-500 mb-0.5">Active accounts</p>
+                  <p className="text-2xl font-bold text-navy">{wholesaleStats.activeCount}</p>
+                  {wholesaleStats.activeCount === 0 && (
+                    <p className="text-xs text-gray-400">None yet</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-0.5">Follow-ups due</p>
+                  <p className={`text-2xl font-bold ${wholesaleStats.followupDue > 0 ? 'text-amber' : 'text-navy'}`}>
+                    {wholesaleStats.followupDue}
+                  </p>
+                  {wholesaleStats.followupDue > 0 && (
+                    <p className="text-xs text-amber font-medium">Action needed</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-0.5">Accounts at risk</p>
+                  <p className={`text-2xl font-bold ${wholesaleStats.atRisk > 0 ? 'text-danger' : 'text-navy'}`}>
+                    {wholesaleStats.atRisk}
+                  </p>
+                  {wholesaleStats.atRisk > 0 && (
+                    <p className="text-xs text-danger font-medium">No orders in 60+ days</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Taproom Events widget — Full Suite only */}
           {hasAccess('full_suite') && (
