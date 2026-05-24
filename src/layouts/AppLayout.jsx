@@ -41,12 +41,13 @@ const BOTTOM_NAV = [
   { path: '/account', label: 'Account Settings', icon: '⚙️' },
 ]
 
-// Full Suite preview items — locked until Full Suite launches, always visible
+// Full Suite nav items — used as real links for full_suite subscribers,
+// and as locked-preview labels for everyone else.
 const FULL_SUITE_NAV = [
-  { label: 'Taproom Events',       icon: '🎪' },
-  { label: 'Wholesale Manager',    icon: '🤝' },
-  { label: 'Revenue Benchmarking', icon: '📈' },
-  { label: 'Regulation Playbook',  icon: '📜' },
+  { path: '/events',       label: 'Taproom Events',       icon: '🎪' },
+  { path: '/wholesale',    label: 'Wholesale Manager',    icon: '🤝' },
+  { path: '/benchmarking', label: 'Revenue Benchmarking', icon: '📈' },
+  { path: '/playbook',     label: 'Regulation Playbook',  icon: '📜' },
 ]
 
 // Maps OPS_NAV paths to sidebar warning keys
@@ -208,6 +209,9 @@ export default function AppLayout() {
   const [opsExpanded, setOpsExpanded] = useState(
     () => localStorage.getItem('sidebar_operations_expanded') !== 'false'
   )
+  const [fullSuiteExpanded, setFullSuiteExpanded] = useState(
+    () => localStorage.getItem('sidebar_fullsuite_expanded') !== 'false'
+  )
 
   function toggleEssentials() {
     setEssentialsExpanded(prev => {
@@ -220,6 +224,13 @@ export default function AppLayout() {
     setOpsExpanded(prev => {
       const next = !prev
       localStorage.setItem('sidebar_operations_expanded', String(next))
+      return next
+    })
+  }
+  function toggleFullSuite() {
+    setFullSuiteExpanded(prev => {
+      const next = !prev
+      localStorage.setItem('sidebar_fullsuite_expanded', String(next))
       return next
     })
   }
@@ -355,32 +366,61 @@ export default function AppLayout() {
           </div>
         )}
 
-        {/* ── FULL SUITE — locked preview, always visible ── */}
-        <div className="mb-1">
-          <button
-            onClick={() => navigate('/upgrade')}
-            className="w-full flex justify-between items-center px-2 py-3 mt-2 mb-1 rounded hover:bg-white/10 transition-colors"
-          >
-            <div className="flex items-center gap-2">
+        {/* ── FULL SUITE ── */}
+        {hasAccess('full_suite') ? (
+          /* Active: real collapsible nav for full_suite subscribers */
+          <div className="mb-1">
+            <button
+              onClick={toggleFullSuite}
+              className="w-full flex justify-between items-center px-2 py-3 mt-2 mb-1 rounded hover:bg-white/10 transition-colors"
+            >
               <span style={{ fontSize: '11px', fontWeight: '700', letterSpacing: '0.12em', color: '#9CA3AF', textTransform: 'uppercase' }}>FULL SUITE</span>
-              <span className="text-[9px] bg-gray-700 text-gray-400 px-1.5 py-0.5 rounded font-bold">Soon</span>
-            </div>
-            <span style={{ fontSize: '16px', color: '#6b7280' }}>🔒</span>
-          </button>
-          <div className="space-y-1 pt-1">
-            {FULL_SUITE_NAV.map((item) => (
-              <div
-                key={item.label}
-                onClick={() => navigate('/upgrade')}
-                className="flex items-center gap-3 px-4 py-2.5 rounded-lg cursor-pointer opacity-40 hover:opacity-60 transition-opacity"
-              >
-                <span className="text-sm">{item.icon}</span>
-                <span className="text-sm font-medium text-gray-400">{item.label}</span>
-                <span className="ml-auto text-[10px] text-gray-500">🔒</span>
+              <span style={{ fontSize: '20px', color: '#9CA3AF', lineHeight: '1', fontWeight: '400' }}>{fullSuiteExpanded ? '▾' : '▸'}</span>
+            </button>
+            <div style={{ overflow: 'hidden', maxHeight: fullSuiteExpanded ? '800px' : '0', transition: 'max-height 0.25s ease-in-out' }}>
+              <div className="space-y-1 pt-1">
+                {FULL_SUITE_NAV.map((item) => (
+                  <NavLink
+                    key={item.path}
+                    to={item.path}
+                    className={navLinkClass}
+                    onClick={() => setSidebarOpen(false)}
+                  >
+                    <span>{item.icon}</span>
+                    <span>{item.label}</span>
+                  </NavLink>
+                ))}
               </div>
-            ))}
+            </div>
           </div>
-        </div>
+        ) : (
+          /* Locked preview — clicking any item navigates to /upgrade */
+          <div className="mb-1">
+            <button
+              onClick={() => navigate('/upgrade')}
+              className="w-full flex justify-between items-center px-2 py-3 mt-2 mb-1 rounded hover:bg-white/10 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <span style={{ fontSize: '11px', fontWeight: '700', letterSpacing: '0.12em', color: '#9CA3AF', textTransform: 'uppercase' }}>FULL SUITE</span>
+                <span className="text-[9px] bg-gray-700 text-gray-400 px-1.5 py-0.5 rounded font-bold">Soon</span>
+              </div>
+              <span style={{ fontSize: '16px', color: '#6b7280' }}>🔒</span>
+            </button>
+            <div className="space-y-1 pt-1">
+              {FULL_SUITE_NAV.map((item) => (
+                <div
+                  key={item.label}
+                  onClick={() => navigate('/upgrade')}
+                  className="flex items-center gap-3 px-4 py-2.5 rounded-lg cursor-pointer opacity-40 hover:opacity-60 transition-opacity"
+                >
+                  <span className="text-sm">{item.icon}</span>
+                  <span className="text-sm font-medium text-gray-400">{item.label}</span>
+                  <span className="ml-auto text-[10px] text-gray-500">🔒</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* ── BOTTOM — Help & Account, never collapsible ── */}
         <div className="mt-3 pt-3 border-t border-navy-light space-y-1">
