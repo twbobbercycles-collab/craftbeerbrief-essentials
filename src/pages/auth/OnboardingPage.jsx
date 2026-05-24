@@ -184,12 +184,13 @@ export default function OnboardingPage() {
       }).catch(() => {}) // Swallow silently — email must never block the user
 
       await refreshProfile()
-      // Signal AppLayout to start the onboarding tour on the next render
-      console.log('[OnboardingPage] About to set tour flag')
+      // Pass showTour via navigation state — React Router delivers this to location.state
+      // in AppLayout synchronously on the same render cycle as the route change, avoiding
+      // the timing problem where localStorage was set after AppLayout's useEffect already ran.
+      // localStorage is kept as a fallback in case the state is lost (e.g. hard refresh).
       localStorage.setItem('show_onboarding_tour', 'true')
-      console.log('[OnboardingPage] Tour flag set, value:', localStorage.getItem('show_onboarding_tour'))
-      console.log('[OnboardingPage] Navigating to dashboard')
-      navigate('/dashboard')
+      console.log('[OnboardingPage] Navigating to dashboard with showTour state')
+      navigate('/dashboard', { state: { showTour: true } })
     } catch (err) {
       setError(err.message || 'Something went wrong. Please try again.')
     } finally {

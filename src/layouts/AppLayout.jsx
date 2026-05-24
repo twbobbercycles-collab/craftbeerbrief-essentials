@@ -65,32 +65,30 @@ export default function AppLayout() {
   // Onboarding tour — shown once after a new user completes brewery setup
   const [showTour, setShowTour] = useState(false)
 
-  // Mount check — catches the case where AppLayout was already mounted when the flag
-  // was set (since /onboarding is a child route inside AppLayout, no remount happens)
+  // Primary trigger: React Router navigation state passed from OnboardingPage via
+  // navigate('/dashboard', { state: { showTour: true } }). This fires synchronously
+  // with the route change so there is no timing gap between the navigate call and
+  // when this effect sees the updated location.state.
   useEffect(() => {
-    const flag = localStorage.getItem('show_onboarding_tour')
-    const done = localStorage.getItem('onboarding_tour_completed')
-    console.log('[AppLayout] MOUNT - show_onboarding_tour:', flag, '| completed:', done)
-    if (flag === 'true' && done !== 'true') {
-      console.log('[AppLayout] MOUNT - triggering tour')
+    if (location.state?.showTour) {
+      console.log('[AppLayout] Tour triggered via navigation state')
       setShowTour(true)
+      // Wipe the state so the tour doesn't re-trigger if the user presses Back then Forward
+      window.history.replaceState({}, '')
       localStorage.removeItem('show_onboarding_tour')
     }
-  }, [])
+  }, [location.state])
 
-  // Route-change check — catches navigation that happens after mount
+  // Fallback trigger: localStorage flag — catches cases where navigation state was lost
+  // (hard refresh after onboarding, or a browser that strips state on redirect).
   useEffect(() => {
     const flag = localStorage.getItem('show_onboarding_tour')
     const done = localStorage.getItem('onboarding_tour_completed')
-    console.log('[AppLayout] Route changed to:', location.pathname, '| show_onboarding_tour:', flag, '| completed:', done)
+    console.log('[AppLayout] Route changed to:', location.pathname, '| localStorage flag:', flag, '| completed:', done)
     if (flag === 'true' && done !== 'true') {
-      console.log('[AppLayout] TOUR TRIGGERED by route change')
+      console.log('[AppLayout] Tour triggered via localStorage fallback')
       setShowTour(true)
       localStorage.removeItem('show_onboarding_tour')
-    } else if (flag !== 'true') {
-      console.log('[AppLayout] Tour NOT triggered — flag not set')
-    } else if (done === 'true') {
-      console.log('[AppLayout] Tour NOT triggered — already completed')
     }
   }, [location.pathname])
 
