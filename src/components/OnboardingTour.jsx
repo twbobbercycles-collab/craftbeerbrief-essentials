@@ -1,9 +1,14 @@
-// OnboardingTour v2.0 — auto-scroll with ready state
+// OnboardingTour v2.1 — explicit centered vs positioned rendering
 /**
  * OnboardingTour — a 20-step tooltip walkthrough shown once to new users.
  * Renders into document.body via a portal so it overlays all app content.
  * The caller sets localStorage 'onboarding_tour_completed' via onComplete().
  * Steps follow the sidebar top-to-bottom: welcome → main nav → ops section → ops nav → finale.
+ *
+ * Rendering is split into two mutually exclusive paths keyed on step.target:
+ *   null target  → centered modal (welcome, ops intro, finale)
+ *   has target   → positioned tooltip next to the highlighted sidebar item
+ * This prevents the welcome modal from bleeding through during step transitions.
  */
 import { useState, useEffect, useLayoutEffect } from 'react'
 import { createPortal } from 'react-dom'
@@ -184,15 +189,15 @@ const ARROW_STYLES = {
   top:  { position: 'absolute', top: -9, left: '50%', transform: 'translateX(-50%)', width: 0, height: 0, borderLeft: '9px solid transparent', borderRight: '9px solid transparent', borderBottom: '9px solid #fff' },
 }
 
-// ── Single card component handles both centered modal and positioned tooltip ──
-function TourCard({ step, stepIdx, total, isFirst, isLast, pos, centered, onNext, onBack, onSkip }) {
-  const card = (
+// ── Inner card content — used by both centered and positioned renders ──────────
+function TourCardInner({ step, stepIdx, total, isFirst, isLast, arrow, onNext, onBack, onSkip }) {
+  return (
     <div
       className="tour-fade"
       style={{ background: '#fff', borderRadius: 12, boxShadow: '0 8px 40px rgba(0,0,0,0.22)', padding: '20px 20px 18px', width: '100%', maxWidth: TW, position: 'relative' }}
     >
-      {/* Arrow pointing back toward the highlighted element */}
-      {!centered && pos?.arrow && <div style={ARROW_STYLES[pos.arrow]} />}
+      {/* Arrow pointing back toward the highlighted element — only for positioned tooltips */}
+      {arrow && <div style={ARROW_STYLES[arrow]} />}
 
       {/* Step counter — hidden on welcome modal and final modal */}
       {!isFirst && !isLast && (
@@ -201,7 +206,7 @@ function TourCard({ step, stepIdx, total, isFirst, isLast, pos, centered, onNext
         </p>
       )}
 
-      <h3 style={{ color: '#1A2744', fontSize: (isFirst || isLast) ? 17 : 15, fontWeight: 'bold', marginBottom: 10, paddingRight: (!isFirst && !isLast) ? 40 : 0, lineHeight: 1.4, margin: '0 0 10px' }}>
+      <h3 style={{ color: '#1A2744', fontSize: (isFirst || isLast) ? 17 : 15, fontWeight: 'bold', lineHeight: 1.4, margin: '0 0 10px', paddingRight: (!isFirst && !isLast) ? 40 : 0 }}>
         {step.title}
       </h3>
       <p style={{ color: '#6b7280', fontSize: 13, lineHeight: 1.7, margin: '0 0 18px' }}>
@@ -228,22 +233,6 @@ function TourCard({ step, stepIdx, total, isFirst, isLast, pos, centered, onNext
       </div>
     </div>
   )
-
-  // Centered — fills the overlay and flex-centers the card
-  if (centered) {
-    return (
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 10001 }}>
-        {card}
-      </div>
-    )
-  }
-
-  // Positioned — fixed at the computed coordinates
-  return (
-    <div style={{ position: 'fixed', left: pos.left, top: pos.top, width: TW, zIndex: 10001 }}>
-      {card}
-    </div>
-  )
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────
@@ -253,17 +242,19 @@ export default function OnboardingTour({ onComplete }) {
   const [pos,          setPos]          = useState(null)
   const [mobile,       setMobile]       = useState(false)
   // readyForStep tracks which step has finished scrolling into view.
-  // Using a number instead of a boolean makes it immune to stale state: on the
-  // first render after stepIdx changes, readyForStep still holds the old step index,
-  // so ready===false immediately — no flash of the old position on the new step.
+  // Using a number avoids stale state: on the first render after stepIdx changes,
+  // readyForStep still holds the old index, so ready===false immediately.
   const [readyForStep, setReadyForStep] = useState(-1)
   const ready = readyForStep === stepIdx
 
   const step    = STEPS[stepIdx]
   const isFirst = stepIdx === 0
   const isLast  = stepIdx === STEPS.length - 1
-  // Show as centered modal until scroll completes so the card is always visible immediately
-  const centered = isFirst || mobile || !pos || !ready
+
+  // Whether this step is a centered modal — determined by step data, not runtime state.
+  // This is the key fix: null-target steps ALWAYS render as centered modals,
+  // targeted steps ALWAYS render as positioned tooltips. Never mixed.
+  const isCenteredStep = step.target === null
 
   // Track viewport width for mobile vs desktop layout
   useEffect(() => {
@@ -274,7 +265,7 @@ export default function OnboardingTour({ onComplete }) {
   }, [])
 
   // When advancing to a new step: expand sidebar sections if needed, scroll the target
-  // into view, wait for the animation, then mark this step ready so the highlight renders.
+  // into view, wait for the animation, then mark this step ready so the card renders.
   useEffect(() => {
     setReadyForStep(-1)
     setRect(null)
@@ -298,7 +289,7 @@ export default function OnboardingTour({ onComplete }) {
 
     const el = document.querySelector(step.target)
     if (!el) {
-      // Target not found — show card centered so tour never gets stuck
+      // Target not found — mark ready so tour never gets stuck
       setReadyForStep(stepIdx)
       return
     }
@@ -321,6 +312,11 @@ export default function OnboardingTour({ onComplete }) {
   function next() { isLast ? onComplete() : setStepIdx(i => i + 1) }
   function back() { setStepIdx(i => Math.max(0, i - 1)) }
 
+  const cardProps = {
+    step, stepIdx, total: STEPS.length, isFirst, isLast,
+    onNext: next, onBack: back, onSkip: onComplete,
+  }
+
   return createPortal(
     <div style={{ position: 'fixed', inset: 0, zIndex: 9999 }}>
 
@@ -333,40 +329,49 @@ export default function OnboardingTour({ onComplete }) {
         .tour-fade { animation: tour-fade 0.22s ease-out both; }
       `}</style>
 
-      {/* Semi-transparent backdrop — blocks clicks on the page behind */}
+      {/* Semi-transparent backdrop — always visible while tour is active */}
       <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.52)' }} />
 
-      {/* Amber highlight ring — only rendered after scroll animation completes */}
-      {ready && rect && !mobile && (
-        <div style={{
-          position:     'fixed',
-          top:          rect.top    - 4,
-          left:         rect.left   - 4,
-          width:        rect.width  + 8,
-          height:       rect.height + 8,
-          borderRadius: 8,
-          outline:      '2px solid #C8871A',
-          boxShadow:    '0 0 0 5px rgba(200,135,26,0.28)',
-          pointerEvents: 'none',
-          zIndex:       10000,
-        }} />
+      {/* ── PATH A: Centered modal — ONLY for null-target steps (welcome, ops intro, finale) ── */}
+      {ready && isCenteredStep && (
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 10001 }}>
+          <TourCardInner key={stepIdx} {...cardProps} arrow={null} />
+        </div>
       )}
 
-      {/* Tooltip / modal — hidden while scrolling to prevent centered-modal flash */}
-      {ready && (
-        <TourCard
-          key={stepIdx}
-          step={step}
-          stepIdx={stepIdx}
-          total={STEPS.length}
-          isFirst={isFirst}
-          isLast={isLast}
-          pos={pos}
-          centered={centered}
-          onNext={next}
-          onBack={back}
-          onSkip={onComplete}
-        />
+      {/* ── PATH B: Positioned tooltip — ONLY for targeted steps (steps 1-8, 10-18) ── */}
+      {ready && !isCenteredStep && (
+        <>
+          {/* Amber highlight ring around the sidebar item — desktop only */}
+          {rect && pos && !mobile && (
+            <div style={{
+              position:      'fixed',
+              top:           rect.top    - 4,
+              left:          rect.left   - 4,
+              width:         rect.width  + 8,
+              height:        rect.height + 8,
+              borderRadius:  8,
+              outline:       '2px solid #C8871A',
+              boxShadow:     '0 0 0 5px rgba(200,135,26,0.28)',
+              pointerEvents: 'none',
+              zIndex:        10000,
+            }} />
+          )}
+
+          {/* Tooltip positioned next to the element on desktop */}
+          {pos && !mobile && (
+            <div style={{ position: 'fixed', left: pos.left, top: pos.top, width: TW, zIndex: 10001 }}>
+              <TourCardInner key={stepIdx} {...cardProps} arrow={pos.arrow} />
+            </div>
+          )}
+
+          {/* On mobile (or if element not found and pos is null): centered fallback */}
+          {!pos && (
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 10001 }}>
+              <TourCardInner key={stepIdx} {...cardProps} arrow={null} />
+            </div>
+          )}
+        </>
       )}
     </div>,
     document.body
