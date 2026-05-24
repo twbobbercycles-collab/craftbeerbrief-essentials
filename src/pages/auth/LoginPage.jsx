@@ -15,7 +15,12 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [rememberMe, setRememberMe] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  // Reads a one-shot error written by AuthContext when it signs a user out automatically
+  const [error, setError] = useState(() => {
+    const stored = sessionStorage.getItem('auth_error')
+    if (stored) sessionStorage.removeItem('auth_error')
+    return stored || ''
+  })
 
   async function handleSubmit(e) {
     e.preventDefault()

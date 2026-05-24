@@ -22,11 +22,23 @@ export function AuthProvider({ children }) {
       return
     }
 
-    const { data: profileData } = await supabase
+    const { data: profileData, error: profileError } = await supabase
       .from('users')
       .select('*')
       .eq('id', authUser.id)
       .single()
+
+    // Auth token exists but no matching row in our users table — this should never
+    // happen in normal operation but can occur if a user row was deleted while the
+    // Supabase session remained active. Sign out immediately so the loading spinner
+    // never hangs, then redirect to login with an explanatory message.
+    if (!profileData || profileError) {
+      console.error('[AuthContext] Profile not found for authenticated user — signing out', profileError?.message)
+      await supabase.auth.signOut()
+      sessionStorage.setItem('auth_error', 'Account not found. Please sign in again.')
+      window.location.replace('/login')
+      return
+    }
 
     setProfile(profileData)
 
