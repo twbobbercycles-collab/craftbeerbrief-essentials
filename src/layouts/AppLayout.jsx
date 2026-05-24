@@ -4,11 +4,12 @@
  * On mobile (< 768px) the sidebar collapses to a hamburger menu.
  */
 import { useState, useEffect, useCallback } from 'react'
-import { NavLink, Outlet, useNavigate, Link } from 'react-router-dom'
+import { NavLink, Outlet, useNavigate, useLocation, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../services/supabase'
 import ReadOnlyBanner from '../components/ReadOnlyBanner'
 import PastDueBanner from '../components/PastDueBanner'
+import OnboardingTour from '../components/OnboardingTour'
 
 // Main nav items — always shown to all users
 const MAIN_NAV = [
@@ -49,6 +50,7 @@ const WARNING_KEYS = {
 
 export default function AppLayout() {
   const { user, brewery, isAdmin, profile, refreshProfile, hasAccess, isTrialActive } = useAuth()
+  const location = useLocation()
 
   // How many days remain in the trial (0 if expired or no trial)
   const trialDaysLeft = profile?.trial_expires_at
@@ -59,6 +61,26 @@ export default function AppLayout() {
   const onActiveTrial = isTrialActive() && !profile?.subscription_status
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const navigate = useNavigate()
+
+  // Onboarding tour — shown once after a new user completes brewery setup
+  const [showTour, setShowTour] = useState(false)
+
+  useEffect(() => {
+    if (
+      localStorage.getItem('show_onboarding_tour') === 'true' &&
+      localStorage.getItem('onboarding_tour_completed') !== 'true'
+    ) {
+      console.log('[AppLayout] Onboarding tour starting for new user')
+      setShowTour(true)
+    }
+  }, [location.pathname])
+
+  function handleTourComplete() {
+    localStorage.setItem('onboarding_tour_completed', 'true')
+    localStorage.removeItem('show_onboarding_tour')
+    setShowTour(false)
+    console.log('[AppLayout] Onboarding tour completed and dismissed')
+  }
 
   // Warning counts for sidebar dots — loaded once and refreshed every 5 minutes
   const [sidebarWarnings, setSidebarWarnings] = useState({})
@@ -370,6 +392,9 @@ export default function AppLayout() {
           </p>
         </footer>
       </div>
+
+      {/* Onboarding tour — portalled to body, shown once after brewery setup */}
+      {showTour && <OnboardingTour onComplete={handleTourComplete} />}
     </div>
   )
 }

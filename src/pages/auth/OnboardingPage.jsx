@@ -184,6 +184,9 @@ export default function OnboardingPage() {
       }).catch(() => {}) // Swallow silently — email must never block the user
 
       await refreshProfile()
+      // Signal AppLayout to start the onboarding tour on the next render
+      localStorage.setItem('show_onboarding_tour', 'true')
+      console.log('[OnboardingPage] Brewery setup complete — tour flag set, navigating to dashboard')
       navigate('/dashboard')
     } catch (err) {
       setError(err.message || 'Something went wrong. Please try again.')
