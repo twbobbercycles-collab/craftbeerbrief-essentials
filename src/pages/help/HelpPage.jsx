@@ -170,6 +170,164 @@ const CATEGORIES = [
       },
     ],
   },
+  // ── Operations tier categories ───────────────────────────────────────────────
+  {
+    id: 'operations-overview',
+    label: 'Operations Overview',
+    items: [
+      {
+        q: 'What is the Operations tier and what does it include?',
+        a: 'The Operations tier ($14.99/month) includes everything in Essentials plus seven brewery management tools: Recipe Builder & Cost Calculator, Ingredient Inventory & Purchase Tracker, Brew Day Scheduler & Log, Fermentation Tracker, Packaging & Yield Tracking, Distribution & Taproom Profitability, and Taproom Profitability. You get a 14-day free trial of Operations when you sign up — no credit card required.',
+      },
+      {
+        q: 'How does the Operations trial work?',
+        a: 'Every new account gets a free 14-day Operations trial with full access to all Essentials and Operations features. No credit card is required. When your trial ends you can subscribe to Operations at $14.99/month, downgrade to Essentials at $9.99/month, or let your account expire. Your data is always retained.',
+      },
+      {
+        q: 'Can I upgrade from Essentials to Operations?',
+        a: 'Yes — go to Account Settings and click Upgrade Plan, or click any locked Operations feature to see upgrade options. Your existing data carries over automatically.',
+      },
+    ],
+  },
+  {
+    id: 'recipe-builder',
+    label: 'Recipe Builder',
+    items: [
+      {
+        q: 'How do I build a recipe?',
+        a: 'Go to Recipes in the Operations section of the sidebar. Click Add Recipe, enter your beer name and style, set your batch size and targets, then click Save. You will be taken directly to the recipe detail page where you can add ingredients organized by addition type — Mash, Boil, Whirlpool, Dry Hop, and more.',
+      },
+      {
+        q: 'How does the cost calculator work?',
+        a: 'The cost calculator pulls ingredient costs directly from your Inventory module — add ingredients to inventory with supplier pricing first. As you add ingredients to your recipe the calculator automatically shows ingredient costs, packaging costs, labor, utilities, overhead, and calculates cost per pint and suggested retail price based on your target margin.',
+      },
+      {
+        q: 'How do I set up packaging splits?',
+        a: 'In the recipe cost calculator scroll to the Packaging section. Click Add Packaging Split and select your container type (Can, Bottle, Keg, Draft) and size. Enter the volume in barrels going to each format and the system automatically calculates unit counts. You can add multiple splits — for example 60% cans, 30% kegs, 10% taproom draft.',
+      },
+      {
+        q: 'Why does the recipe checklist show warnings?',
+        a: 'The recipe checklist at the top of each recipe shows required items (mash ingredients, hops, yeast, OG/FG targets, batch size) and recommended items (ingredient costs, complete packaging splits). Required items must be completed before scheduling a brew day. Recommended items improve cost accuracy.',
+      },
+    ],
+  },
+  {
+    id: 'ingredient-inventory',
+    label: 'Ingredient Inventory',
+    items: [
+      {
+        q: 'How do I add ingredients to inventory?',
+        a: 'Go to Inventory in the sidebar. Click Add to Inventory for ingredients received without a purchase order — donations, transfers, or opening stock. For purchased ingredients use the Purchase Orders workflow: create a PO, submit it, then receive it in the Receive Stock tab. Receiving a PO automatically updates your inventory and records the landed cost.',
+      },
+      {
+        q: 'What is a Purchase Order and when should I use it?',
+        a: 'A Purchase Order tracks ingredients you are buying from a supplier. Create a PO in the Purchase Orders tab, add line items with quantities and costs, and submit it. When your delivery arrives go to Receive Stock, select the PO, and confirm what was received. The system automatically updates inventory levels and records the cost per unit including shipping allocation.',
+      },
+      {
+        q: 'What is landed cost?',
+        a: 'Landed cost is the true cost of an ingredient delivered to your brewery — the purchase price plus your share of the shipping and freight costs for that order. For example if you pay $45 shipping on a 55lb hop order the landed cost per pound is the base price plus $0.82/lb shipping allocation. The Recipe Builder uses landed costs for accurate cost calculations.',
+      },
+      {
+        q: 'How do reorder alerts work?',
+        a: 'When you add an ingredient set a reorder threshold — the quantity at which you want to be alerted to reorder. When stock falls to or below that threshold the ingredient shows in amber on the Inventory tab and triggers an alert in the sidebar and dashboard. The Brew Day module also warns you if you have insufficient inventory before brewing.',
+      },
+    ],
+  },
+  {
+    id: 'brew-day',
+    label: 'Brew Day Scheduler',
+    items: [
+      {
+        q: 'How do I schedule a brew day?',
+        a: 'Go to Brew Day and click Schedule a Brew. Link it to a recipe to auto-populate beer name, batch size, targets, and yeast strain. Set your brew date and brewer name. The system auto-suggests the next sequential batch number. After scheduling open the brew day log to record your actual measurements.',
+      },
+      {
+        q: 'What mash types are supported?',
+        a: 'The Brew Day log supports Single Infusion, Step Mash (with multiple temperature rest steps), Decoction (with individual decoction records), BIAB (Brew In A Bag), No Sparge, Turbid Mash (for lambic and wild ales), and Other with a free text description.',
+      },
+      {
+        q: 'Does the brew day automatically update inventory?',
+        a: 'Yes — when you mark a brew day as Complete the system automatically deducts all recipe ingredients from inventory based on the actual batch size brewed. It creates inventory transaction records showing what was used and links them to the batch number. You can also see inventory sufficiency warnings before brewing by clicking Check Inventory in the Recipe Builder.',
+      },
+      {
+        q: 'What happens after I mark a brew day complete?',
+        a: 'Marking a brew day complete automatically creates a fermentation record in the Fermentation Tracker with status Pending Assignment. Go to the Fermentation Tracker and assign the batch to a fermentation vessel to start tracking.',
+      },
+    ],
+  },
+  {
+    id: 'fermentation',
+    label: 'Fermentation Tracker',
+    items: [
+      {
+        q: 'How do I set up fermentation vessels?',
+        a: 'Go to Fermentation and click Manage Vessels. Add each vessel with its name, type (Conical Fermenter, Unitank, Bright Tank, etc.), capacity, and whether it has temperature control. The dashboard shows all vessels as visual illustrations — gray when empty, amber with bubbles when fermenting, blue when conditioning, green when ready to package.',
+      },
+      {
+        q: 'How do I log gravity readings?',
+        a: 'Click Log Reading on any active vessel card. Enter the date, gravity reading (in 1.0XX format), temperature, and any notes. The vessel card displays a mini sparkline chart showing your gravity trend over time. Hover over any data point to see the exact value and date.',
+      },
+      {
+        q: 'How does the stage history work?',
+        a: 'The fermentation detail view tracks each stage — Primary Fermentation, Conditioning, and Lagering — separately. When you move a fermentation to Conditioning or Lagering a modal asks for the temperature target, duration, and notes for that stage. The Stage History tab shows all stages with their settings and gravity readings grouped by stage.',
+      },
+      {
+        q: 'What triggers the packaging step?',
+        a: 'When you mark a fermentation as Ready to Package the system automatically creates a packaging run record in the Packaging module. Go to Packaging to complete the packaging details.',
+      },
+    ],
+  },
+  {
+    id: 'packaging',
+    label: 'Packaging',
+    items: [
+      {
+        q: 'How does the Packaging module connect to Fermentation?',
+        a: 'When you mark a fermentation as Ready to Package a packaging run is automatically created with the beer name, batch number, volume from fermenter, and planned packaging splits from your recipe. Open the packaging run in the Packaging module to log actual units packaged, record yield loss, add quality checks, and calculate profit impact.',
+      },
+      {
+        q: 'What is packaging yield and why does it matter?',
+        a: 'Packaging yield is the percentage of your fermented volume that makes it into finished packages. Industry average is 75-90% — the rest is lost to trub, yeast cake, line fills, and transfer losses. The Packaging module tracks your actual yield and shows how it affects your cost per unit and profit compared to your recipe plan.',
+      },
+      {
+        q: 'How do I log a quality check?',
+        a: 'In the Packaging run detail scroll to Section 4 — Quality Control and click Add Quality Check. Record clarity, carbonation level, aroma, flavor, appearance, measured ABV, and pH. Mark whether the batch passed QC. Quality check records are stored permanently with the batch.',
+      },
+    ],
+  },
+  {
+    id: 'distribution',
+    label: 'Distribution',
+    items: [
+      {
+        q: 'How does distribution tracking work?',
+        a: 'After completing a packaging run the system creates a distribution record automatically. Go to Distribution and click Assign Distribution to record where each package split is going — wholesale accounts, taproom, events. Set up accounts in the Accounts tab with contact info and standard pricing so sale prices auto-populate when you assign deliveries.',
+      },
+      {
+        q: 'How do I track keg returns?',
+        a: 'When assigning a keg delivery toggle Returnable Kegs on and set an expected return date. The Deliveries tab tracks all outstanding keg returns and shows overdue kegs in red. Mark kegs as returned when they come back.',
+      },
+      {
+        q: 'How is profit per unit calculated?',
+        a: 'Profit per unit = Sale price per unit minus Total production cost per unit minus Packaging material cost per unit minus Distribution/delivery cost per unit. The total production cost comes from your recipe cost calculator including ingredients, labor, utilities, and overhead divided by the actual units packaged.',
+      },
+    ],
+  },
+  {
+    id: 'taproom',
+    label: 'Taproom',
+    items: [
+      {
+        q: 'How does the Taproom Profitability view work?',
+        a: 'The Taproom module shows all active Draft/Taproom package splits assigned in Distribution as tap handle cards. Each card shows the beer name, days on tap, sale price per pint, cost per pint from your recipe, and gross margin. Use it to see at a glance which beers on tap generate the best margin.',
+      },
+      {
+        q: 'How do I mark a keg as kicked?',
+        a: 'On the tap handle card click Mark as Kicked. This records the date the keg finished and moves it to Historical Performance. The Taproom comparison table updates automatically.',
+      },
+    ],
+  },
+  // ── Universal categories ──────────────────────────────────────────────────────
   {
     id: 'account-billing',
     label: 'Account & Billing',
