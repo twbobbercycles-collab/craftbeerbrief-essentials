@@ -283,10 +283,10 @@ export default function AppLayout() {
         <div className="mb-1">
           <button
             onClick={toggleEssentials}
-            className="w-full flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-navy-light transition-colors"
+            className="w-full flex items-center justify-between px-2 py-2 rounded-md hover:bg-navy-light transition-colors"
           >
-            <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Essentials</span>
-            <span className="text-gray-500 text-[10px]">{essentialsExpanded ? '▾' : '▸'}</span>
+            <span className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Essentials</span>
+            <span className="text-gray-400 text-lg leading-none">{essentialsExpanded ? '▾' : '▸'}</span>
           </button>
           <div style={{ overflow: 'hidden', maxHeight: essentialsExpanded ? '800px' : '0', transition: 'max-height 0.25s ease-in-out' }}>
             <div className="space-y-1 pt-1">
@@ -310,15 +310,15 @@ export default function AppLayout() {
           <div className="mb-1">
             <button
               onClick={toggleOps}
-              className="w-full flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-navy-light transition-colors"
+              className="w-full flex items-center justify-between px-2 py-2 rounded-md hover:bg-navy-light transition-colors"
             >
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Operations</span>
+                <span className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Operations</span>
                 {onActiveTrial && (
                   <span className="text-[9px] bg-amber/20 text-amber px-1.5 py-0.5 rounded font-bold">Trial</span>
                 )}
               </div>
-              <span className="text-gray-500 text-[10px]">{opsExpanded ? '▾' : '▸'}</span>
+              <span className="text-gray-400 text-lg leading-none">{opsExpanded ? '▾' : '▸'}</span>
             </button>
             <div style={{ overflow: 'hidden', maxHeight: opsExpanded ? '800px' : '0', transition: 'max-height 0.25s ease-in-out' }}>
               <div className="space-y-1 pt-1">
@@ -351,13 +351,13 @@ export default function AppLayout() {
         <div className="mb-1">
           <button
             onClick={() => navigate('/upgrade')}
-            className="w-full flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-navy-light transition-colors"
+            className="w-full flex items-center justify-between px-2 py-2 rounded-md hover:bg-navy-light transition-colors"
           >
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Full Suite</span>
+              <span className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Full Suite</span>
               <span className="text-[9px] bg-gray-700 text-gray-400 px-1.5 py-0.5 rounded font-bold">Soon</span>
             </div>
-            <span className="text-gray-600 text-xs">🔒</span>
+            <span className="text-gray-600 text-sm">🔒</span>
           </button>
           <div className="space-y-1 pt-1">
             {FULL_SUITE_NAV.map((item) => (

@@ -343,20 +343,22 @@ export default function OnboardingTour({ onComplete }) {
         }} />
       )}
 
-      {/* Tooltip / modal — key forces remount (and re-animation) on each step */}
-      <TourCard
-        key={stepIdx}
-        step={step}
-        stepIdx={stepIdx}
-        total={STEPS.length}
-        isFirst={isFirst}
-        isLast={isLast}
-        pos={pos}
-        centered={centered}
-        onNext={next}
-        onBack={back}
-        onSkip={onComplete}
-      />
+      {/* Tooltip / modal — hidden while scrolling to prevent centered-modal flash */}
+      {ready && (
+        <TourCard
+          key={stepIdx}
+          step={step}
+          stepIdx={stepIdx}
+          total={STEPS.length}
+          isFirst={isFirst}
+          isLast={isLast}
+          pos={pos}
+          centered={centered}
+          onNext={next}
+          onBack={back}
+          onSkip={onComplete}
+        />
+      )}
     </div>,
     document.body
   )
