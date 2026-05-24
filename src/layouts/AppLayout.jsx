@@ -65,13 +65,32 @@ export default function AppLayout() {
   // Onboarding tour — shown once after a new user completes brewery setup
   const [showTour, setShowTour] = useState(false)
 
+  // Mount check — catches the case where AppLayout was already mounted when the flag
+  // was set (since /onboarding is a child route inside AppLayout, no remount happens)
   useEffect(() => {
-    if (
-      localStorage.getItem('show_onboarding_tour') === 'true' &&
-      localStorage.getItem('onboarding_tour_completed') !== 'true'
-    ) {
-      console.log('[AppLayout] Onboarding tour starting for new user')
+    const flag = localStorage.getItem('show_onboarding_tour')
+    const done = localStorage.getItem('onboarding_tour_completed')
+    console.log('[AppLayout] MOUNT - show_onboarding_tour:', flag, '| completed:', done)
+    if (flag === 'true' && done !== 'true') {
+      console.log('[AppLayout] MOUNT - triggering tour')
       setShowTour(true)
+      localStorage.removeItem('show_onboarding_tour')
+    }
+  }, [])
+
+  // Route-change check — catches navigation that happens after mount
+  useEffect(() => {
+    const flag = localStorage.getItem('show_onboarding_tour')
+    const done = localStorage.getItem('onboarding_tour_completed')
+    console.log('[AppLayout] Route changed to:', location.pathname, '| show_onboarding_tour:', flag, '| completed:', done)
+    if (flag === 'true' && done !== 'true') {
+      console.log('[AppLayout] TOUR TRIGGERED by route change')
+      setShowTour(true)
+      localStorage.removeItem('show_onboarding_tour')
+    } else if (flag !== 'true') {
+      console.log('[AppLayout] Tour NOT triggered — flag not set')
+    } else if (done === 'true') {
+      console.log('[AppLayout] Tour NOT triggered — already completed')
     }
   }, [location.pathname])
 

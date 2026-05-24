@@ -185,8 +185,10 @@ export default function OnboardingPage() {
 
       await refreshProfile()
       // Signal AppLayout to start the onboarding tour on the next render
+      console.log('[OnboardingPage] About to set tour flag')
       localStorage.setItem('show_onboarding_tour', 'true')
-      console.log('[OnboardingPage] Brewery setup complete — tour flag set, navigating to dashboard')
+      console.log('[OnboardingPage] Tour flag set, value:', localStorage.getItem('show_onboarding_tour'))
+      console.log('[OnboardingPage] Navigating to dashboard')
       navigate('/dashboard')
     } catch (err) {
       setError(err.message || 'Something went wrong. Please try again.')
