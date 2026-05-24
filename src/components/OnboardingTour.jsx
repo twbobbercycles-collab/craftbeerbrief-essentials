@@ -1,3 +1,4 @@
+// OnboardingTour v2.0 — auto-scroll with ready state
 /**
  * OnboardingTour — a 20-step tooltip walkthrough shown once to new users.
  * Renders into document.body via a portal so it overlays all app content.

@@ -1,3 +1,4 @@
+// AppLayout v2.0 — collapsible sidebar sections
 /**
  * AppLayout — the outer shell of every protected page.
  * Renders the sidebar navigation and top bar, then places page content in the main area.
