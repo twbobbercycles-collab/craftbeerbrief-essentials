@@ -25,8 +25,8 @@ import TierComparisonModal from './TierComparisonModal'
 
 // Human-readable display info for each lockable tier
 const TIER_DISPLAY = {
-  operations: { name: 'Operations Tier', price: '$19.99/month' },
-  full_suite:  { name: 'Full Suite',      price: '$24.99/month' },
+  operations: { name: 'Operations Tier', price: '$14.99/month' },
+  full_suite:  { name: 'Full Suite',      price: '$19.99/month' },
 }
 
 export default function TierGate({ requiredTier, featureKey, featureName, featureDescription, children }) {

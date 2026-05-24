@@ -176,7 +176,7 @@ const CATEGORIES = [
     items: [
       {
         q: 'How do I upgrade after my trial ends?',
-        a: 'When your trial ends you will see an upgrade prompt when you log in. Click the prompt to go to the pricing page where you can choose between the monthly plan at $14.99/month or the annual plan at $149.99/year. Click Subscribe and you will be taken to a secure Stripe checkout page to enter your payment information. After completing payment you will immediately regain full access.',
+        a: 'When your trial ends you will see an upgrade prompt when you log in. Click the prompt to go to the pricing page where you can choose between the monthly plan at $9.99/month (Essentials) or $14.99/month (Operations), or save with the annual plan at $99.99/year or $149.99/year. Click Subscribe and you will be taken to a secure Stripe checkout page to enter your payment information. After completing payment you will immediately regain full access.',
       },
       {
         q: 'Can I switch between monthly and annual plans?',

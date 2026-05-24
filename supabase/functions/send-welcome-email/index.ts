@@ -195,8 +195,8 @@ function buildEmailHtml(breweryName: string, trialEndsFormatted: string): string
                     <p style="margin:0;color:#6b3a08;font-size:14px;line-height:1.75;">
                       Your free trial ends on <strong>${trialEndsFormatted}</strong>. No credit card is required
                       and nothing will be charged automatically. If you would like to continue after your trial
-                      simply choose a plan that works for you&nbsp;&#8212; <strong>$14.99/month</strong> or
-                      <strong>$149.99/year</strong> (save $30). You are in complete control.
+                      simply choose a plan that works for you&nbsp;&#8212; <strong>$9.99/month</strong> or
+                      <strong>$99.99/year</strong> (save $19.89). You are in complete control.
                     </p>
                   </td>
                 </tr>

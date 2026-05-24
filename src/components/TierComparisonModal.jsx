@@ -45,8 +45,8 @@ const TIERS = [
   {
     key: 'essentials',
     name: 'Essentials',
-    price: '$14.99',
-    annual: '$149.99/yr',
+    price: '$9.99',
+    annual: '$99.99/yr',
     description: 'Compliance fundamentals for every brewery',
     newFeatures: ESSENTIALS_FEATURES,
     inheritedFrom: null,
@@ -55,8 +55,8 @@ const TIERS = [
   {
     key: 'operations',
     name: 'Operations',
-    price: '$19.99',
-    annual: '$199.99/yr',
+    price: '$14.99',
+    annual: '$149.99/yr',
     description: 'Add full brewing operations management',
     newFeatures: OPERATIONS_FEATURES,
     inheritedFrom: 'Essentials',
@@ -66,8 +66,8 @@ const TIERS = [
   {
     key: 'full_suite',
     name: 'Full Suite',
-    price: '$24.99',
-    annual: '$249.99/yr',
+    price: '$19.99',
+    annual: '$199.99/yr',
     description: 'Everything, including business intelligence',
     newFeatures: FULL_SUITE_FEATURES,
     inheritedFrom: 'Operations',
