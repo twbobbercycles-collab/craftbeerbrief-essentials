@@ -291,10 +291,10 @@ export default function AppLayout() {
         <div className="mb-1">
           <button
             onClick={toggleEssentials}
-            className="w-full flex items-center justify-between px-2 py-2 rounded-md hover:bg-navy-light transition-colors"
+            className="w-full flex justify-between items-center px-2 py-3 mt-2 mb-1 rounded hover:bg-white/10 transition-colors"
           >
-            <span style={{ fontSize: '13px', fontWeight: '600', letterSpacing: '0.05em', color: '#9ca3af', textTransform: 'uppercase' }}>Essentials</span>
-            <span style={{ fontSize: '18px', lineHeight: 1, color: '#9ca3af' }}>{essentialsExpanded ? '▾' : '▸'}</span>
+            <span style={{ fontSize: '11px', fontWeight: '700', letterSpacing: '0.12em', color: '#9CA3AF', textTransform: 'uppercase' }}>ESSENTIALS</span>
+            <span style={{ fontSize: '20px', color: '#9CA3AF', lineHeight: '1', fontWeight: '400' }}>{essentialsExpanded ? '▾' : '▸'}</span>
           </button>
           <div style={{ overflow: 'hidden', maxHeight: essentialsExpanded ? '800px' : '0', transition: 'max-height 0.25s ease-in-out' }}>
             <div className="space-y-1 pt-1">
@@ -318,15 +318,15 @@ export default function AppLayout() {
           <div className="mb-1">
             <button
               onClick={toggleOps}
-              className="w-full flex items-center justify-between px-2 py-2 rounded-md hover:bg-navy-light transition-colors"
+              className="w-full flex justify-between items-center px-2 py-3 mt-2 mb-1 rounded hover:bg-white/10 transition-colors"
             >
               <div className="flex items-center gap-2">
-                <span style={{ fontSize: '13px', fontWeight: '600', letterSpacing: '0.05em', color: '#9ca3af', textTransform: 'uppercase' }}>Operations</span>
+                <span style={{ fontSize: '11px', fontWeight: '700', letterSpacing: '0.12em', color: '#9CA3AF', textTransform: 'uppercase' }}>OPERATIONS</span>
                 {onActiveTrial && (
                   <span className="text-[9px] bg-amber/20 text-amber px-1.5 py-0.5 rounded font-bold">Trial</span>
                 )}
               </div>
-              <span style={{ fontSize: '18px', lineHeight: 1, color: '#9ca3af' }}>{opsExpanded ? '▾' : '▸'}</span>
+              <span style={{ fontSize: '20px', color: '#9CA3AF', lineHeight: '1', fontWeight: '400' }}>{opsExpanded ? '▾' : '▸'}</span>
             </button>
             <div style={{ overflow: 'hidden', maxHeight: opsExpanded ? '800px' : '0', transition: 'max-height 0.25s ease-in-out' }}>
               <div className="space-y-1 pt-1">
@@ -359,13 +359,13 @@ export default function AppLayout() {
         <div className="mb-1">
           <button
             onClick={() => navigate('/upgrade')}
-            className="w-full flex items-center justify-between px-2 py-2 rounded-md hover:bg-navy-light transition-colors"
+            className="w-full flex justify-between items-center px-2 py-3 mt-2 mb-1 rounded hover:bg-white/10 transition-colors"
           >
             <div className="flex items-center gap-2">
-              <span style={{ fontSize: '13px', fontWeight: '600', letterSpacing: '0.05em', color: '#9ca3af', textTransform: 'uppercase' }}>Full Suite</span>
+              <span style={{ fontSize: '11px', fontWeight: '700', letterSpacing: '0.12em', color: '#9CA3AF', textTransform: 'uppercase' }}>FULL SUITE</span>
               <span className="text-[9px] bg-gray-700 text-gray-400 px-1.5 py-0.5 rounded font-bold">Soon</span>
             </div>
-            <span className="text-gray-600 text-sm">🔒</span>
+            <span style={{ fontSize: '16px', color: '#6b7280' }}>🔒</span>
           </button>
           <div className="space-y-1 pt-1">
             {FULL_SUITE_NAV.map((item) => (
