@@ -29,6 +29,7 @@ export default function DashboardPage() {
   const [packagingStats, setPackagingStats] = useState({ inProgress: 0, planned: 0 })
   const [distributionStats, setDistributionStats] = useState({ batchesThisMonth: 0, kegsAwaitingReturn: 0 })
   const [taproomStats, setTaproomStats] = useState({ activeHandles: 0, longOnTap: 0, highestMarginPct: null })
+  const [eventStats, setEventStats] = useState({ upcomingCount: 0, nextEvent: null, lastRoi: null })
 
   useEffect(() => {
     if (!brewery?.id) return
@@ -110,6 +111,17 @@ export default function DashboardPage() {
       : Promise.resolve([{ count: 0 }, { count: 0 }, { count: 0 }, { count: 0 }])
 
     // Active taproom handles: draft/taproom records not yet kicked, last 90 days
+    // Upcoming and recent taproom events for Full Suite users
+    const eventsPromise = hasAccess('full_suite')
+      ? supabase
+          .from('taproom_events')
+          .select('id, event_name, event_date, status, actual_beer_revenue, actual_food_revenue, other_revenue, ticket_revenue, entertainment_cost, marketing_cost, staffing_cost, supplies_cost, other_costs')
+          .eq('brewery_id', brewery.id)
+          .not('status', 'eq', 'cancelled')
+          .order('event_date', { ascending: true })
+          .limit(20)
+      : Promise.resolve({ data: [] })
+
     const ninetyDaysAgo = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10)
     const taproomPromise = hasAccess('operations')
       ? supabase
@@ -147,7 +159,7 @@ export default function DashboardPage() {
         ])
       : Promise.resolve([{ data: [] }, { data: [] }, { data: [] }])
 
-    const [deadlinesResult, grantsResult, periodsResult, recipesResult, inventoryResult, brewDayResult, fermentationResult, packagingResult, taproomResult] = await Promise.all([
+    const [deadlinesResult, grantsResult, periodsResult, recipesResult, inventoryResult, brewDayResult, fermentationResult, packagingResult, taproomResult, eventsResult] = await Promise.all([
       supabase
         .from('brewery_deadlines')
         .select('*, compliance_deadlines(*)')
@@ -179,6 +191,7 @@ export default function DashboardPage() {
       fermentationPromise,
       packagingPromise,
       taproomPromise,
+      eventsPromise,
     ])
 
     setUpcomingDeadlines(deadlinesResult.data ?? [])
@@ -241,6 +254,28 @@ export default function DashboardPage() {
         }))
       : null
     setTaproomStats({ activeHandles: taproomRows.length, longOnTap, highestMarginPct })
+
+    // Compute taproom event stats for Full Suite users
+    const eventsRows = eventsResult.data ?? []
+    const upcomingEvents = eventsRows
+      .filter(e => e.event_date >= today && ['planned', 'confirmed'].includes(e.status))
+    const completedEvents = eventsRows.filter(e => e.status === 'completed')
+    const nextEvent = upcomingEvents[0] ?? null
+    const lastCompleted = completedEvents[completedEvents.length - 1] ?? null
+    let lastRoi = null
+    if (lastCompleted) {
+      const rev = (parseFloat(lastCompleted.actual_beer_revenue) || 0)
+        + (parseFloat(lastCompleted.actual_food_revenue) || 0)
+        + (parseFloat(lastCompleted.other_revenue) || 0)
+        + (parseFloat(lastCompleted.ticket_revenue) || 0)
+      const cost = (parseFloat(lastCompleted.entertainment_cost) || 0)
+        + (parseFloat(lastCompleted.marketing_cost) || 0)
+        + (parseFloat(lastCompleted.staffing_cost) || 0)
+        + (parseFloat(lastCompleted.supplies_cost) || 0)
+        + (parseFloat(lastCompleted.other_costs) || 0)
+      lastRoi = cost > 0 ? ((rev - cost) / cost) * 100 : null
+    }
+    setEventStats({ upcomingCount: upcomingEvents.length, nextEvent, lastRoi })
 
     // Compute inventory alert counts from the raw ingredient rows
     const ings = inventoryResult.data ?? []
@@ -602,6 +637,54 @@ export default function DashboardPage() {
               )}
             </div>
           </div>
+
+          {/* Taproom Events widget — Full Suite only */}
+          {hasAccess('full_suite') && (
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">🎪</span>
+                  <h3 className="font-semibold text-navy">Taproom Events</h3>
+                  <span className="bg-amber/20 text-amber text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide">
+                    Full Suite
+                  </span>
+                </div>
+                <Link to="/events" className="text-amber text-sm hover:underline">View planner →</Link>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <p className="text-xs text-gray-500 mb-0.5">Upcoming events</p>
+                  <p className="text-2xl font-bold text-navy">{eventStats.upcomingCount}</p>
+                  {eventStats.upcomingCount === 0 && (
+                    <p className="text-xs text-gray-400">None planned</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-0.5">Next event</p>
+                  {eventStats.nextEvent ? (
+                    <>
+                      <p className="font-semibold text-navy text-sm truncate">{eventStats.nextEvent.event_name}</p>
+                      <p className="text-xs text-gray-400">
+                        {new Date(eventStats.nextEvent.event_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-sm text-gray-400">None scheduled</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-0.5">Last event ROI</p>
+                  {eventStats.lastRoi != null ? (
+                    <p className={`text-2xl font-bold ${eventStats.lastRoi >= 50 ? 'text-success' : eventStats.lastRoi >= 0 ? 'text-amber' : 'text-danger'}`}>
+                      {eventStats.lastRoi.toFixed(1)}%
+                    </p>
+                  ) : (
+                    <p className="text-sm text-gray-400">No completed events</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
