@@ -1,99 +1,140 @@
 /**
- * OnboardingTour — a 10-step tooltip walkthrough shown once to new users.
+ * OnboardingTour — a 20-step tooltip walkthrough shown once to new users.
  * Renders into document.body via a portal so it overlays all app content.
  * The caller sets localStorage 'onboarding_tour_completed' via onComplete().
+ * Steps follow the sidebar top-to-bottom: welcome → main nav → ops section → ops nav → finale.
  */
 import { useState, useEffect, useLayoutEffect } from 'react'
 import { createPortal } from 'react-dom'
 
 const STEPS = [
+  // ── Welcome modal (no target — centered overlay) ──────────────────────────
   {
     target: null,
     title: 'Welcome to The Craft Beer Brief Essentials',
-    body: "Let us show you around. This quick tour takes less than a minute and covers everything you need to get started.",
+    body: "Let us show you around. This quick tour walks through every tool in the sidebar so you know exactly where to go from day one.",
   },
+
+  // ── Main nav — top to bottom ──────────────────────────────────────────────
   {
-    target: '[data-tour="dashboard-heading"]',
-    placement: 'below',
-    title: 'Your Compliance Dashboard',
-    body: "This is your home base. See upcoming deadlines, TTB filing status, open grants, and any alerts that need your attention — all in one place.",
-  },
-  {
-    target: 'a[href="/grants"]',
+    target: 'a[href="/dashboard"]',
     placement: 'right',
-    title: 'Grant & Funding Finder',
-    body: "Search 90+ verified funding programs curated specifically for craft breweries. Bookmark grants and set deadline alerts so you never miss an application window.",
-  },
-  {
-    target: 'a[href="/ttb"]',
-    placement: 'right',
-    title: 'TTB Filing Tracker',
-    body: "Track your federal excise tax obligations, log payments, and manage your COLA label submissions. Never miss a TTB deadline again.",
+    title: 'Dashboard',
+    body: "Your brewery command center. See upcoming deadlines, active fermentations, and key metrics at a glance.",
   },
   {
     target: 'a[href="/compliance"]',
     placement: 'right',
-    title: 'Your Compliance Calendar',
-    body: "Your personalized compliance deadlines are already loaded based on your state and license types. Review them, add custom deadlines, and mark them complete as you go.",
+    title: 'Compliance Calendar',
+    body: "Never miss a compliance deadline. All 50 states plus DC are pre-populated with color-coded deadlines by category.",
   },
   {
     target: 'a[href="/documents"]',
     placement: 'right',
-    title: 'License Document Storage',
-    body: "Upload and organize all your license and permit documents in one secure place. Get expiration alerts so renewals never sneak up on you.",
+    title: 'Documents',
+    body: "Store and organize all your compliance documents with expiration alerts so nothing slips through the cracks.",
   },
   {
     target: 'a[href="/staff"]',
     placement: 'right',
-    title: 'Staff & Certification Tracker',
-    body: "Track alcohol service certifications, food handler cards, and other staff credentials. Get reminders before certifications expire to stay compliant and protect your brewery.",
+    title: 'Staff & Certs',
+    body: "Track staff certifications, alcohol service training, food handler cards, and renewal dates for your entire team.",
   },
   {
     target: 'a[href="/insurance"]',
     placement: 'right',
-    title: 'Insurance Policy Tracker',
-    body: "Keep all your insurance policies organized in one place. Track renewal dates, coverage amounts, and agent contacts so you are never caught with a lapsed policy.",
+    title: 'Insurance',
+    body: "Track all your insurance policies, coverage amounts, agent contacts, and renewal dates in one place.",
   },
   {
     target: 'a[href="/permits"]',
     placement: 'right',
-    title: 'Local Permit Tracker',
-    body: "Track municipal permits, zoning compliance, entertainment licenses, and other local requirements that state licensing doesn't cover. Built for the permits breweries most often overlook.",
+    title: 'Local Permits',
+    body: "Track municipal permits, entertainment licenses, and zoning compliance for your taproom and brewery.",
+  },
+  {
+    target: 'a[href="/ttb"]',
+    placement: 'right',
+    title: 'TTB Tracker',
+    body: "Track TTB filing deadlines, excise tax payments, COLA approvals, and Brewer's Report submissions.",
+  },
+  {
+    target: 'a[href="/grants"]',
+    placement: 'right',
+    title: 'Grant Finder',
+    body: "Search 90+ verified grant and loan programs curated specifically for craft breweries. Bookmark grants and set deadline alerts.",
+  },
+
+  // ── Operations section intro (no target — centered overlay) ───────────────
+  {
+    target: null,
+    title: 'Operations Tools',
+    body: "Your 14-day Operations trial gives you full access to all these brewery management tools — included at no charge during your trial.",
+  },
+
+  // ── Operations nav — top to bottom ───────────────────────────────────────
+  {
+    target: 'a[href="/inventory"]',
+    placement: 'right',
+    title: 'Inventory',
+    body: "Manage ingredient stock levels, create purchase orders, receive deliveries, and track supplier pricing over time.",
   },
   {
     target: 'a[href="/recipes"]',
     placement: 'right',
-    title: 'Recipe Builder',
-    body: "Build recipes, calculate cost per pint, and track ingredient costs straight from your inventory. Every recipe stays in sync with your actual ingredient prices.",
+    title: 'Recipes',
+    body: "Build recipes, calculate true cost per pint, and track ingredients directly from your inventory.",
   },
   {
     target: 'a[href="/brewday"]',
     placement: 'right',
-    title: 'Brew Day Scheduler',
-    body: "Schedule brew days, log actual vs. planned numbers, and automatically deduct ingredients from inventory when a brew is completed.",
+    title: 'Brew Day',
+    body: "Schedule brew days, log actual vs. planned numbers, and automatically deduct ingredients from inventory when complete.",
   },
   {
     target: 'a[href="/fermentation"]',
     placement: 'right',
-    title: 'Fermentation Tracker',
-    body: "Track active fermentations with a visual vessel dashboard, gravity and temperature logs, dry hop scheduling, and full stage history.",
+    title: 'Fermentation',
+    body: "Track active fermentations with a visual vessel dashboard, gravity logs, temperature charts, and stage history.",
   },
   {
     target: 'a[href="/packaging"]',
     placement: 'right',
     title: 'Packaging',
-    body: "Log packaging runs, track yield loss versus expected volume, and see the cost impact of every batch you package.",
+    body: "Log packaging runs, track yield loss, calculate profit impact, and record quality checks.",
   },
   {
     target: 'a[href="/distribution"]',
     placement: 'right',
-    title: 'Distribution & Taproom',
-    body: "Track wholesale accounts, assign package splits to accounts, and monitor taproom profitability — including margin per handle and projected revenue remaining.",
+    title: 'Distribution',
+    body: "Track wholesale accounts, assign package splits, record deliveries, and monitor keg returns.",
   },
+  {
+    target: 'a[href="/taproom"]',
+    placement: 'right',
+    title: 'Taproom',
+    body: "See what is on tap, track margin per handle, and compare taproom profitability across all active beers.",
+  },
+
+  // ── Bottom nav ────────────────────────────────────────────────────────────
+  {
+    target: 'a[href="/help"]',
+    placement: 'right',
+    title: 'Help & FAQ',
+    body: "Find answers to common questions about compliance, TTB filing, grants, and using the app.",
+  },
+  {
+    target: 'a[href="/account"]',
+    placement: 'right',
+    title: 'Account Settings',
+    body: "Manage your brewery profile, subscription, and team members.",
+  },
+
+  // ── Finale modal (no target — centered overlay) ───────────────────────────
   {
     target: null,
     title: 'You Are All Set',
-    body: "Your brewery operations hub is ready. You have full access to all Essentials compliance tools and Operations brewing tools during your 14-day trial. The Craft Beer Brief team is always here if you need help.",
+    body: "You are ready to run a more organized, profitable brewery. Your 14-day Operations trial is active — explore every module and let us know what you think.",
   },
 ]
 
