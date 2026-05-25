@@ -1935,10 +1935,12 @@ Deno.serve(async (req: Request) => {
       return json({ error: 'Unauthorized — invalid token' }, 401)
     }
 
-    // ── 2. Full Suite subscription check ────────────────────────────────────
+    // ── 2. Subscription / trial check ───────────────────────────────────────
+    const TRIAL_ALLOWED_TEMPLATES = ['brewery_tour_invitation', 'economic_impact_one_pager']
+
     const { data: profile, error: profileError } = await supabase
       .from('users')
-      .select('subscription_tier, subscription_status, brewery_id')
+      .select('subscription_tier, subscription_status, trial_expires_at, brewery_id')
       .eq('id', user.id)
       .single()
 
@@ -1946,7 +1948,12 @@ Deno.serve(async (req: Request) => {
       return json({ error: 'Could not load user profile' }, 500)
     }
 
-    if (profile.subscription_tier !== 'full_suite' || profile.subscription_status !== 'active') {
+    const isPaidFullSuite =
+      profile.subscription_tier === 'full_suite' && profile.subscription_status === 'active'
+    const isOnTrial =
+      profile.trial_expires_at && new Date(profile.trial_expires_at) > new Date()
+
+    if (!isPaidFullSuite && !isOnTrial) {
       return json({ error: 'Full Suite subscription required to generate documents' }, 403)
     }
 
@@ -1963,6 +1970,13 @@ Deno.serve(async (req: Request) => {
 
     if (!TEMPLATE_NAMES[template_id]) {
       return json({ error: `Unknown template: ${template_id}` }, 400)
+    }
+
+    // Trial users may only generate the two allowed templates
+    if (!isPaidFullSuite && isOnTrial && !TRIAL_ALLOWED_TEMPLATES.includes(template_id)) {
+      return json({
+        error: 'This template requires a paid Full Suite subscription. Brewery Tour Invitation and Economic Impact One-Pager are available on trial.',
+      }, 403)
     }
 
     // ── 4. Generate the Word document ────────────────────────────────────────

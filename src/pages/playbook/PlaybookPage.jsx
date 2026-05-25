@@ -15,6 +15,9 @@ function todayStr() {
   return new Date().toISOString().slice(0, 10)
 }
 
+// Templates available to trial users — all others require a paid Full Suite subscription
+const TRIAL_ALLOWED_TEMPLATES = ['brewery_tour_invitation', 'economic_impact_one_pager']
+
 // ── Template definitions organized by category ────────────────────────────────
 // Fields with auto:true are pre-filled from brewery context and hidden from the form.
 // Fields with defaultToday:true default to today's date.
@@ -797,7 +800,8 @@ function downloadDocx(base64, filename) {
 
 // ── TemplateModal ─────────────────────────────────────────────────────────────
 
-function TemplateModal({ template, brewery, canGenerate, onClose }) {
+function TemplateModal({ template, brewery, isFullSuitePaid, isTrial, onClose }) {
+  const canGenerate = isFullSuitePaid || (isTrial && TRIAL_ALLOWED_TEMPLATES.includes(template.id))
   const draftKey = `modal_draft_playbook_${template.id}`
   const { loadDraft, saveDraft, clearDraft, draftRestored, dismissDraftBanner } = useModalDraft(draftKey)
 
@@ -981,8 +985,11 @@ function TemplateModal({ template, brewery, canGenerate, onClose }) {
 
 // ── TemplateCard ──────────────────────────────────────────────────────────────
 
-function TemplateCard({ template, onGenerate }) {
-  const fieldCount = template.fields.filter(f => !f.auto).length
+function TemplateCard({ template, onGenerate, isFullSuitePaid, isTrial }) {
+  const fieldCount    = template.fields.filter(f => !f.auto).length
+  const trialAllowed  = TRIAL_ALLOWED_TEMPLATES.includes(template.id)
+  const canOpen       = isFullSuitePaid || (isTrial && trialAllowed)
+
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-5 flex flex-col gap-3 hover:shadow-md transition-shadow">
       <div className="flex items-start gap-3">
@@ -994,13 +1001,31 @@ function TemplateCard({ template, onGenerate }) {
       </div>
       <div className="flex items-center justify-between mt-auto">
         <span className="text-xs text-gray-400">{fieldCount} fields</span>
-        <button
-          type="button"
-          onClick={() => onGenerate(template)}
-          className="bg-navy hover:bg-navy/90 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors shrink-0"
-        >
-          Generate
-        </button>
+
+        {canOpen ? (
+          <button
+            type="button"
+            onClick={() => onGenerate(template)}
+            className="bg-navy hover:bg-navy/90 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors shrink-0 flex items-center gap-1.5"
+          >
+            Generate
+            {isTrial && trialAllowed && (
+              <span className="bg-amber text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none">
+                Trial
+              </span>
+            )}
+          </button>
+        ) : (
+          <a
+            href="/upgrade"
+            className="flex items-center gap-1.5 text-xs font-semibold text-gray-400 hover:text-navy transition-colors shrink-0"
+          >
+            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+            </svg>
+            Upgrade to unlock
+          </a>
+        )}
       </div>
     </div>
   )
@@ -1008,7 +1033,7 @@ function TemplateCard({ template, onGenerate }) {
 
 // ── CategorySection ───────────────────────────────────────────────────────────
 
-function CategorySection({ category, onGenerate }) {
+function CategorySection({ category, onGenerate, isFullSuitePaid, isTrial }) {
   return (
     <div>
       <div className="flex items-center gap-3 mb-4">
@@ -1022,7 +1047,13 @@ function CategorySection({ category, onGenerate }) {
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {category.templates.map(t => (
-          <TemplateCard key={t.id} template={t} onGenerate={onGenerate} />
+          <TemplateCard
+            key={t.id}
+            template={t}
+            onGenerate={onGenerate}
+            isFullSuitePaid={isFullSuitePaid}
+            isTrial={isTrial}
+          />
         ))}
       </div>
     </div>
@@ -1032,12 +1063,11 @@ function CategorySection({ category, onGenerate }) {
 // ── PlaybookPage ──────────────────────────────────────────────────────────────
 
 export default function PlaybookPage() {
-  const { profile, brewery } = useAuth()
+  const { brewery, isFullSuitePaid: getIsFullSuitePaid, isTrialActive } = useAuth()
   const [activeTemplate, setActiveTemplate] = useState(null)
 
-  const canGenerate =
-    profile?.subscription_tier === 'full_suite' &&
-    profile?.subscription_status === 'active'
+  const isFullSuitePaid = getIsFullSuitePaid()
+  const isTrial         = !isFullSuitePaid && isTrialActive()
 
   const [pdfLoading, setPdfLoading] = useState(false)
   const [pdfError,   setPdfError]   = useState(null)
@@ -1089,6 +1119,22 @@ export default function PlaybookPage() {
           </p>
         </div>
 
+        {/* Trial banner — shown only to trial users, hidden for paid Full Suite */}
+        {isTrial && (
+          <div className="bg-amber/10 border border-amber/30 rounded-xl px-5 py-4 flex flex-col sm:flex-row items-start sm:items-center gap-3">
+            <div className="flex-1 text-sm text-amber-900">
+              <span className="font-semibold">You are on a trial</span> — Brewery Tour Invitation and Economic Impact One-Pager templates are available to try.
+              Upgrade to Full Suite ($19.99/month) to unlock all {ALL_TEMPLATES.length} templates and the PDF playbook.
+            </div>
+            <a
+              href="/upgrade"
+              className="shrink-0 bg-amber hover:bg-amber-dark text-white font-semibold text-sm px-4 py-2 rounded-lg transition-colors"
+            >
+              Upgrade Now
+            </a>
+          </div>
+        )}
+
         {/* Full Playbook PDF download */}
         <div className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col sm:flex-row items-start sm:items-center gap-4">
           <div className="text-3xl">📖</div>
@@ -1102,7 +1148,7 @@ export default function PlaybookPage() {
             )}
           </div>
 
-          {canGenerate ? (
+          {isFullSuitePaid ? (
             <button
               type="button"
               onClick={handleDownloadPlaybook}
@@ -1122,12 +1168,17 @@ export default function PlaybookPage() {
               )}
             </button>
           ) : (
-            <a
-              href="/upgrade"
-              className="shrink-0 bg-navy hover:bg-navy/90 text-white font-semibold text-sm px-5 py-2.5 rounded-lg transition-colors text-center"
-            >
-              Upgrade to Download
-            </a>
+            <div className="shrink-0 text-center">
+              {isTrial && (
+                <p className="text-xs text-gray-500 mb-1.5">Full Suite subscription required</p>
+              )}
+              <a
+                href="/upgrade"
+                className="block bg-navy hover:bg-navy/90 text-white font-semibold text-sm px-5 py-2.5 rounded-lg transition-colors"
+              >
+                Upgrade to Download
+              </a>
+            </div>
           )}
         </div>
 
@@ -1138,6 +1189,8 @@ export default function PlaybookPage() {
               key={category.name}
               category={category}
               onGenerate={tpl => setActiveTemplate(tpl)}
+              isFullSuitePaid={isFullSuitePaid}
+              isTrial={isTrial}
             />
           ))}
         </div>
@@ -1159,7 +1212,8 @@ export default function PlaybookPage() {
         <TemplateModal
           template={activeTemplate}
           brewery={brewery}
-          canGenerate={canGenerate}
+          isFullSuitePaid={isFullSuitePaid}
+          isTrial={isTrial}
           onClose={() => setActiveTemplate(null)}
         />
       )}

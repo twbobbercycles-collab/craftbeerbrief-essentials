@@ -124,18 +124,28 @@ export function AuthProvider({ children }) {
     return 'essentials'
   }
 
+  // Returns true ONLY when the user has a paid, active Full Suite subscription.
+  // Trial users, lapsed subscribers, and all other tiers return false.
+  // Use this wherever the paid/trial distinction matters (PDF download, template gating).
+  function isFullSuitePaid() {
+    return profile?.subscription_tier === 'full_suite' && profile?.subscription_status === 'active'
+  }
+
   // Returns true if the user's effective tier meets or exceeds the required tier.
   // Tier hierarchy: full_suite (2) > operations (1) > essentials (0)
   //
   // Key rules:
   //   - Trial users automatically get operations-level access (Model A trial system)
-  //   - full_suite always requires a real paid full_suite subscription — trial does NOT unlock it
+  //   - full_suite page access is granted to trial users so they can explore the module,
+  //     but PDF download and most templates remain locked to paid subscribers only
   //   - essentials always returns true
   function hasAccess(requiredTier) {
     const TIER_RANK = { essentials: 0, operations: 1, full_suite: 2 }
-    // full_suite is gated behind a real subscription — trial does not grant it
     if (requiredTier === 'full_suite') {
-      return profile?.subscription_tier === 'full_suite' && profile?.subscription_status === 'active'
+      if (profile?.subscription_tier === 'full_suite' && profile?.subscription_status === 'active') return true
+      const isOnTrial = profile?.trial_expires_at && new Date(profile.trial_expires_at) > new Date()
+      if (isOnTrial) return true // trial gets page access; PDF and most templates still locked
+      return false
     }
     // For essentials and operations, use the effective tier (trial counts as operations)
     const effectiveTier = getEffectiveTier()
@@ -155,6 +165,7 @@ export function AuthProvider({ children }) {
     isTrialActive,
     isSubscribed,
     isAdmin,
+    isFullSuitePaid,
     hasAccess,
     getEffectiveTier,
     refreshProfile,
