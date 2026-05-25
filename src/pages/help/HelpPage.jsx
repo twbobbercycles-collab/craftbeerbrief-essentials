@@ -327,6 +327,119 @@ const CATEGORIES = [
       },
     ],
   },
+  // ── Full Suite tier categories ──────────────────────────────────────────────
+  {
+    id: 'full-suite-overview',
+    label: 'Full Suite Overview',
+    items: [
+      {
+        q: 'What is the Full Suite tier and what does it include?',
+        a: 'The Full Suite tier ($19.99/month or $199.99/year) includes everything in Essentials and Operations plus four additional modules: Taproom Event Planner & ROI Tracker, Wholesale Account Manager, Staff Training & Development Tracker, Taproom Revenue Benchmarking Dashboard, and the complete Regulation Policy & Advocacy Playbook with 26 downloadable document templates. Full Suite is designed for breweries that want a complete management and advocacy toolkit in one place.',
+      },
+      {
+        q: 'How is Full Suite different from Operations?',
+        a: 'Operations covers your core brewery workflow from recipe to distribution. Full Suite adds business development and advocacy tools on top of that — event planning and ROI tracking, wholesale CRM, staff training management, taproom benchmarking against industry data, and the complete legislative and regulatory playbook with customizable Word document templates.',
+      },
+      {
+        q: 'Can I upgrade from Operations to Full Suite?',
+        a: 'Yes — go to Account Settings and click Upgrade Plan, or visit the upgrade page directly. Your existing data carries over automatically and you get immediate access to all Full Suite modules.',
+      },
+    ],
+  },
+  {
+    id: 'taproom-events',
+    label: 'Taproom Event Planner',
+    items: [
+      {
+        q: 'How do I plan a new event?',
+        a: 'Go to Taproom Events in the Full Suite section of the sidebar. Click Plan New Event and fill in the event details — name, type, date, expected attendance, ticket price if applicable, and estimated revenue and costs. The modal shows a live ROI preview as you fill in the fields so you can see the projected return before committing. You can also save events as templates to reuse for recurring events like weekly trivia or monthly live music nights.',
+      },
+      {
+        q: 'How does event ROI tracking work?',
+        a: 'After an event date passes the Actuals tab becomes available in the event detail view. Enter actual attendance, ticket sales, beer and food revenue, and actual costs. The system calculates net ROI (revenue minus costs) and ROI percentage and compares it to your planned estimates. Over time the ROI Analysis section shows which event types generate the best return for your taproom.',
+      },
+      {
+        q: 'What are event templates?',
+        a: 'Event templates save your standard event setup so you do not have to re-enter the same information for recurring events. For example save a Friday Night Live Music template with your typical band cost, expected attendance, and estimated beer revenue. Next time you schedule that event select the template and all fields pre-populate. You can adjust any field before saving.',
+      },
+    ],
+  },
+  {
+    id: 'wholesale-accounts',
+    label: 'Wholesale Account Manager',
+    items: [
+      {
+        q: 'How is the Wholesale Account Manager different from the Distribution module?',
+        a: 'The Distribution module tracks the logistics of getting beer to accounts — package splits, delivery dates, keg returns, and invoicing. The Wholesale Account Manager is a relationship CRM — it stores contact information, tracks follow-up dates, logs your interactions, and shows account performance pulled automatically from your Distribution data. No duplicate data entry — order history and revenue come from Distribution automatically.',
+      },
+      {
+        q: 'How do I add a wholesale account?',
+        a: 'Go to Wholesale in the sidebar and click Add Account. Enter the account name, type, contacts, address, delivery preferences, and payment terms. If this account already exists in your Distribution module you can link them together so distribution data flows in automatically. Multiple contacts per account are supported — add as many contacts as needed with their name, email, phone, and role.',
+      },
+      {
+        q: 'What are follow-ups and how do I track them?',
+        a: 'Each wholesale account has a Next Follow-up Date field. The Follow-Ups tab in the Wholesale module shows all accounts organized by urgency — overdue, due today, due this week, and upcoming. When you log a contact interaction it records the date and notes and prompts you to set the next follow-up date. This keeps your sales relationships active without requiring a dedicated CRM system.',
+      },
+    ],
+  },
+  {
+    id: 'staff-training',
+    label: 'Staff Training & Development',
+    items: [
+      {
+        q: 'How do I set up training programs?',
+        a: 'Go to Staff Training in the sidebar and click the Programs tab. Click Add Program to create a new training program with a name, type (Safety, Compliance, Beer Knowledge, etc.), duration, whether it is required for certain roles, and whether it needs periodic renewal. Once a program exists you can assign it to specific staff members and track completion.',
+      },
+      {
+        q: 'How do I assign training to staff members?',
+        a: 'On any program card click Assign Staff. A checklist appears showing all your staff members pulled from the Essentials Staff & Certifications module. Select the staff members who need to complete this program and set a required completion date. The compliance matrix in the Staff Records tab then tracks who has completed it and who has not.',
+      },
+      {
+        q: 'What does the compliance matrix show?',
+        a: 'The compliance matrix is a grid showing every staff member on the rows and every required training program on the columns. Each cell shows a green checkmark if the staff member has completed and is current, an amber warning if their certification expires within 60 days, a red X if expired or overdue, and a gray dash with an A if assigned but not yet completed. The Compliance tab shows your overall completion rate and lists everyone who needs attention.',
+      },
+    ],
+  },
+  {
+    id: 'benchmarking',
+    label: 'Taproom Revenue Benchmarking',
+    items: [
+      {
+        q: 'Where does the benchmark data come from?',
+        a: 'Benchmark ranges are sourced from Brewers Association industry data covering small to mid-size craft taprooms. The ranges show low, median, and high performance across metrics including revenue per square foot, labor as a percentage of revenue, average transaction value, and revenue per operating day. These are updated periodically as new industry data becomes available.',
+      },
+      {
+        q: 'How do I enter my taproom metrics?',
+        a: 'Go to Revenue Benchmarking in the sidebar. Select the month you want to enter data for using the month selector at the top. Fill in your taproom revenue, square footage, number of transactions, operating days, labor hours and cost, and any food or merchandise revenue. Data auto-saves as you fill in each field. Event revenue is pulled automatically from the Taproom Events module if you log events there.',
+      },
+      {
+        q: 'What does the benchmark comparison show?',
+        a: 'For each key metric the system shows a horizontal bar from the industry low to high range with your value marked as a dot on the bar. Green means you are at or above the industry median — you are performing well. Amber means you are between the low and median — room to improve. Red means you are below the industry low — this metric needs attention. The Performance Trends tab shows how your metrics change over time with 12-month trend charts.',
+      },
+    ],
+  },
+  {
+    id: 'regulation-playbook',
+    label: 'Regulation Playbook',
+    items: [
+      {
+        q: 'What is included in the Regulation Playbook?',
+        a: 'The Full Suite tier includes The Craft Beer Brief Legislative Playbook — a comprehensive 370-page guide to navigating regulation, policy, and advocacy for US craft breweries. It covers federal TTB compliance, state-level legislation navigation, local government and municipal laws, legislative tracking systems, impact assessment, stakeholder engagement, coalition building, and all-50-state regulatory comparisons. Full Suite subscribers can download the complete PDF directly from the Regulation Playbook page.',
+      },
+      {
+        q: 'What are the 26 document templates?',
+        a: 'The template generator creates customized Word documents based on your brewery\'s specific information. Templates are organized in six categories: Legislator Communications (meeting request letters, tour invitations, economic impact one-pagers), Testimony & Response (written committee testimony, oral testimony scripts, regulatory public comments), Op-Ed & Media (op-ed structure templates), Compliance Documents (TTB audit memos, guidance request letters, compliance checklists), Coalition Building (joint statements, partner MOUs, health assessments), and Assessment & Tracking Tools (impact assessment worksheets, legislative tracking logs, stakeholder contact logs). Fill in your brewery details and generate a professional customized document in seconds.',
+      },
+      {
+        q: 'How do I generate a document?',
+        a: 'Go to Regulation Playbook in the sidebar. Click Generate Document on any template card. A form opens with fields specific to that template — your brewery name and location auto-populate from your profile. Fill in the remaining fields and click Generate Document. A customized Word document downloads to your computer ready to use. The document contains no branding or watermarks — it looks like it came entirely from your brewery.',
+      },
+      {
+        q: 'Is the playbook legal advice?',
+        a: 'No — the playbook is an educational and strategic guide, not legal advice. It provides frameworks, templates, and information to help brewery owners understand and navigate the regulatory landscape, but it does not substitute for qualified legal counsel. Always consult a licensed alcohol beverage attorney before taking any compliance action or making legal determinations based on playbook content.',
+      },
+    ],
+  },
   // ── Universal categories ──────────────────────────────────────────────────────
   {
     id: 'account-billing',
