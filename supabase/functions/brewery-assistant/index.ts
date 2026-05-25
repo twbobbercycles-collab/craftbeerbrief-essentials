@@ -189,7 +189,7 @@ Deno.serve(async (req) => {
   const today     = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
 
   // Upsert usage row — insert if it doesn't exist for today, otherwise update
-  const { data: usageRow, error: usageError } = await serviceClient
+  await serviceClient
     .from('assistant_usage')
     .upsert(
       {
@@ -267,7 +267,7 @@ Deno.serve(async (req) => {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model:      'claude-sonnet-4-20250514',
+        model:      'claude-sonnet-4-5',
         max_tokens: 1024,
         system:     systemPrompt,
         messages:   messages,
