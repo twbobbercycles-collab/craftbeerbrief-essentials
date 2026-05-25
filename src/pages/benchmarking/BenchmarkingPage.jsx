@@ -129,11 +129,17 @@ function BenchmarkingDashboard() {
   const { brewery } = useAuth()
   const [activeTab, setTab] = usePersistedTab('benchmarking_tab', 'entry')
 
-  // All 12 months of metrics loaded once; individual month data is sliced from this
+  // selectedMonth lives here so it survives allMetrics updates without unmounting
+  // Persisted to localStorage so it survives page reloads
+  const [selectedMonth, setSelectedMonth] = useState(
+    () => localStorage.getItem('benchmarking_selected_month') || thisMonthStr()
+  )
+
+  // All 13 months of metrics — loaded once on mount, then patched in-place after saves
   const [allMetrics, setAllMetrics] = useState([])
   const [loading,    setLoading]    = useState(true)
 
-  // Load all taproom_metrics rows for the last 13 months in one query
+  // Initial load only — shows spinner once. Auto-saves never call this.
   const loadMetrics = useCallback(async () => {
     if (!brewery?.id) return
     setLoading(true)
@@ -149,6 +155,27 @@ function BenchmarkingDashboard() {
   }, [brewery?.id])
 
   useEffect(() => { loadMetrics() }, [loadMetrics])
+
+  // Called after every auto-save: patches the saved row into allMetrics in-place,
+  // avoiding any reload or loading-state that would unmount MonthlyEntryTab.
+  function mergeRow(savedRow) {
+    setAllMetrics(prev => {
+      const idx = prev.findIndex(m => m.metric_month === savedRow.metric_month)
+      if (idx >= 0) {
+        const next = [...prev]
+        next[idx] = { ...next[idx], ...savedRow }
+        return next
+      }
+      // New month — insert in sorted order
+      return [...prev, savedRow].sort((a, b) => a.metric_month.localeCompare(b.metric_month))
+    })
+  }
+
+  // Persists the selected month to localStorage so it survives page reloads
+  function handleMonthChange(month) {
+    setSelectedMonth(month)
+    localStorage.setItem('benchmarking_selected_month', month)
+  }
 
   if (loading) return <LoadingSpinner message="Loading benchmarking data…" />
 
@@ -183,7 +210,9 @@ function BenchmarkingDashboard() {
         <MonthlyEntryTab
           allMetrics={allMetrics}
           brewery={brewery}
-          onSaved={loadMetrics}
+          selectedMonth={selectedMonth}
+          onMonthChange={handleMonthChange}
+          onRowSaved={mergeRow}
         />
       )}
       {activeTab === 'trends' && (
@@ -195,10 +224,10 @@ function BenchmarkingDashboard() {
 
 // ── TAB 1: Monthly Entry ──────────────────────────────────────────────────────
 
-function MonthlyEntryTab({ allMetrics, brewery, onSaved }) {
-  // Selected month defaults to the current month
-  const [selectedMonth, setSelectedMonth] = useState(thisMonthStr())
-  const [savedFlash,    setSavedFlash]    = useState(false)
+function MonthlyEntryTab({ allMetrics, brewery, selectedMonth, onMonthChange, onRowSaved }) {
+  // selectedMonth and its setter live in the parent (BenchmarkingDashboard) so they
+  // survive re-renders caused by allMetrics updates — see fix for auto-save reset bug.
+  const [savedFlash, setSavedFlash] = useState(false)
   const saveTimer = useRef(null)
 
   // Find the existing row for the selected month (may be null)
@@ -248,14 +277,16 @@ function MonthlyEntryTab({ allMetrics, brewery, onSaved }) {
     }
   }, [selectedMonth, existingRow])
 
-  // Auto-save on blur: upsert the current form state into taproom_metrics
+  // Auto-save on blur: upserts the row and patches parent state in-place.
+  // Does NOT trigger a full data reload — that would set loading=true and unmount
+  // this component, resetting selectedMonth back to its default.
   async function autoSave(latestForm) {
-    if (!latestForm.taproom_revenue && !latestForm.total_transactions) return // nothing meaningful yet
+    if (!latestForm.taproom_revenue && !latestForm.total_transactions) return
     const payload = {
       brewery_id:          brewery.id,
       metric_month:        selectedMonth,
-      taproom_revenue:     parseFloat(latestForm.taproom_revenue)     || 0,
-      taproom_sqft:        parseFloat(latestForm.taproom_sqft)        || null,
+      taproom_revenue:     parseFloat(latestForm.taproom_revenue)      || 0,
+      taproom_sqft:        parseFloat(latestForm.taproom_sqft)         || null,
       total_transactions:  parseInt(latestForm.total_transactions, 10) || 0,
       num_operating_days:  parseInt(latestForm.num_operating_days, 10) || 0,
       labor_hours:         parseFloat(latestForm.labor_hours)          || 0,
@@ -265,15 +296,19 @@ function MonthlyEntryTab({ allMetrics, brewery, onSaved }) {
       event_revenue:       parseFloat(latestForm.event_revenue)        || 0,
       notes:               latestForm.notes || null,
     }
-    await supabase
+    const { data } = await supabase
       .from('taproom_metrics')
       .upsert(payload, { onConflict: 'brewery_id,metric_month' })
+      .select()
+      .single()
 
-    // Flash "Saved ✓" briefly then refresh the parent list
+    // Merge the saved row into the parent's allMetrics without triggering any reload
+    onRowSaved(data ?? payload)
+
+    // Flash "Saved ✓" briefly
     setSavedFlash(true)
     clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => setSavedFlash(false), 2500)
-    onSaved()
   }
 
   // Called on every input blur
@@ -340,7 +375,7 @@ function MonthlyEntryTab({ allMetrics, brewery, onSaved }) {
           <label className={LBL}>Month</label>
           <select
             value={selectedMonth}
-            onChange={e => setSelectedMonth(e.target.value)}
+            onChange={e => onMonthChange(e.target.value)}
             className={`${INPUT} w-48`}
           >
             {monthOptions.map(m => (
