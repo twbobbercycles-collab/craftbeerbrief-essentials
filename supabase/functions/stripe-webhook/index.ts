@@ -94,13 +94,13 @@ Deno.serve(async (req) => {
 // All live mode price IDs mapped to their subscription tier.
 // Update this map when new prices are created in Stripe.
 const PRICE_TIER_MAP: Record<string, 'essentials' | 'operations' | 'full_suite'> = {
-  // Essentials
-  'price_1TabK4GrTq9DDyvYS5OJAcCT': 'essentials', // $9.99/month
-  'price_1TabKJGrTq9DDyvYUzeHwjvW': 'essentials', // $99.99/year
-  // Operations
+  // Essentials - Live mode
+  'price_1Tb3O2GrTq9DDyvYjvia6Eib': 'essentials', // $9.99/month
+  'price_1Tb3OEGrTq9DDyvYLuvR1a4q': 'essentials', // $99.99/year
+  // Operations - Live mode
   'price_1Tb377GrTq9DDyvYa7DZ3JMy': 'operations', // $14.99/month
   'price_1Tb37mGrTq9DDyvYJ3xsG5lQ': 'operations', // $149.99/year
-  // Full Suite
+  // Full Suite - Live mode
   'price_1Tb39PGrTq9DDyvY5zT7bIzn': 'full_suite', // $19.99/month
   'price_1Tb39hGrTq9DDyvY2FPEmWlX': 'full_suite', // $199.99/year
 }
