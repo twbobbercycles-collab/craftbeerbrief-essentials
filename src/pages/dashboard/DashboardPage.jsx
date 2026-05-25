@@ -31,7 +31,7 @@ export default function DashboardPage() {
   const [taproomStats, setTaproomStats] = useState({ activeHandles: 0, longOnTap: 0, highestMarginPct: null })
   const [eventStats, setEventStats] = useState({ upcomingCount: 0, nextEvent: null, lastRoi: null })
   const [wholesaleStats, setWholesaleStats] = useState({ followupDue: 0, atRisk: 0, activeCount: 0 })
-  const [trainingStats, setTrainingStats] = useState({ overdueCount: 0, expiringCount: 0 })
+  const [trainingStats, setTrainingStats] = useState({ overdueCount: 0, expiringCount: 0, pendingCount: 0 })
 
   useEffect(() => {
     if (!brewery?.id) return
@@ -116,12 +116,19 @@ export default function DashboardPage() {
     // Staff training records for Full Suite users — expired and expiring in 30 days
     const thirtyFromNow = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10)
     const trainingPromise = hasAccess('full_suite')
-      ? supabase
-          .from('staff_training_records')
-          .select('expiration_date')
-          .eq('brewery_id', brewery.id)
-          .not('expiration_date', 'is', null)
-      : Promise.resolve({ data: [] })
+      ? Promise.all([
+          supabase
+            .from('staff_training_records')
+            .select('expiration_date')
+            .eq('brewery_id', brewery.id)
+            .not('expiration_date', 'is', null),
+          supabase
+            .from('training_assignments')
+            .select('id')
+            .eq('brewery_id', brewery.id)
+            .eq('status', 'assigned'),
+        ])
+      : Promise.resolve([{ data: [] }, { data: [] }])
 
     // Wholesale accounts for Full Suite users — follow-ups and at-risk counts
     const wholesalePromise = hasAccess('full_suite')
@@ -187,7 +194,7 @@ export default function DashboardPage() {
         ])
       : Promise.resolve([{ data: [] }, { data: [] }, { data: [] }])
 
-    const [deadlinesResult, grantsResult, periodsResult, recipesResult, inventoryResult, brewDayResult, fermentationResult, packagingResult, taproomResult, eventsResult, wholesaleResult, trainingResult] = await Promise.all([
+    const [deadlinesResult, grantsResult, periodsResult, recipesResult, inventoryResult, brewDayResult, fermentationResult, packagingResult, taproomResult, eventsResult, wholesaleResult, trainingResults] = await Promise.all([
       supabase
         .from('brewery_deadlines')
         .select('*, compliance_deadlines(*)')
@@ -321,11 +328,13 @@ export default function DashboardPage() {
       setWholesaleStats({ followupDue, atRisk, activeCount: accts.filter(a => a.status === 'active').length })
     }
 
-    // Compute training stats: expired records and records expiring within 30 days
-    const trainingRows = trainingResult.data ?? []
+    // Compute training stats: expired records, records expiring within 30 days, and pending assignments
+    const [trainingRecordsResult, trainingAssignResult] = trainingResults
+    const trainingRows = trainingRecordsResult.data ?? []
     setTrainingStats({
       overdueCount:  trainingRows.filter(r => r.expiration_date < today).length,
       expiringCount: trainingRows.filter(r => r.expiration_date >= today && r.expiration_date <= thirtyFromNow).length,
+      pendingCount:  (trainingAssignResult.data ?? []).length,
     })
 
     // Compute inventory alert counts from the raw ingredient rows
@@ -745,9 +754,9 @@ export default function DashboardPage() {
                 </div>
                 <Link to="/training" className="text-amber text-sm hover:underline">View tracker →</Link>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <p className="text-xs text-gray-500 mb-0.5">Overdue training records</p>
+                  <p className="text-xs text-gray-500 mb-0.5">Overdue records</p>
                   <p className={`text-2xl font-bold ${trainingStats.overdueCount > 0 ? 'text-danger' : 'text-navy'}`}>
                     {trainingStats.overdueCount}
                   </p>
@@ -756,12 +765,21 @@ export default function DashboardPage() {
                   )}
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500 mb-0.5">Expiring within 30 days</p>
+                  <p className="text-xs text-gray-500 mb-0.5">Expiring (30d)</p>
                   <p className={`text-2xl font-bold ${trainingStats.expiringCount > 0 ? 'text-amber' : 'text-navy'}`}>
                     {trainingStats.expiringCount}
                   </p>
                   {trainingStats.expiringCount > 0 && (
                     <p className="text-xs text-amber font-medium">Schedule renewal</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-0.5">Pending assignments</p>
+                  <p className={`text-2xl font-bold ${trainingStats.pendingCount > 0 ? 'text-blue-600' : 'text-navy'}`}>
+                    {trainingStats.pendingCount}
+                  </p>
+                  {trainingStats.pendingCount > 0 && (
+                    <p className="text-xs text-blue-600 font-medium">Not yet completed</p>
                   )}
                 </div>
               </div>
