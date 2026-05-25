@@ -11,6 +11,7 @@ import { supabase } from '../services/supabase'
 import ReadOnlyBanner from '../components/ReadOnlyBanner'
 import PastDueBanner from '../components/PastDueBanner'
 import OnboardingTour from '../components/OnboardingTour'
+import AssistantChat from '../components/AssistantChat'
 
 // Main nav items — always shown to all users
 const MAIN_NAV = [
@@ -560,6 +561,9 @@ export default function AppLayout() {
 
       {/* Onboarding tour — portalled to body, shown once after brewery setup */}
       {showTour && <OnboardingTour onComplete={handleTourComplete} />}
+
+      {/* AI assistant chat widget — only renders for paying subscribers */}
+      {user && <AssistantChat />}
     </div>
   )
 }
