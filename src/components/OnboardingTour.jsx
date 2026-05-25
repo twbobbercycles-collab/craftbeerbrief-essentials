@@ -1,148 +1,19 @@
-// OnboardingTour v2.1 — explicit centered vs positioned rendering
+// OnboardingTour v2.2 — tier-aware steps, Full Suite section support
 /**
- * OnboardingTour — a 20-step tooltip walkthrough shown once to new users.
+ * OnboardingTour — a tooltip walkthrough shown once to new users.
  * Renders into document.body via a portal so it overlays all app content.
  * The caller sets localStorage 'onboarding_tour_completed' via onComplete().
- * Steps follow the sidebar top-to-bottom: welcome → main nav → ops section → ops nav → finale.
+ * Steps follow the sidebar top-to-bottom: welcome → main nav → ops section → ops nav
+ * → (full suite nav if hasFullSuite) → help/account → finale.
  *
  * Rendering is split into two mutually exclusive paths keyed on step.target:
  *   null target  → centered modal (welcome, ops intro, finale)
  *   has target   → positioned tooltip next to the highlighted sidebar item
  * This prevents the welcome modal from bleeding through during step transitions.
  */
-import { useState, useEffect, useLayoutEffect } from 'react'
+import { useState, useEffect, useLayoutEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-
-const STEPS = [
-  // ── Welcome modal (no target — centered overlay) ──────────────────────────
-  {
-    target: null,
-    title: 'Welcome to The Craft Beer Brief Essentials',
-    body: "Let us show you around. This quick tour walks through every tool in the sidebar so you know exactly where to go from day one.",
-  },
-
-  // ── Main nav — top to bottom ──────────────────────────────────────────────
-  {
-    target: 'a[href="/dashboard"]',
-    placement: 'right',
-    title: 'Dashboard',
-    body: "Your brewery command center. See upcoming deadlines, active fermentations, and key metrics at a glance.",
-  },
-  {
-    target: 'a[href="/compliance"]',
-    placement: 'right',
-    title: 'Compliance Calendar',
-    body: "Never miss a compliance deadline. All 50 states plus DC are pre-populated with color-coded deadlines by category.",
-  },
-  {
-    target: 'a[href="/documents"]',
-    placement: 'right',
-    title: 'Documents',
-    body: "Store and organize all your compliance documents with expiration alerts so nothing slips through the cracks.",
-  },
-  {
-    target: 'a[href="/staff"]',
-    placement: 'right',
-    title: 'Staff & Certs',
-    body: "Track staff certifications, alcohol service training, food handler cards, and renewal dates for your entire team.",
-  },
-  {
-    target: 'a[href="/insurance"]',
-    placement: 'right',
-    title: 'Insurance',
-    body: "Track all your insurance policies, coverage amounts, agent contacts, and renewal dates in one place.",
-  },
-  {
-    target: 'a[href="/permits"]',
-    placement: 'right',
-    title: 'Local Permits',
-    body: "Track municipal permits, entertainment licenses, and zoning compliance for your taproom and brewery.",
-  },
-  {
-    target: 'a[href="/ttb"]',
-    placement: 'right',
-    title: 'TTB Tracker',
-    body: "Track TTB filing deadlines, excise tax payments, COLA approvals, and Brewer's Report submissions.",
-  },
-  {
-    target: 'a[href="/grants"]',
-    placement: 'right',
-    title: 'Grant Finder',
-    body: "Search 90+ verified grant and loan programs curated specifically for craft breweries. Bookmark grants and set deadline alerts.",
-  },
-
-  // ── Operations section intro (no target — centered overlay) ───────────────
-  {
-    target: null,
-    title: 'Operations Tools',
-    body: "Your 14-day Operations trial gives you full access to all these brewery management tools — included at no charge during your trial.",
-  },
-
-  // ── Operations nav — top to bottom ───────────────────────────────────────
-  {
-    target: 'a[href="/inventory"]',
-    placement: 'right',
-    title: 'Inventory',
-    body: "Manage ingredient stock levels, create purchase orders, receive deliveries, and track supplier pricing over time.",
-  },
-  {
-    target: 'a[href="/recipes"]',
-    placement: 'right',
-    title: 'Recipes',
-    body: "Build recipes, calculate true cost per pint, and track ingredients directly from your inventory.",
-  },
-  {
-    target: 'a[href="/brewday"]',
-    placement: 'right',
-    title: 'Brew Day',
-    body: "Schedule brew days, log actual vs. planned numbers, and automatically deduct ingredients from inventory when complete.",
-  },
-  {
-    target: 'a[href="/fermentation"]',
-    placement: 'right',
-    title: 'Fermentation',
-    body: "Track active fermentations with a visual vessel dashboard, gravity logs, temperature charts, and stage history.",
-  },
-  {
-    target: 'a[href="/packaging"]',
-    placement: 'right',
-    title: 'Packaging',
-    body: "Log packaging runs, track yield loss, calculate profit impact, and record quality checks.",
-  },
-  {
-    target: 'a[href="/distribution"]',
-    placement: 'right',
-    title: 'Distribution',
-    body: "Track wholesale accounts, assign package splits, record deliveries, and monitor keg returns.",
-  },
-  {
-    target: 'a[href="/taproom"]',
-    placement: 'right',
-    title: 'Taproom',
-    body: "See what is on tap, track margin per handle, and compare taproom profitability across all active beers.",
-  },
-
-  // ── Bottom nav ────────────────────────────────────────────────────────────
-  {
-    target: 'a[href="/help"]',
-    placement: 'right',
-    title: 'Help & FAQ',
-    body: "Find answers to common questions about compliance, TTB filing, grants, and using the app.",
-  },
-  {
-    target: 'a[href="/account"]',
-    placement: 'right',
-    title: 'Account Settings',
-    body: "Manage your brewery profile, subscription, and team members.",
-  },
-
-  // ── Finale modal (no target — centered overlay) ───────────────────────────
-  {
-    target: null,
-    title: 'You Are All Set',
-    body: "You are ready to run a more organized, profitable brewery. Your 14-day Operations trial is active — explore every module and let us know what you think.",
-  },
-]
+import { useAuth } from '../context/AuthContext'
 
 const TW = 320 // tooltip width in px
 
@@ -237,6 +108,189 @@ function TourCardInner({ step, stepIdx, total, isFirst, isLast, arrow, onNext, o
 
 // ── Main export ───────────────────────────────────────────────────────────────
 export default function OnboardingTour({ onComplete }) {
+  const { hasAccess, isFullSuitePaid } = useAuth()
+  const hasFullSuite  = hasAccess('full_suite')
+  const fullSuitePaid = isFullSuitePaid()
+
+  const STEPS = useMemo(() => {
+    // ── Steps 0-16: welcome, main nav, ops intro, ops nav ────────────────────
+    const baseStepsStart = [
+      // Welcome modal (no target — centered overlay)
+      {
+        target: null,
+        title: 'Welcome to The Craft Beer Brief Essentials',
+        body: "Let us show you around. This quick tour walks through every tool in the sidebar so you know exactly where to go from day one.",
+      },
+
+      // Main nav — top to bottom
+      {
+        target: 'a[href="/dashboard"]',
+        placement: 'right',
+        title: 'Dashboard',
+        body: "Your brewery command center. See upcoming deadlines, active fermentations, and key metrics at a glance.",
+      },
+      {
+        target: 'a[href="/compliance"]',
+        placement: 'right',
+        title: 'Compliance Calendar',
+        body: "Never miss a compliance deadline. All 50 states plus DC are pre-populated with color-coded deadlines by category.",
+      },
+      {
+        target: 'a[href="/documents"]',
+        placement: 'right',
+        title: 'Documents',
+        body: "Store and organize all your compliance documents with expiration alerts so nothing slips through the cracks.",
+      },
+      {
+        target: 'a[href="/staff"]',
+        placement: 'right',
+        title: 'Staff & Certs',
+        body: "Track staff certifications, alcohol service training, food handler cards, and renewal dates for your entire team.",
+      },
+      {
+        target: 'a[href="/insurance"]',
+        placement: 'right',
+        title: 'Insurance',
+        body: "Track all your insurance policies, coverage amounts, agent contacts, and renewal dates in one place.",
+      },
+      {
+        target: 'a[href="/permits"]',
+        placement: 'right',
+        title: 'Local Permits',
+        body: "Track municipal permits, entertainment licenses, and zoning compliance for your taproom and brewery.",
+      },
+      {
+        target: 'a[href="/ttb"]',
+        placement: 'right',
+        title: 'TTB Tracker',
+        body: "Track TTB filing deadlines, excise tax payments, COLA approvals, and Brewer's Report submissions.",
+      },
+      {
+        target: 'a[href="/grants"]',
+        placement: 'right',
+        title: 'Grant Finder',
+        body: "Search 90+ verified grant and loan programs curated specifically for craft breweries. Bookmark grants and set deadline alerts.",
+      },
+
+      // Operations section intro (no target — centered overlay)
+      {
+        target: null,
+        title: 'Operations Tools',
+        body: "Your 14-day Operations trial gives you full access to all these brewery management tools — included at no charge during your trial.",
+      },
+
+      // Operations nav — top to bottom
+      {
+        target: 'a[href="/inventory"]',
+        placement: 'right',
+        title: 'Inventory',
+        body: "Manage ingredient stock levels, create purchase orders, receive deliveries, and track supplier pricing over time.",
+      },
+      {
+        target: 'a[href="/recipes"]',
+        placement: 'right',
+        title: 'Recipes',
+        body: "Build recipes, calculate true cost per pint, and track ingredients directly from your inventory.",
+      },
+      {
+        target: 'a[href="/brewday"]',
+        placement: 'right',
+        title: 'Brew Day',
+        body: "Schedule brew days, log actual vs. planned numbers, and automatically deduct ingredients from inventory when complete.",
+      },
+      {
+        target: 'a[href="/fermentation"]',
+        placement: 'right',
+        title: 'Fermentation',
+        body: "Track active fermentations with a visual vessel dashboard, gravity logs, temperature charts, and stage history.",
+      },
+      {
+        target: 'a[href="/packaging"]',
+        placement: 'right',
+        title: 'Packaging',
+        body: "Log packaging runs, track yield loss, calculate profit impact, and record quality checks.",
+      },
+      {
+        target: 'a[href="/distribution"]',
+        placement: 'right',
+        title: 'Distribution',
+        body: "Track wholesale accounts, assign package splits, record deliveries, and monitor keg returns.",
+      },
+      {
+        target: 'a[href="/taproom"]',
+        placement: 'right',
+        title: 'Taproom',
+        body: "See what is on tap, track margin per handle, and compare taproom profitability across all active beers.",
+      },
+    ]
+
+    // ── Full Suite steps — only included when user has full_suite access ──────
+    const fullSuiteSteps = hasFullSuite ? [
+      {
+        target: 'a[href="/events"]',
+        placement: 'right',
+        title: 'Taproom Event Planner',
+        body: 'Plan events, track attendance, and calculate true ROI for every event you host. See which event types generate the best return for your taproom.',
+      },
+      {
+        target: 'a[href="/wholesale"]',
+        placement: 'right',
+        title: 'Wholesale Account Manager',
+        body: 'Manage wholesale relationships and track account performance. Contact info, follow-ups, and order history pulled automatically from your Distribution data.',
+      },
+      {
+        target: 'a[href="/training"]',
+        placement: 'right',
+        title: 'Staff Training & Development',
+        body: 'Track training programs, assign staff, and monitor certification compliance. The compliance matrix shows who is current and who needs attention at a glance.',
+      },
+      {
+        target: 'a[href="/benchmarking"]',
+        placement: 'right',
+        title: 'Taproom Revenue Benchmarking',
+        body: 'Enter your monthly taproom metrics and compare against Brewers Association industry benchmarks. See where you are outperforming and where you have room to grow.',
+      },
+      {
+        target: 'a[href="/playbook"]',
+        placement: 'right',
+        title: 'Regulation Playbook & Templates',
+        body: fullSuitePaid
+          ? 'Access the complete Legislative Playbook PDF and generate all 26 customized advocacy documents for your brewery.'
+          : 'Generate the Brewery Tour Invitation and Economic Impact One-Pager templates on trial. Upgrade to Full Suite to unlock all 26 templates and the PDF playbook download.',
+      },
+    ] : []
+
+    // ── Finale text varies by tier ────────────────────────────────────────────
+    const finaleBody = hasFullSuite && fullSuitePaid
+      ? "You are ready to run a smarter, more organized, more advocacy-ready brewery. Every tool is unlocked and waiting for you."
+      : hasFullSuite && !fullSuitePaid
+      ? "You are ready to explore. Your trial includes full access to all modules — with 2 free advocacy templates to try. No credit card required."
+      : "You are ready to brew smarter. Explore every module and reach out if you need help. Your 14-day Operations trial is active."
+
+    // ── Steps 17-19 (or later): bottom nav + finale ───────────────────────────
+    const baseStepsEnd = [
+      {
+        target: 'a[href="/help"]',
+        placement: 'right',
+        title: 'Help & FAQ',
+        body: "Find answers to common questions about compliance, TTB filing, grants, and using the app.",
+      },
+      {
+        target: 'a[href="/account"]',
+        placement: 'right',
+        title: 'Account Settings',
+        body: "Manage your brewery profile, subscription, and team members.",
+      },
+      {
+        target: null,
+        title: 'You Are All Set',
+        body: finaleBody,
+      },
+    ]
+
+    return [...baseStepsStart, ...fullSuiteSteps, ...baseStepsEnd]
+  }, [hasFullSuite, fullSuitePaid])
+
   const [stepIdx,      setStepIdx]      = useState(0)
   const [rect,         setRect]         = useState(null)
   const [pos,          setPos]          = useState(null)
@@ -279,6 +333,10 @@ export default function OnboardingTour({ onComplete }) {
     // DOM and scrollable for steps 10-16
     if (stepIdx === 9) {
       window.dispatchEvent(new CustomEvent('tour-expand-ops'))
+    }
+    // First Full Suite step — expand the Full Suite sidebar section
+    if (step.target === 'a[href="/events"]') {
+      window.dispatchEvent(new CustomEvent('tour-expand-fullsuite'))
     }
 
     if (!step.target) {
@@ -339,7 +397,7 @@ export default function OnboardingTour({ onComplete }) {
         </div>
       )}
 
-      {/* ── PATH B: Positioned tooltip — ONLY for targeted steps (steps 1-8, 10-18) ── */}
+      {/* ── PATH B: Positioned tooltip — ONLY for targeted steps ── */}
       {ready && !isCenteredStep && (
         <>
           {/* Amber highlight ring around the sidebar item — desktop only */}

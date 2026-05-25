@@ -246,11 +246,17 @@ export default function AppLayout() {
       setEssentialsExpanded(true)
       localStorage.setItem('sidebar_essentials_expanded', 'true')
     }
+    function handleExpandFullSuite() {
+      setFullSuiteExpanded(true)
+      localStorage.setItem('sidebar_fullsuite_expanded', 'true')
+    }
     window.addEventListener('tour-expand-ops', handleExpandOps)
     window.addEventListener('tour-expand-essentials', handleExpandEssentials)
+    window.addEventListener('tour-expand-fullsuite', handleExpandFullSuite)
     return () => {
       window.removeEventListener('tour-expand-ops', handleExpandOps)
       window.removeEventListener('tour-expand-essentials', handleExpandEssentials)
+      window.removeEventListener('tour-expand-fullsuite', handleExpandFullSuite)
     }
   }, [])
 
