@@ -91,20 +91,26 @@ Deno.serve(async (req) => {
   })
 })
 
+// All live mode price IDs mapped to their subscription tier.
+// Update this map when new prices are created in Stripe.
+const PRICE_TIER_MAP: Record<string, 'essentials' | 'operations' | 'full_suite'> = {
+  // Essentials
+  'price_1TabK4GrTq9DDyvYS5OJAcCT': 'essentials', // $9.99/month
+  'price_1TabKJGrTq9DDyvYUzeHwjvW': 'essentials', // $99.99/year
+  // Operations
+  'price_1Tb377GrTq9DDyvYa7DZ3JMy': 'operations', // $14.99/month
+  'price_1Tb37mGrTq9DDyvYJ3xsG5lQ': 'operations', // $149.99/year
+  // Full Suite
+  'price_1Tb39PGrTq9DDyvY5zT7bIzn': 'full_suite', // $19.99/month
+  'price_1Tb39hGrTq9DDyvY2FPEmWlX': 'full_suite', // $199.99/year
+}
+
 /**
  * Maps a Stripe price ID to one of our three subscription tiers.
- * Reads the four tier price IDs from environment variables so no code change
- * is needed when prices are updated in Stripe.
+ * Falls back to 'essentials' for any unrecognised price ID.
  */
 function getTierFromPriceId(priceId: string): 'essentials' | 'operations' | 'full_suite' {
-  const opMonthly  = Deno.env.get('STRIPE_OPERATIONS_MONTHLY_PRICE_ID')
-  const opYearly   = Deno.env.get('STRIPE_OPERATIONS_YEARLY_PRICE_ID')
-  const fsMonthly  = Deno.env.get('STRIPE_FULL_SUITE_MONTHLY_PRICE_ID')
-  const fsYearly   = Deno.env.get('STRIPE_FULL_SUITE_YEARLY_PRICE_ID')
-
-  if (priceId === opMonthly || priceId === opYearly) return 'operations'
-  if (priceId === fsMonthly || priceId === fsYearly) return 'full_suite'
-  return 'essentials'
+  return PRICE_TIER_MAP[priceId] ?? 'essentials'
 }
 
 /**

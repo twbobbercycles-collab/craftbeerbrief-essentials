@@ -20,7 +20,7 @@ const PRICE_IDS = {
   },
   full_suite: {
     monthly: import.meta.env.VITE_STRIPE_FULL_SUITE_MONTHLY_PRICE_ID,
-    annual:  import.meta.env.VITE_STRIPE_FULL_SUITE_ANNUAL_PRICE_ID,
+    annual:  import.meta.env.VITE_STRIPE_FULL_SUITE_YEARLY_PRICE_ID,
   },
 }
 
@@ -95,17 +95,10 @@ const TIERS = [
 ]
 
 export default function UpgradePage() {
-  const { user, profile, brewery } = useAuth()
+  const { user, profile } = useAuth()
   const [billing, setBilling] = useState('monthly')
   const [loading, setLoading] = useState('')   // set to a tierKey while that checkout is loading
   const [error, setError] = useState('')
-
-  // Full Suite waitlist modal state
-  const [waitlistOpen, setWaitlistOpen] = useState(false)
-  const [waitlistEmail, setWaitlistEmail] = useState('')
-  const [waitlistSubmitting, setWaitlistSubmitting] = useState(false)
-  const [waitlistDone, setWaitlistDone] = useState(false)
-  const [waitlistError, setWaitlistError] = useState('')
 
   const currentTier = profile?.subscription_tier ?? 'essentials'
   const subscriptionStatus = profile?.subscription_status
@@ -151,49 +144,8 @@ export default function UpgradePage() {
     }
   }
 
-  async function handleWaitlist(e) {
-    e.preventDefault()
-    setWaitlistSubmitting(true)
-    setWaitlistError('')
-    try {
-      const { error: dbError } = await supabase.from('full_suite_waitlist').insert({
-        email: waitlistEmail,
-        brewery_name: brewery?.name ?? null,
-      })
-      if (dbError) throw dbError
-      setWaitlistDone(true)
-    } catch {
-      setWaitlistError('Could not save your email. Please try again.')
-    } finally {
-      setWaitlistSubmitting(false)
-    }
-  }
-
   // Returns the CTA element for a given tier card
   function renderButton(tier) {
-    // Full Suite is not yet available — show Coming Soon with a waitlist prompt
-    if (tier.key === 'full_suite') {
-      return (
-        <div>
-          <button
-            onClick={() => { setWaitlistEmail(user?.email ?? ''); setWaitlistOpen(true) }}
-            title="Full Suite is coming soon. Join the waitlist to be notified."
-            className="w-full bg-gray-100 text-gray-400 font-semibold py-3 rounded-lg text-sm hover:bg-gray-200 transition-colors"
-          >
-            Coming Soon
-          </button>
-          <p className="text-xs text-center text-gray-400 mt-2">
-            <button
-              onClick={() => { setWaitlistEmail(user?.email ?? ''); setWaitlistOpen(true) }}
-              className="underline hover:text-gray-600 transition-colors"
-            >
-              Join the waitlist →
-            </button>
-          </p>
-        </div>
-      )
-    }
-
     const tierRank = TIER_RANK[tier.key] ?? 0
     const userRank = TIER_RANK[currentTier] ?? 0
     const isCurrentTier = tier.key === currentTier && isActiveSub
@@ -408,69 +360,6 @@ export default function UpgradePage() {
       <p className="text-center text-gray-400 text-xs mt-8">
         Secured by Stripe. No credit card required for trial. Cancel anytime. Your data is never deleted.
       </p>
-
-      {/* Full Suite waitlist modal */}
-      {waitlistOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
-          onClick={() => { setWaitlistOpen(false); setWaitlistDone(false); setWaitlistError('') }}
-        >
-          <div
-            className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {waitlistDone ? (
-              <div className="text-center space-y-3">
-                <p className="text-3xl">🎉</p>
-                <h3 className="text-lg font-bold text-navy">You are on the list!</h3>
-                <p className="text-sm text-gray-500">
-                  We will email you at <strong>{waitlistEmail}</strong> as soon as Full Suite launches.
-                </p>
-                <button
-                  onClick={() => { setWaitlistOpen(false); setWaitlistDone(false) }}
-                  className="w-full bg-amber hover:bg-amber-dark text-white font-semibold py-2.5 rounded-lg text-sm transition-colors"
-                >
-                  Close
-                </button>
-              </div>
-            ) : (
-              <>
-                <h3 className="text-lg font-bold text-navy mb-1">Full Suite — Coming Soon</h3>
-                <p className="text-sm text-gray-500 mb-4 leading-relaxed">
-                  Full Suite is currently in development. Enter your email below and we will notify you as soon as it launches.
-                </p>
-                <form onSubmit={handleWaitlist} className="space-y-3">
-                  <input
-                    type="email"
-                    required
-                    value={waitlistEmail}
-                    onChange={(e) => setWaitlistEmail(e.target.value)}
-                    placeholder="your@email.com"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber"
-                  />
-                  {waitlistError && (
-                    <p className="text-xs text-danger">{waitlistError}</p>
-                  )}
-                  <button
-                    type="submit"
-                    disabled={waitlistSubmitting}
-                    className="w-full bg-amber hover:bg-amber-dark text-white font-semibold py-2.5 rounded-lg text-sm transition-colors disabled:opacity-60"
-                  >
-                    {waitlistSubmitting ? 'Saving...' : 'Notify me when Full Suite launches'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setWaitlistOpen(false)}
-                    className="w-full text-gray-400 hover:text-gray-600 text-sm transition-colors py-1"
-                  >
-                    Cancel
-                  </button>
-                </form>
-              </>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   )
 }
