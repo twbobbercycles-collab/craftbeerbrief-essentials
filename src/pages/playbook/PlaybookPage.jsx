@@ -1050,12 +1050,16 @@ export default function PlaybookPage() {
         .from('playbook-documents')
         .createSignedUrl('playbook-2026.pdf', 60)
       if (error) throw error
+      const response = await fetch(data.signedUrl)
+      const blob = await response.blob()
+      const blobUrl = URL.createObjectURL(blob)
       const a = document.createElement('a')
-      a.href = data.signedUrl
-      a.download = 'Craft-Beer-Brief-Regulation-Playbook-2026.pdf'
+      a.href = blobUrl
+      a.download = 'Craft-Beer-Brief-Legislative-Playbook-2026.pdf'
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
+      URL.revokeObjectURL(blobUrl)
     } catch (err) {
       const msg = err?.message ?? ''
       setPdfError(
