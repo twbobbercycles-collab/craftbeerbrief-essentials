@@ -43,6 +43,7 @@ const TaproomPage             = lazy(() => import('./pages/drafttap/TaproomPage'
 const EventsPage              = lazy(() => import('./pages/events/EventsPage'))
 const WholesalePage           = lazy(() => import('./pages/wholesale/WholesalePage'))
 const TrainingPage            = lazy(() => import('./pages/training/TrainingPage'))
+const BenchmarkingPage        = lazy(() => import('./pages/benchmarking/BenchmarkingPage'))
 
 // Suspense fallback wraps all lazy pages — shows a spinner during code loading
 function PageLoader() {
@@ -113,7 +114,8 @@ export default function App() {
           <Route path="taproom"        element={<TaproomPage />} />
           <Route path="events"         element={<EventsPage />} />
           <Route path="wholesale"      element={<WholesalePage />} />
-          <Route path="training"       element={<TrainingPage />} />
+          <Route path="training"        element={<TrainingPage />} />
+          <Route path="benchmarking"   element={<BenchmarkingPage />} />
           <Route path="recipes"  element={<RecipesPage />} />
           <Route path="recipes/:id" element={<RecipeDetailPage />} />
 

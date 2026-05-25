@@ -31,7 +31,8 @@ export default function DashboardPage() {
   const [taproomStats, setTaproomStats] = useState({ activeHandles: 0, longOnTap: 0, highestMarginPct: null })
   const [eventStats, setEventStats] = useState({ upcomingCount: 0, nextEvent: null, lastRoi: null })
   const [wholesaleStats, setWholesaleStats] = useState({ followupDue: 0, atRisk: 0, activeCount: 0 })
-  const [trainingStats, setTrainingStats] = useState({ overdueCount: 0, expiringCount: 0, pendingCount: 0 })
+  const [trainingStats,    setTrainingStats]    = useState({ overdueCount: 0, expiringCount: 0, pendingCount: 0 })
+  const [benchmarkStats,   setBenchmarkStats]   = useState({ currentRevenue: null, lastYearRevenue: null, laborPct: null })
 
   useEffect(() => {
     if (!brewery?.id) return
@@ -194,7 +195,18 @@ export default function DashboardPage() {
         ])
       : Promise.resolve([{ data: [] }, { data: [] }, { data: [] }])
 
-    const [deadlinesResult, grantsResult, periodsResult, recipesResult, inventoryResult, brewDayResult, fermentationResult, packagingResult, taproomResult, eventsResult, wholesaleResult, trainingResults] = await Promise.all([
+    // Taproom benchmarking: current month and same month last year for Full Suite users
+    const benchMonth     = monthStart
+    const lastYearMonth  = new Date(new Date().getFullYear() - 1, new Date().getMonth(), 1).toISOString().split('T')[0]
+    const benchmarkPromise = hasAccess('full_suite')
+      ? supabase
+          .from('taproom_metrics')
+          .select('metric_month, taproom_revenue, labor_cost')
+          .eq('brewery_id', brewery.id)
+          .in('metric_month', [benchMonth, lastYearMonth])
+      : Promise.resolve({ data: [] })
+
+    const [deadlinesResult, grantsResult, periodsResult, recipesResult, inventoryResult, brewDayResult, fermentationResult, packagingResult, taproomResult, eventsResult, wholesaleResult, trainingResults, benchmarkResult] = await Promise.all([
       supabase
         .from('brewery_deadlines')
         .select('*, compliance_deadlines(*)')
@@ -229,6 +241,7 @@ export default function DashboardPage() {
       eventsPromise,
       wholesalePromise,
       trainingPromise,
+      benchmarkPromise,
     ])
 
     setUpcomingDeadlines(deadlinesResult.data ?? [])
@@ -335,6 +348,19 @@ export default function DashboardPage() {
       overdueCount:  trainingRows.filter(r => r.expiration_date < today).length,
       expiringCount: trainingRows.filter(r => r.expiration_date >= today && r.expiration_date <= thirtyFromNow).length,
       pendingCount:  (trainingAssignResult.data ?? []).length,
+    })
+
+    // Compute benchmarking stats: current month revenue vs same month last year, and labor %
+    const benchRows = benchmarkResult.data ?? []
+    const curRow = benchRows.find(r => r.metric_month === benchMonth)
+    const lyRow  = benchRows.find(r => r.metric_month === lastYearMonth)
+    const curRev = curRow ? parseFloat(curRow.taproom_revenue) || null : null
+    const lyRev  = lyRow  ? parseFloat(lyRow.taproom_revenue)  || null : null
+    const curLabor = curRow ? parseFloat(curRow.labor_cost) || null : null
+    setBenchmarkStats({
+      currentRevenue:  curRev,
+      lastYearRevenue: lyRev,
+      laborPct: (curRev && curLabor) ? (curLabor / curRev) * 100 : null,
     })
 
     // Compute inventory alert counts from the raw ingredient rows
@@ -780,6 +806,55 @@ export default function DashboardPage() {
                   </p>
                   {trainingStats.pendingCount > 0 && (
                     <p className="text-xs text-blue-600 font-medium">Not yet completed</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Revenue Benchmarking widget — Full Suite only */}
+          {hasAccess('full_suite') && (
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">📈</span>
+                  <h3 className="font-semibold text-navy">Revenue Benchmarking</h3>
+                  <span className="bg-amber/20 text-amber text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide">
+                    Full Suite
+                  </span>
+                </div>
+                <Link to="/benchmarking" className="text-amber text-sm hover:underline">View dashboard →</Link>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-gray-500 mb-0.5">This month's taproom revenue</p>
+                  {benchmarkStats.currentRevenue != null ? (
+                    <>
+                      <p className="text-2xl font-bold text-navy">
+                        ${benchmarkStats.currentRevenue.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                      </p>
+                      {benchmarkStats.lastYearRevenue != null && (
+                        <p className={`text-xs font-medium ${benchmarkStats.currentRevenue >= benchmarkStats.lastYearRevenue ? 'text-green-600' : 'text-danger'}`}>
+                          {benchmarkStats.currentRevenue >= benchmarkStats.lastYearRevenue ? '▲' : '▼'}{' '}
+                          {Math.abs(((benchmarkStats.currentRevenue - benchmarkStats.lastYearRevenue) / benchmarkStats.lastYearRevenue) * 100).toFixed(1)}% vs last year
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <p className="text-sm text-gray-400">No data entered yet</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-0.5">Labor % of revenue (this month)</p>
+                  {benchmarkStats.laborPct != null ? (
+                    <>
+                      <p className={`text-2xl font-bold ${benchmarkStats.laborPct <= 32 ? 'text-green-600' : benchmarkStats.laborPct <= 40 ? 'text-amber' : 'text-danger'}`}>
+                        {benchmarkStats.laborPct.toFixed(1)}%
+                      </p>
+                      <p className="text-xs text-gray-400">Benchmark median: 32%</p>
+                    </>
+                  ) : (
+                    <p className="text-sm text-gray-400">Enter labor cost above</p>
                   )}
                 </div>
               </div>
