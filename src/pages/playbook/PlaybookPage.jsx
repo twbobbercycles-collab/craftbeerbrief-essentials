@@ -1039,6 +1039,35 @@ export default function PlaybookPage() {
     profile?.subscription_tier === 'full_suite' &&
     profile?.subscription_status === 'active'
 
+  const [pdfLoading, setPdfLoading] = useState(false)
+  const [pdfError,   setPdfError]   = useState(null)
+
+  async function handleDownloadPlaybook() {
+    setPdfError(null)
+    setPdfLoading(true)
+    try {
+      const { data, error } = await supabase.storage
+        .from('playbook-documents')
+        .createSignedUrl('playbook-2026.pdf', 60)
+      if (error) throw error
+      const a = document.createElement('a')
+      a.href = data.signedUrl
+      a.download = 'Craft-Beer-Brief-Regulation-Playbook-2026.pdf'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+    } catch (err) {
+      const msg = err?.message ?? ''
+      setPdfError(
+        msg.toLowerCase().includes('not found') || msg.toLowerCase().includes('404')
+          ? 'Playbook PDF coming soon'
+          : 'Download failed — please try again'
+      )
+    } finally {
+      setPdfLoading(false)
+    }
+  }
+
   return (
     <TierGate
       requiredTier="full_suite"
@@ -1056,7 +1085,7 @@ export default function PlaybookPage() {
           </p>
         </div>
 
-        {/* Coming-soon: Full Playbook PDF */}
+        {/* Full Playbook PDF download */}
         <div className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col sm:flex-row items-start sm:items-center gap-4">
           <div className="text-3xl">📖</div>
           <div className="flex-1">
@@ -1064,14 +1093,38 @@ export default function PlaybookPage() {
             <p className="text-sm text-gray-500 mt-0.5">
               A comprehensive state-by-state guide to brewery licensing, TTB requirements, distribution laws, and taproom regulations.
             </p>
+            {pdfError && (
+              <p className="text-xs text-amber-700 mt-1 font-medium">{pdfError}</p>
+            )}
           </div>
-          <button
-            disabled
-            className="shrink-0 bg-amber/40 text-white font-semibold text-sm px-5 py-2.5 rounded-lg cursor-not-allowed"
-            title="Coming soon"
-          >
-            Coming Soon
-          </button>
+
+          {canGenerate ? (
+            <button
+              type="button"
+              onClick={handleDownloadPlaybook}
+              disabled={pdfLoading}
+              className="shrink-0 bg-amber hover:bg-amber-dark text-white font-semibold text-sm px-5 py-2.5 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              {pdfLoading ? (
+                <>
+                  <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                  </svg>
+                  Downloading…
+                </>
+              ) : (
+                'Download PDF'
+              )}
+            </button>
+          ) : (
+            <a
+              href="/upgrade"
+              className="shrink-0 bg-navy hover:bg-navy/90 text-white font-semibold text-sm px-5 py-2.5 rounded-lg transition-colors text-center"
+            >
+              Upgrade to Download
+            </a>
+          )}
         </div>
 
         {/* Template categories */}
