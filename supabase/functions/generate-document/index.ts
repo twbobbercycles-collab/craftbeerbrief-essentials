@@ -51,6 +51,16 @@ const TEMPLATE_NAMES: Record<string, string> = {
   coalition_joint_statement:       'Coalition Joint Statement',
   coalition_partner_mou:           'Coalition Partner MOU',
   coalition_health_assessment:     'Coalition Health Assessment',
+  stakeholder_contact_log:         'Stakeholder Contact Log',
+  partner_recruitment_brief:       'Partner Recruitment Brief',
+  message_map:                     'Message Map',
+  legislative_tracking_log:        'Legislative Tracking Log',
+  local_regulatory_inventory:      'Local Regulatory Inventory',
+  impact_assessment_worksheet:     'Impact Assessment Worksheet',
+  legislative_voice_audit:         'Legislative Voice Audit',
+  economic_impact_worksheet:       'Economic Impact Worksheet',
+  annual_compliance_checklist:     'Annual Compliance Checklist',
+  pre_distribution_checklist:      'Pre-Distribution Checklist',
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -1274,6 +1284,587 @@ function buildCoalitionHealthAssessment(d: Record<string, string>): Document {
   return wrapDocument(children)
 }
 
+// ── makeCell — generic table cell used by several tracking templates ──────────
+
+function makeCell(lines: string[], widthPct: number, isHeader: boolean): TableCell {
+  return new TableCell({
+    width: { size: widthPct, type: WidthType.PERCENTAGE },
+    ...(isHeader ? { shading: { type: ShadingType.SOLID, fill: NAVY } } : {}),
+    borders: {
+      top:    { style: BorderStyle.SINGLE, size: 1, color: NAVY },
+      bottom: { style: BorderStyle.SINGLE, size: 1, color: NAVY },
+      left:   { style: BorderStyle.SINGLE, size: 1, color: NAVY },
+      right:  { style: BorderStyle.SINGLE, size: 1, color: NAVY },
+    },
+    children: lines.map(line => new Paragraph({
+      spacing: { before: 40, after: 40 },
+      children: [new TextRun({
+        text: line,
+        bold: isHeader,
+        size: isHeader ? 18 : 17,
+        color: isHeader ? WHITE : '000000',
+        font: 'Calibri',
+      })],
+    })),
+  })
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TEMPLATE 17 — STAKEHOLDER CONTACT LOG
+// ═════════════════════════════════════════════════════════════════════════════
+
+function buildStakeholderContactLog(d: Record<string, string>): Document {
+  const headers = ['Name / Title', 'Phone / Email', 'Org / District', 'Last Contact', 'Position', 'Next Step']
+  const widths  = [28, 13, 17, 14, 12, 16]
+
+  function contactRow(n: string, suffix: string): TableRow {
+    return new TableRow({
+      children: [
+        makeCell([d[`contact_${n}_name`] ?? '', d[`contact_${n}_title`] ?? ''], widths[0], false),
+        makeCell([d[`contact_${n}_phone`] ?? '', d[`contact_${n}_email`] ?? ''], widths[1], false),
+        makeCell([d[`contact_${n}_org`] ?? ''], widths[2], false),
+        makeCell([d[`contact_${n}_date`] ?? ''], widths[3], false),
+        makeCell([d[`contact_${n}_position`] ?? ''], widths[4], false),
+        makeCell([d[`contact_${n}_next`] ?? ''], widths[5], false),
+      ],
+    })
+  }
+
+  const headerRow = new TableRow({
+    children: headers.map((h, i) => makeCell([h], widths[i], true)),
+  })
+
+  const table = new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: [headerRow, contactRow('1', ''), contactRow('2', ''), contactRow('3', '')],
+  })
+
+  const children: (Paragraph | Table)[] = [
+    heading('STAKEHOLDER CONTACT LOG', 14),
+    heading(`${d.brewery_name} — Advocacy Campaign`, 12, AMBER, 80),
+    p(`Campaign: ${d.campaign_name}  ·  Updated: ${d.updated_date}`, { color: GRAY }),
+    rule(),
+    table as unknown as Paragraph,
+    spacer(),
+    p(
+      'Update this log after every contact. Notes on key conversations belong in your ' +
+      'CRM or a separate call memo. Review and update quarterly at minimum.',
+      { italic: true, color: GRAY, size: 9 }
+    ),
+  ]
+
+  return wrapDocument(children)
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TEMPLATE 18 — PARTNER RECRUITMENT BRIEF
+// ═════════════════════════════════════════════════════════════════════════════
+
+function buildPartnerRecruitmentBrief(d: Record<string, string>): Document {
+  const children: Paragraph[] = [
+    heading('PARTNER RECRUITMENT BRIEF', 14),
+    heading(d.coalition_name, 12, AMBER, 80),
+    p(`Prepared by: ${d.brewery_name}  ·  ${d.date}`, { color: GRAY }),
+    rule(),
+    heading('THE ISSUE', 12, NAVY),
+    p(d.issue_summary, { spaceAfter: 160 }),
+    heading('WHY THIS AFFECTS YOUR ORGANIZATION', 12, NAVY),
+    p(d.why_it_matters, { spaceAfter: 160 }),
+    heading('POLITICAL CONTEXT', 12, NAVY),
+    p(d.political_context, { spaceAfter: 160 }),
+    heading('TIMELINE', 12, NAVY),
+    p(d.campaign_timeline, { spaceAfter: 160 }),
+    rule(),
+    heading('PARTNERSHIP TIERS', 12, NAVY),
+    ...labelRow('Tier 1 Ask', d.tier_1_ask),
+    ...labelRow('Tier 2 Ask', d.tier_2_ask),
+    ...labelRow('Tier 3 Ask', d.tier_3_ask),
+    spacer(),
+    heading('WHAT THE COALITION PROVIDES', 12, NAVY),
+    p(d.coalition_provides, { spaceAfter: 160 }),
+    rule(),
+    heading('NEXT STEP', 12, AMBER),
+    p(`Contact ${d.contact_name} at ${d.contact_email} or ${d.contact_phone} to confirm your organization\'s participation.`, { spaceAfter: 80 }),
+    p(`Response requested by: ${d.response_deadline}`, { bold: true }),
+  ]
+
+  return wrapDocument(children)
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TEMPLATE 19 — MESSAGE MAP
+// ═════════════════════════════════════════════════════════════════════════════
+
+function buildMessageMap(d: Record<string, string>): Document {
+  function audienceSection(audience: string, keyMsg: string, bullets: string[]): Paragraph[] {
+    const items: Paragraph[] = [
+      heading(audience, 12, NAVY),
+      p(keyMsg || '—', { spaceAfter: 60 }),
+    ]
+    for (const b of bullets.filter(Boolean)) {
+      items.push(new Paragraph({
+        spacing: { before: 60, after: 60 },
+        indent: { left: 720 },
+        children: [new TextRun({ text: `• ${b}`, size: 22, font: 'Calibri' })],
+      }))
+    }
+    items.push(spacer())
+    return items
+  }
+
+  const children: Paragraph[] = [
+    heading('MESSAGE MAP', 14),
+    heading(`${d.brewery_name} — ${d.campaign_name}`, 12, AMBER, 80),
+    p(`Effective: ${d.effective_date}`, { color: GRAY }),
+    rule(),
+    new Paragraph({
+      spacing: { before: 120, after: 120 },
+      border: {
+        top:    { style: BorderStyle.THICK, size: 8, color: AMBER },
+        bottom: { style: BorderStyle.THICK, size: 8, color: AMBER },
+        left:   { style: BorderStyle.THICK, size: 8, color: AMBER },
+        right:  { style: BorderStyle.THICK, size: 8, color: AMBER },
+      },
+      indent: { left: 360, right: 360 },
+      children: [
+        new TextRun({ text: 'PRIMARY MESSAGE:  ', bold: true, size: 24, color: NAVY, font: 'Calibri' }),
+        new TextRun({ text: d.primary_message ?? '', bold: true, size: 24, color: NAVY, font: 'Calibri' }),
+      ],
+    }),
+    spacer(),
+    heading('AUDIENCE-SPECIFIC MESSAGES', 12, AMBER),
+    spacer(),
+    ...audienceSection('LEGISLATORS', d.legislator_key_message, [
+      d.legislator_support_1, d.legislator_support_2, d.legislator_support_3,
+    ]),
+    ...audienceSection('MEDIA', d.media_key_message, [
+      d.media_support_1, d.media_support_2, d.media_support_3,
+    ]),
+    ...audienceSection('CUSTOMERS & COMMUNITY', d.community_key_message, [
+      d.community_support_1, d.community_support_2, d.community_support_3,
+    ]),
+    rule(),
+    heading('PROOF POINTS', 12, NAVY),
+    p(d.proof_points, { spaceAfter: 160 }),
+    heading('WHAT NOT TO SAY', 12, NAVY),
+    p(d.avoid_language || '—', { spaceAfter: 160 }),
+    p(
+      'Review this map before every media interview, legislative meeting, or public appearance. ' +
+      'All coalition partners should be briefed on these messages.',
+      { italic: true, color: GRAY, size: 9 }
+    ),
+  ]
+
+  return wrapDocument(children)
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TEMPLATE 20 — LEGISLATIVE TRACKING LOG
+// ═════════════════════════════════════════════════════════════════════════════
+
+function buildLegislativeTrackingLog(d: Record<string, string>): Document {
+  function billSection(n: string): Paragraph[] {
+    if (!d[`bill_${n}_number`]) return []
+    return [
+      heading(`BILL ${n.toUpperCase()}`, 12, NAVY),
+      ...labelRow('Bill Number / Title', `${d[`bill_${n}_number`]} — ${d[`bill_${n}_title`]}`),
+      ...labelRow('Current Status',      d[`bill_${n}_status`]),
+      ...labelRow('Key Dates',           d[`bill_${n}_dates`]),
+      ...labelRow('Our Position',        d[`bill_${n}_position`]),
+      ...labelRow('Lead Sponsor',        d[`bill_${n}_sponsor`]),
+      ...labelRow('Our Actions to Date', d[`bill_${n}_actions`]),
+      ...labelRow('Next Action',         d[`bill_${n}_next`]),
+      spacer(),
+    ]
+  }
+
+  const children: Paragraph[] = [
+    heading('LEGISLATIVE TRACKING LOG', 14),
+    heading(`${d.brewery_name} — ${d.session_year} Legislative Session`, 12, AMBER, 80),
+    p(`Updated: ${d.updated_date}  ·  Primary Contact: ${d.primary_contact}`, { color: GRAY }),
+    rule(),
+    ...billSection('1'),
+    ...billSection('2'),
+    ...billSection('3'),
+    rule(),
+    p(
+      'Update this log after every committee hearing, floor vote, or material development. ' +
+      'Share updated versions with coalition partners within 24 hours of changes.',
+      { italic: true, color: GRAY, size: 9 }
+    ),
+  ]
+
+  return wrapDocument(children)
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TEMPLATE 21 — LOCAL REGULATORY INVENTORY
+// ═════════════════════════════════════════════════════════════════════════════
+
+function buildLocalRegulatoryInventory(d: Record<string, string>): Document {
+  const rows: [string, string][] = [
+    ['Business License', d.business_license],
+    ['Liquor License Type', d.liquor_license_type],
+    ['License Expiration', d.license_expiration],
+    ['Zoning Classification', d.zoning_classification],
+    ['Allowed Use', d.allowed_use],
+    ['Variance / CUP', d.variance_cup],
+    ['Taproom Seating Cap', d.seating_cap],
+    ['Hours Restriction', d.hours_restriction],
+    ['Noise Ordinance', d.noise_ordinance],
+    ['Outdoor Area Permit', d.outdoor_area_permit],
+    ['Events Permit', d.events_permit],
+    ['Food Service Required', d.food_service_required],
+    ['Health Dept Permit', d.health_dept_permit],
+    ['Sign Permit', d.sign_permit],
+    ['Fire / Occupancy Load', d.fire_occupancy],
+    ['Parking Requirements', d.parking_requirements],
+    ['State Brewer License', d.state_brewer_license],
+    ['State License Expiration', d.state_license_expiration],
+    ['State Retailer / Self-Distribution', d.state_distribution_rights],
+    ['TTB Brewer\'s Notice', d.ttb_brewers_notice],
+    ['TTB Formula Approvals', d.ttb_formula_approvals],
+    ['TTB COLA Current', d.ttb_cola_current],
+    ['Open Issues / Notes', d.open_issues || 'None'],
+    ['Next Annual Review Date', d.next_review_date],
+  ]
+
+  const tableRows = rows.map(([label, value]) =>
+    new TableRow({
+      children: [
+        makeCell([label], 38, false),
+        makeCell([value || '—'], 62, false),
+      ],
+    })
+  )
+
+  const headerRow = new TableRow({
+    children: [
+      makeCell(['Regulatory Item'], 38, true),
+      makeCell(['Current Status / Details'], 62, true),
+    ],
+  })
+
+  const table = new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: [headerRow, ...tableRows],
+  })
+
+  const children: (Paragraph | Table)[] = [
+    heading('LOCAL REGULATORY INVENTORY', 14),
+    heading(`${d.brewery_name} — ${d.brewery_city}, ${d.brewery_state}`, 12, AMBER, 80),
+    p(`Compiled: ${d.compiled_date}  ·  Compiled by: ${d.compiled_by}`, { color: GRAY }),
+    rule(),
+    table as unknown as Paragraph,
+    spacer(),
+    p(
+      'Review this inventory annually and after any material change to operations, ownership, or local ordinances. ' +
+      'Keep copies with your attorney and your insurance provider.',
+      { italic: true, color: GRAY, size: 9 }
+    ),
+  ]
+
+  return wrapDocument(children)
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TEMPLATE 22 — IMPACT ASSESSMENT WORKSHEET
+// ═════════════════════════════════════════════════════════════════════════════
+
+function buildImpactAssessmentWorksheet(d: Record<string, string>): Document {
+  function dimensionSection(title: string, prefix: string): Paragraph[] {
+    return [
+      heading(title, 12, NAVY),
+      ...labelRow('Current State', d[`${prefix}_current`]),
+      ...labelRow('Projected Change', d[`${prefix}_projected`]),
+      ...labelRow('Score (1–10)',  d[`${prefix}_score`]),
+      spacer(),
+    ]
+  }
+
+  const compositeScore = d.composite_score ?? '—'
+  const responseColor =
+    parseFloat(compositeScore) >= 7 ? 'DC2626' :
+    parseFloat(compositeScore) >= 4 ? AMBER : '16A34A'
+
+  const children: Paragraph[] = [
+    heading('IMPACT ASSESSMENT WORKSHEET', 14),
+    heading(`${d.brewery_name} — ${d.policy_issue}`, 12, AMBER, 80),
+    p(`Assessed: ${d.assessment_date}  ·  Lead Assessor: ${d.lead_assessor}`, { color: GRAY }),
+    rule(),
+    heading('IDENTIFICATION', 12, NAVY),
+    ...labelRow('Policy / Threat Description', d.policy_description),
+    ...labelRow('Originating Body',            d.originating_body),
+    ...labelRow('Expected Decision Date',      d.decision_date),
+    ...labelRow('Stakeholders Affected',       d.stakeholders_affected),
+    spacer(),
+    ...dimensionSection('DIMENSION 1 — FINANCIAL IMPACT',     'financial'),
+    ...dimensionSection('DIMENSION 2 — OPERATIONAL IMPACT',   'operational'),
+    ...dimensionSection('DIMENSION 3 — REPUTATIONAL IMPACT',  'reputational'),
+    ...dimensionSection('DIMENSION 4 — REGULATORY BURDEN',    'regulatory'),
+    ...dimensionSection('DIMENSION 5 — STRATEGIC OPPORTUNITY','strategic'),
+    rule(),
+    new Paragraph({
+      spacing: { before: 120, after: 120 },
+      shading: { type: ShadingType.SOLID, fill: 'FEF3C7' },
+      indent: { left: 360, right: 360 },
+      children: [
+        new TextRun({ text: 'COMPOSITE SCORE: ', bold: true, size: 24, color: NAVY, font: 'Calibri' }),
+        new TextRun({ text: compositeScore, bold: true, size: 24, color: responseColor, font: 'Calibri' }),
+        new TextRun({ text: ' / 50  ', bold: true, size: 24, color: responseColor, font: 'Calibri' }),
+        new TextRun({ text: `RESPONSE TIER: ${d.response_tier ?? '—'}`, bold: true, size: 22, color: responseColor, font: 'Calibri' }),
+      ],
+    }),
+    spacer(),
+    heading('RESPONSE PLAN', 12, AMBER),
+    ...labelRow('Immediate Actions (0–30 days)',  d.immediate_actions),
+    ...labelRow('Medium-Term Actions (30–90 days)', d.medium_term_actions),
+    ...labelRow('Long-Term Strategy',            d.long_term_strategy),
+    ...labelRow('Resources Required',            d.resources_required),
+    rule(),
+    p(`Approved by: ${d.approver_name}  ·  Date: ${d.assessment_date}`, { color: GRAY }),
+  ]
+
+  return wrapDocument(children)
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TEMPLATE 23 — LEGISLATIVE VOICE AUDIT
+// ═════════════════════════════════════════════════════════════════════════════
+
+function buildLegislativeVoiceAudit(d: Record<string, string>): Document {
+  function pillarSection(title: string, prefix: string): Paragraph[] {
+    return [
+      heading(title, 12, NAVY),
+      ...labelRow('Current State',          d[`${prefix}_current`]),
+      ...labelRow('Gaps Identified',        d[`${prefix}_gaps`] || 'None'),
+      ...labelRow('Priority Action',        d[`${prefix}_action`]),
+      spacer(),
+    ]
+  }
+
+  const children: Paragraph[] = [
+    heading('LEGISLATIVE VOICE AUDIT', 14),
+    heading(`${d.brewery_name} — ${d.audit_period}`, 12, AMBER, 80),
+    p(`Completed: ${d.audit_date}  ·  Completed by: ${d.completed_by}`, { color: GRAY }),
+    rule(),
+    ...pillarSection('PILLAR 1 — RELATIONSHIPS',           'relationships'),
+    ...pillarSection('PILLAR 2 — STORYTELLING',            'storytelling'),
+    ...pillarSection('PILLAR 3 — POLICY KNOWLEDGE',        'policy'),
+    ...pillarSection('PILLAR 4 — COALITION STRENGTH',      'coalition'),
+    ...pillarSection('PILLAR 5 — STRATEGIC COMMUNICATION', 'communication'),
+    rule(),
+    heading('OVERALL VOICE ASSESSMENT', 12, AMBER),
+    ...labelRow('Strongest Pillar',  d.strongest_pillar),
+    ...labelRow('Weakest Pillar',    d.weakest_pillar),
+    ...labelRow('Top Priority',      d.top_priority),
+    ...labelRow('90-Day Goal',       d.ninety_day_goal),
+    rule(),
+    p(`Next Audit: ${d.next_audit_date}`, { color: GRAY }),
+  ]
+
+  return wrapDocument(children)
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TEMPLATE 24 — ECONOMIC IMPACT WORKSHEET
+// ═════════════════════════════════════════════════════════════════════════════
+
+function buildEconomicImpactWorksheet(d: Record<string, string>): Document {
+  const stats: [string, string][] = [
+    ['Full-Time Employees',                d.ft_employees],
+    ['Part-Time / Seasonal Employees',     d.pt_employees],
+    ['Estimated Annual Payroll',           d.annual_payroll],
+    ['Annual Local Ingredient Spend',      d.local_ingredient_spend],
+    ['Annual Local Supplier Spend',        d.local_supplier_spend],
+    ['Barrels Produced Per Year',          d.barrels_per_year],
+    ['Direct Tax Revenue (est.)',          d.direct_tax_revenue],
+    ['Annual Visitor / Tourist Spend',     d.visitor_spend],
+    ['Events Hosted Per Year',             d.events_per_year],
+    ['Charitable Contributions',           d.charitable_contributions],
+  ]
+
+  const tableRows = stats.map(([label, value]) => statRow(label, value || '—'))
+
+  const table = new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: tableRows,
+  })
+
+  const children: (Paragraph | Table)[] = [
+    new Paragraph({
+      spacing: { before: 0, after: 120 },
+      children: [new TextRun({
+        text: d.brewery_name,
+        bold: true,
+        size: 80,
+        color: NAVY,
+        font: 'Calibri',
+      })],
+    }),
+    p(`${d.brewery_city}, ${d.brewery_state}  ·  Est. ${d.year_established}`, { color: AMBER, size: 12 }),
+    rule(),
+    heading('WHO WE ARE', 12, NAVY),
+    p(d.brewery_narrative, { spaceAfter: 160 }),
+    heading('OUR ECONOMIC CONTRIBUTION', 12, AMBER),
+    spacer(),
+    table as unknown as Paragraph,
+    spacer(),
+    heading('OUR LEGISLATIVE PRIORITY', 12, NAVY),
+    p(d.legislative_priority, { spaceAfter: 160 }),
+    heading('WHAT WE ARE ASKING', 12, NAVY),
+    p(d.specific_ask, { spaceAfter: 160 }),
+    rule(),
+    heading('CONTACT', 12, NAVY),
+    p(d.brewer_name, { bold: true, spaceAfter: 20 }),
+    p(d.brewer_title ?? '', { spaceAfter: 20 }),
+    p(d.brewer_email ?? '', { color: AMBER, spaceAfter: 20 }),
+    p(d.brewer_phone ?? '', { spaceAfter: 20 }),
+  ]
+
+  return wrapDocument(children)
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TEMPLATE 25 — ANNUAL COMPLIANCE CHECKLIST
+// ═════════════════════════════════════════════════════════════════════════════
+
+function buildAnnualComplianceChecklist(d: Record<string, string>): Document {
+  function sectionNote(val: string): Paragraph[] {
+    return val ? [p(`Note: ${val}`, { italic: true, color: GRAY, size: 9, spaceAfter: 60 })] : []
+  }
+
+  const children: Paragraph[] = [
+    heading('ANNUAL COMPLIANCE CHECKLIST', 14),
+    heading(`${d.brewery_name} — ${d.review_year}`, 12, AMBER, 80),
+    p(`Completed: ${d.review_date}  ·  Completed by: ${d.completed_by}`, { color: GRAY }),
+    rule(),
+
+    heading('FEDERAL COMPLIANCE', 12, NAVY),
+    checkboxLine(d.ttb_notice_current,      'TTB Brewer\'s Notice current and accurate'),
+    checkboxLine(d.ttb_reports_filed,       'All TTB operational reports filed on time'),
+    checkboxLine(d.cola_current,            'COLAs current for all marketed products'),
+    checkboxLine(d.formula_approvals,       'Formula approvals obtained where required'),
+    checkboxLine(d.federal_excise_current,  'Federal excise tax current'),
+    ...sectionNote(d.federal_notes),
+    spacer(),
+
+    heading('STATE COMPLIANCE', 12, NAVY),
+    checkboxLine(d.state_license_current,   'State brewer / manufacturer license current'),
+    checkboxLine(d.state_reports_filed,     'State production reports filed on time'),
+    checkboxLine(d.state_excise_current,    'State excise tax current'),
+    checkboxLine(d.distribution_agreements, 'Distribution agreements comply with state franchise law'),
+    checkboxLine(d.self_distribution_check, 'Self-distribution rights verified if applicable'),
+    ...sectionNote(d.state_notes),
+    spacer(),
+
+    heading('LOCAL COMPLIANCE', 12, NAVY),
+    checkboxLine(d.local_license_current,   'Local business license current'),
+    checkboxLine(d.liquor_license_current,  'Local liquor license current'),
+    checkboxLine(d.zoning_current,          'Zoning / CUP conditions met'),
+    checkboxLine(d.health_permit_current,   'Health department permit current (if applicable)'),
+    checkboxLine(d.fire_inspection_current, 'Fire inspection / occupancy certificate current'),
+    ...sectionNote(d.local_notes),
+    spacer(),
+
+    heading('ADVOCACY & REPORTING', 12, NAVY),
+    checkboxLine(d.guild_dues_paid,         'Guild / association dues paid'),
+    checkboxLine(d.pac_reporting,           'PAC or political contribution reporting complete (if applicable)'),
+    checkboxLine(d.lobbying_reporting,      'Lobbying disclosure filed (if applicable)'),
+    ...sectionNote(d.advocacy_notes),
+    rule(),
+
+    heading('TOP PRIORITIES FOR NEXT CYCLE', 12, AMBER),
+    d.priority_1 ? p(`1.  ${d.priority_1}`, { spaceAfter: 80 }) : spacer(),
+    d.priority_2 ? p(`2.  ${d.priority_2}`, { spaceAfter: 80 }) : spacer(),
+    d.priority_3 ? p(`3.  ${d.priority_3}`, { spaceAfter: 80 }) : spacer(),
+    rule(),
+
+    p('Signature: ___________________________', { spaceAfter: 80 }),
+    p(`Name: ${d.completed_by}`, { bold: true, spaceAfter: 20 }),
+    p(`Date: ${d.review_date}`),
+  ]
+
+  return wrapDocument(children)
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TEMPLATE 26 — PRE-DISTRIBUTION CHECKLIST
+// ═════════════════════════════════════════════════════════════════════════════
+
+function buildPreDistributionChecklist(d: Record<string, string>): Document {
+  function itemNote(val: string): Paragraph[] {
+    return val ? [p(`Note: ${val}`, { italic: true, color: GRAY, size: 9, spaceAfter: 60 })] : []
+  }
+
+  const children: Paragraph[] = [
+    heading('PRE-DISTRIBUTION CHECKLIST', 14),
+    heading(`${d.brewery_name} — ${d.product_name}`, 12, AMBER, 80),
+    p(`Package Date: ${d.package_date}  ·  Market: ${d.target_market}`, { color: GRAY }),
+    rule(),
+
+    checkboxLine(d.ttb_cola_obtained,     'TTB COLA obtained for this product and market'),
+    ...itemNote(d.ttb_cola_note),
+
+    checkboxLine(d.formula_approved,      'Formula approval obtained (if required)'),
+    ...itemNote(d.formula_note),
+
+    checkboxLine(d.state_registration,    'Product registered in destination state (if required)'),
+    ...itemNote(d.state_reg_note),
+
+    checkboxLine(d.distributor_agreement, 'Signed distributor agreement on file'),
+    ...itemNote(d.distributor_note),
+
+    checkboxLine(d.franchise_law_review,  'State franchise law obligations reviewed'),
+    ...itemNote(d.franchise_note),
+
+    checkboxLine(d.excise_tax_registered, 'Excise tax registered / reported for destination state'),
+    ...itemNote(d.excise_note),
+
+    checkboxLine(d.label_compliance,      'Label compliant with destination state requirements'),
+    ...itemNote(d.label_note),
+
+    checkboxLine(d.pricing_filed,         'Pricing / price posting filed where required'),
+    ...itemNote(d.pricing_note),
+
+    checkboxLine(d.territory_defined,     'Territory rights clearly defined in distributor agreement'),
+    ...itemNote(d.territory_note),
+
+    checkboxLine(d.attorney_reviewed,     'Distribution contract reviewed by licensed attorney'),
+    ...itemNote(d.attorney_note),
+
+    spacer(),
+    p(`Attorney / Advisor: ${d.attorney_name}  ·  ${d.attorney_contact}`, { color: GRAY }),
+    spacer(),
+
+    new Paragraph({
+      spacing: { before: 120, after: 120 },
+      border: {
+        left: { style: BorderStyle.THICK, size: 16, color: AMBER },
+      },
+      indent: { left: 360 },
+      children: [
+        new TextRun({
+          text: 'IMPORTANT: ',
+          bold: true,
+          size: 22,
+          color: AMBER,
+          font: 'Calibri',
+        }),
+        new TextRun({
+          text: 'Distributing a product without a valid COLA, required state registration, or a ' +
+            'signed distributor agreement can result in product seizure, substantial fines, and loss ' +
+            'of distribution rights. Do not ship until all checked items are complete.',
+          size: 22,
+          font: 'Calibri',
+        }),
+      ],
+    }),
+  ]
+
+  return wrapDocument(children)
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // ROUTER — dispatches to the correct template builder
 // ═════════════════════════════════════════════════════════════════════════════
@@ -1296,6 +1887,16 @@ function generateDocument(templateId: string, data: Record<string, string>): Doc
     case 'coalition_joint_statement':      return buildCoalitionJointStatement(data)
     case 'coalition_partner_mou':          return buildCoalitionPartnerMou(data)
     case 'coalition_health_assessment':    return buildCoalitionHealthAssessment(data)
+    case 'stakeholder_contact_log':        return buildStakeholderContactLog(data)
+    case 'partner_recruitment_brief':      return buildPartnerRecruitmentBrief(data)
+    case 'message_map':                    return buildMessageMap(data)
+    case 'legislative_tracking_log':       return buildLegislativeTrackingLog(data)
+    case 'local_regulatory_inventory':     return buildLocalRegulatoryInventory(data)
+    case 'impact_assessment_worksheet':    return buildImpactAssessmentWorksheet(data)
+    case 'legislative_voice_audit':        return buildLegislativeVoiceAudit(data)
+    case 'economic_impact_worksheet':      return buildEconomicImpactWorksheet(data)
+    case 'annual_compliance_checklist':    return buildAnnualComplianceChecklist(data)
+    case 'pre_distribution_checklist':     return buildPreDistributionChecklist(data)
     default: throw new Error(`Unknown template_id: ${templateId}`)
   }
 }
