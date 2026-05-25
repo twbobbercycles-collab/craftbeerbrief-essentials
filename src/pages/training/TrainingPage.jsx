@@ -1,8 +1,9 @@
-// TrainingPage v2.0 — Full Suite Staff Training & Development Tracker
+// TrainingPage v2.1 — Full Suite Staff Training & Development Tracker
 /**
  * Tracks training programs, assignments, and staff completion records.
  * Three tabs: Programs (library) | Staff Records (matrix + log) | Compliance (gaps + export)
  *
+ * v2.1 changes: staff dropdowns pull from Essentials staff_members table.
  * v2.0 changes: assignment support, Compliance tab crash fix (undefined STATUS_LABEL key).
  */
 import { useEffect, useState, useCallback, useMemo } from 'react'
@@ -32,6 +33,17 @@ const TYPE_COLORS = {
   'Alcohol Awareness':  'bg-orange-100 text-orange-700',
   'Equipment':          'bg-teal-100 text-teal-700',
   'Other':              'bg-gray-100 text-gray-500',
+}
+
+const ROLE_LABELS = {
+  owner:                'Owner',
+  head_brewer:          'Head Brewer',
+  assistant_brewer:     'Assistant Brewer',
+  taproom_manager:      'Taproom Manager',
+  taproom_staff:        'Taproom Staff',
+  sales_representative: 'Sales Representative',
+  operations_manager:   'Operations Manager',
+  other:                'Other',
 }
 
 const INPUT = 'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-navy focus:outline-none focus:ring-2 focus:ring-amber/40'
@@ -105,10 +117,11 @@ function TrainingManager() {
   const { brewery } = useAuth()
   const [activeTab, setTab] = usePersistedTab('training_active_tab', 'programs')
 
-  const [programs,    setPrograms]    = useState([])
-  const [records,     setRecords]     = useState([])
-  const [assignments, setAssignments] = useState([])
-  const [loading,     setLoading]     = useState(true)
+  const [programs,      setPrograms]      = useState([])
+  const [records,       setRecords]       = useState([])
+  const [assignments,   setAssignments]   = useState([])
+  const [staffMembers,  setStaffMembers]  = useState([])
+  const [loading,       setLoading]       = useState(true)
 
   const [addProgramOpen, setAddProgramOpen] = useState(false)
   const [editProgram,    setEditProgram]    = useState(null)
@@ -117,18 +130,20 @@ function TrainingManager() {
   const [prefillRecord,  setPrefillRecord]  = useState(null)
   const [editRecord,     setEditRecord]     = useState(null)
 
-  // Load programs, records, and assignments for this brewery
+  // Load programs, records, assignments, and Essentials staff for this brewery
   const loadAll = useCallback(async () => {
     if (!brewery?.id) return
     setLoading(true)
-    const [progRes, recRes, assignRes] = await Promise.all([
+    const [progRes, recRes, assignRes, staffRes] = await Promise.all([
       supabase.from('training_programs').select('*').eq('brewery_id', brewery.id).order('program_name'),
       supabase.from('staff_training_records').select('*').eq('brewery_id', brewery.id).order('completion_date', { ascending: false }),
       supabase.from('training_assignments').select('*').eq('brewery_id', brewery.id).order('staff_name'),
+      supabase.from('staff_members').select('id, first_name, last_name, role, is_active').eq('brewery_id', brewery.id).eq('is_active', true).order('first_name'),
     ])
     setPrograms(progRes.data ?? [])
     setRecords(recRes.data ?? [])
     setAssignments(assignRes.data ?? [])
+    setStaffMembers(staffRes.data ?? [])
     setLoading(false)
   }, [brewery?.id])
 
@@ -171,6 +186,7 @@ function TrainingManager() {
           programs={programs}
           records={records}
           assignments={assignments}
+          staffMembers={staffMembers}
           brewery={brewery}
           onAdded={loadAll}
           addProgramOpen={addProgramOpen}
@@ -186,6 +202,7 @@ function TrainingManager() {
           programs={programs}
           records={records}
           assignments={assignments}
+          staffMembers={staffMembers}
           brewery={brewery}
           onAdded={loadAll}
           addRecordOpen={addRecordOpen}
@@ -201,6 +218,7 @@ function TrainingManager() {
           programs={programs}
           records={records}
           assignments={assignments}
+          staffMembers={staffMembers}
           openAddRecord={openAddRecord}
           addRecordOpen={addRecordOpen}
           setAddRecordOpen={setAddRecordOpen}
@@ -215,7 +233,7 @@ function TrainingManager() {
 
 // ── TAB 1: Programs ───────────────────────────────────────────────────────────
 
-function ProgramsTab({ programs, records, assignments, brewery, onAdded, addProgramOpen, setAddProgramOpen, editProgram, setEditProgram, assignTarget, setAssignTarget }) {
+function ProgramsTab({ programs, records, assignments, staffMembers, brewery, onAdded, addProgramOpen, setAddProgramOpen, editProgram, setEditProgram, assignTarget, setAssignTarget }) {
   const today = todayStr()
   const in60  = futureDateStr(60)
 
@@ -314,6 +332,7 @@ function ProgramsTab({ programs, records, assignments, brewery, onAdded, addProg
         program={assignTarget}
         assignments={assignments.filter(a => a.program_id === assignTarget?.id)}
         records={records}
+        staffMembers={staffMembers}
         brewery={brewery}
         onSaved={() => { setAssignTarget(null); onAdded() }}
       />
@@ -323,17 +342,28 @@ function ProgramsTab({ programs, records, assignments, brewery, onAdded, addProg
 
 // ── Assign Staff modal ────────────────────────────────────────────────────────
 
-function AssignStaffModal({ isOpen, onClose, program, assignments, records, brewery, onSaved }) {
-  // All known staff names from existing records and assignments
+function AssignStaffModal({ isOpen, onClose, program, assignments, records, staffMembers, brewery, onSaved }) {
+  // Build checklist: Essentials staff first, then any history-only names as a fallback section
   const knownStaff = useMemo(() => {
-    const fromRecords     = records.map(r => ({ name: r.staff_name, role: r.staff_role || '' }))
-    const fromAssignments = assignments.map(a => ({ name: a.staff_name, role: a.staff_role || '' }))
-    const map = {}
-    ;[...fromRecords, ...fromAssignments].forEach(({ name, role }) => {
-      if (name && !map[name]) map[name] = role
+    // Primary: active staff from the Essentials staff_members table
+    const systemNames = new Set(staffMembers.map(s => `${s.first_name} ${s.last_name}`))
+    const fromSystem  = staffMembers.map(s => ({
+      name: `${s.first_name} ${s.last_name}`,
+      role: ROLE_LABELS[s.role] ?? s.role,
+      fromSystem: true,
+    }))
+    // Fallback: names that appear in training history but not in the staff table
+    const historyMap = {}
+    ;[...records.map(r => ({ name: r.staff_name, role: r.staff_role || '' })),
+      ...assignments.map(a => ({ name: a.staff_name, role: a.staff_role || '' }))
+    ].forEach(({ name, role }) => {
+      if (name && !systemNames.has(name) && !historyMap[name]) historyMap[name] = role
     })
-    return Object.entries(map).map(([name, role]) => ({ name, role })).sort((a, b) => a.name.localeCompare(b.name))
-  }, [records, assignments])
+    const fromHistory = Object.entries(historyMap)
+      .map(([name, role]) => ({ name, role, fromSystem: false }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+    return [...fromSystem, ...fromHistory]
+  }, [staffMembers, records, assignments])
 
   // Currently assigned staff names for this program (excluding excused)
   const currentlyAssigned = new Set(assignments.filter(a => a.status !== 'excused').map(a => a.staff_name))
@@ -440,23 +470,35 @@ function AssignStaffModal({ isOpen, onClose, program, assignments, records, brew
           <input type="date" value={requiredDate} onChange={e => setRequiredDate(e.target.value)} className={INPUT} />
         </div>
 
-        {/* Known staff checklist */}
+        {/* Staff checklist — system staff first, then history-only fallback */}
         {knownStaff.length > 0 && (
           <div>
             <label className={LBL}>Staff Members</label>
-            <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-56 overflow-y-auto">
-              {knownStaff.map(({ name, role }) => (
-                <label key={name} className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50">
-                  <input
-                    type="checkbox"
-                    checked={selected.has(name)}
-                    onChange={() => toggleStaff(name)}
-                    className="accent-amber"
-                  />
-                  <span className="text-sm text-navy font-medium">{name}</span>
-                  {role && <span className="text-xs text-gray-400">{role}</span>}
-                </label>
-              ))}
+            <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-64 overflow-y-auto">
+              {knownStaff.map(({ name, role, fromSystem }, idx) => {
+                // Insert a divider before the first history-only entry
+                const prevIsSystem = idx > 0 ? knownStaff[idx - 1].fromSystem : true
+                const showDivider  = !fromSystem && prevIsSystem && knownStaff.some(s => s.fromSystem)
+                return (
+                  <div key={name}>
+                    {showDivider && (
+                      <div className="px-3 py-1.5 bg-gray-50 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+                        Previous staff (from training history)
+                      </div>
+                    )}
+                    <label className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(name)}
+                        onChange={() => toggleStaff(name)}
+                        className="accent-amber"
+                      />
+                      <span className="text-sm text-navy font-medium">{name}</span>
+                      {role && <span className="text-xs text-gray-400">{role}</span>}
+                    </label>
+                  </div>
+                )
+              })}
             </div>
           </div>
         )}
@@ -662,7 +704,7 @@ function ProgramModal({ isOpen, onClose, program, brewery, onSaved }) {
 
 // ── TAB 2: Staff Records ──────────────────────────────────────────────────────
 
-function StaffRecordsTab({ programs, records, assignments, brewery, onAdded, addRecordOpen, openAddRecord, setAddRecordOpen, prefillRecord, editRecord, setEditRecord }) {
+function StaffRecordsTab({ programs, records, assignments, staffMembers, brewery, onAdded, addRecordOpen, openAddRecord, setAddRecordOpen, prefillRecord, editRecord, setEditRecord }) {
   const [searchStaff,   setSearchStaff]   = useState('')
   const [filterType,    setFilterType]    = useState('')
   const [filterStatus,  setFilterStatus]  = useState('')
@@ -867,6 +909,7 @@ function StaffRecordsTab({ programs, records, assignments, brewery, onAdded, add
         prefill={prefillRecord}
         programs={programs}
         staffNames={staffNames}
+        staffMembers={staffMembers}
         brewery={brewery}
         onSaved={() => { setAddRecordOpen(false); setEditRecord(null); onAdded() }}
       />
@@ -899,18 +942,31 @@ function DeleteRecordButton({ record, onDeleted }) {
 
 // ── Record modal (add / edit) ─────────────────────────────────────────────────
 
-function RecordModal({ isOpen, onClose, record, prefill, programs, staffNames, brewery, onSaved }) {
+function RecordModal({ isOpen, onClose, record, prefill, programs, staffNames, staffMembers, brewery, onSaved }) {
   const isEdit = !!record
   const { loadDraft, saveDraft, clearDraft, draftRestored, dismissDraftBanner } = useModalDraft('modal_draft_training_record')
 
-  const [form, setForm]     = useState(EMPTY_RECORD)
-  const [saving, setSaving] = useState(false)
-  const [error, setError]   = useState('')
+  const [form,           setForm]           = useState(EMPTY_RECORD)
+  const [staffSelectVal, setStaffSelectVal] = useState('')
+  const [saving,         setSaving]         = useState(false)
+  const [error,          setError]          = useState('')
+
+  // Names in training history that aren't in the Essentials staff table
+  const systemStaffNames  = useMemo(() => new Set(staffMembers.map(s => `${s.first_name} ${s.last_name}`)), [staffMembers])
+  const historyOnlyNames  = useMemo(() => staffNames.filter(n => !systemStaffNames.has(n)), [staffNames, systemStaffNames])
+
+  // Derive the correct select value for a given staff_name
+  function deriveSelectVal(name) {
+    if (!name) return ''
+    if (systemStaffNames.has(name)) return name
+    if (historyOnlyNames.includes(name)) return name
+    return '__other__'
+  }
 
   useEffect(() => {
     if (!isOpen) return
     if (isEdit) {
-      setForm({
+      const data = {
         staff_name:         record.staff_name,
         staff_role:         record.staff_role ?? '',
         program_id:         record.program_id ?? '',
@@ -923,14 +979,38 @@ function RecordModal({ isOpen, onClose, record, prefill, programs, staffNames, b
         trainer_name:       record.trainer_name ?? '',
         certificate_number: record.certificate_number ?? '',
         notes:              record.notes ?? '',
-      })
+      }
+      setForm(data)
+      setStaffSelectVal(deriveSelectVal(record.staff_name))
     } else if (prefill) {
       setForm({ ...EMPTY_RECORD, ...prefill })
+      setStaffSelectVal(deriveSelectVal(prefill.staff_name ?? ''))
     } else {
       const draft = loadDraft()
-      if (draft) setForm(draft)
+      if (draft) {
+        setForm(draft)
+        setStaffSelectVal(deriveSelectVal(draft.staff_name ?? ''))
+      } else {
+        setStaffSelectVal('')
+      }
     }
   }, [isOpen])
+
+  // Select a staff member from the dropdown; auto-fills role from the system table
+  function handleStaffSelect(val) {
+    setStaffSelectVal(val)
+    if (val === '__other__') {
+      setField('staff_name', '')
+      setField('staff_role', '')
+    } else if (val) {
+      setField('staff_name', val)
+      const sysMember = staffMembers.find(s => `${s.first_name} ${s.last_name}` === val)
+      if (sysMember) setField('staff_role', ROLE_LABELS[sysMember.role] ?? sysMember.role)
+    } else {
+      setField('staff_name', '')
+      setField('staff_role', '')
+    }
+  }
 
   function setField(key, val) {
     setForm(prev => {
@@ -994,12 +1074,14 @@ function RecordModal({ isOpen, onClose, record, prefill, programs, staffNames, b
 
     clearDraft()
     setForm(EMPTY_RECORD)
+    setStaffSelectVal('')
     setSaving(false)
     onSaved()
   }
 
   function handleClose() {
     setForm(EMPTY_RECORD)
+    setStaffSelectVal('')
     if (!isEdit) clearDraft()
     onClose()
   }
@@ -1018,10 +1100,32 @@ function RecordModal({ isOpen, onClose, record, prefill, programs, staffNames, b
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className={LBL}>Staff Name *</label>
-            <input list="staff-names-list" value={form.staff_name} onChange={e => setField('staff_name', e.target.value)} className={INPUT} placeholder="Type name…" required />
-            <datalist id="staff-names-list">
-              {staffNames.map(n => <option key={n} value={n} />)}
-            </datalist>
+            <select value={staffSelectVal} onChange={e => handleStaffSelect(e.target.value)} className={INPUT}>
+              <option value="">Select staff member…</option>
+              {staffMembers.map(s => {
+                const fullName = `${s.first_name} ${s.last_name}`
+                return (
+                  <option key={s.id} value={fullName}>
+                    {fullName} — {ROLE_LABELS[s.role] ?? s.role}
+                  </option>
+                )
+              })}
+              {historyOnlyNames.length > 0 && (
+                <option disabled>── Previous staff ──</option>
+              )}
+              {historyOnlyNames.map(n => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+              <option value="__other__">Other (type manually)…</option>
+            </select>
+            {staffSelectVal === '__other__' && (
+              <input
+                value={form.staff_name}
+                onChange={e => setField('staff_name', e.target.value)}
+                className={`${INPUT} mt-2`}
+                placeholder="Enter staff name…"
+              />
+            )}
           </div>
           <div>
             <label className={LBL}>Role</label>
@@ -1088,7 +1192,7 @@ function RecordModal({ isOpen, onClose, record, prefill, programs, staffNames, b
 
 // ── TAB 3: Compliance ─────────────────────────────────────────────────────────
 
-function ComplianceTab({ programs, records, assignments, openAddRecord, addRecordOpen, setAddRecordOpen, prefillRecord, brewery, onAdded }) {
+function ComplianceTab({ programs, records, assignments, staffMembers, openAddRecord, addRecordOpen, setAddRecordOpen, prefillRecord, brewery, onAdded }) {
   const today = todayStr()
   const in60  = futureDateStr(60)
 
@@ -1454,6 +1558,7 @@ function ComplianceTab({ programs, records, assignments, openAddRecord, addRecor
         prefill={prefillRecord}
         programs={programs}
         staffNames={[...new Set(records.map(r => r.staff_name))].sort()}
+        staffMembers={staffMembers}
         brewery={brewery}
         onSaved={() => { setAddRecordOpen(false); onAdded() }}
       />
