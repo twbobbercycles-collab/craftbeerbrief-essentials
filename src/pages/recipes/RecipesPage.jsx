@@ -811,7 +811,12 @@ function RecipeCard({ recipe, onEdit, onArchive, onDuplicate, onSaveNewVersion, 
       {/* Title + badges */}
       <div>
         <div className="flex items-start justify-between gap-2">
-          <h3 className="font-bold text-navy text-base leading-tight">{recipe.name}</h3>
+          <h3 className="font-bold text-navy text-base leading-tight">
+            {recipe.name}
+            {(recipe.version ?? 1) > 1 && (
+              <span style={{ color: '#C8871A' }}> — v{recipe.version}</span>
+            )}
+          </h3>
           <div className="flex items-center gap-1.5 shrink-0">
             {incompleteCount > 0 && (
               <span
@@ -826,16 +831,17 @@ function RecipeCard({ recipe, onEdit, onArchive, onDuplicate, onSaveNewVersion, 
             )}
           </div>
         </div>
+        {(recipe.version ?? 1) > 1 && recipe.version_notes && (
+          <p className="text-xs text-gray-500 italic mt-0.5">
+            Changes: {recipe.version_notes.length > 80 ? recipe.version_notes.slice(0, 80) + '…' : recipe.version_notes}
+          </p>
+        )}
         <div className="flex flex-wrap gap-1.5 mt-1.5">
           {recipe.style && (
             <span className="text-xs bg-amber/10 text-amber font-semibold px-2 py-0.5 rounded-full">{recipe.style}</span>
           )}
           {recipe.bjcp_category && (
             <span className="text-xs bg-navy/10 text-navy px-2 py-0.5 rounded-full">{recipe.bjcp_category}</span>
-          )}
-          {/* Version badge — shown when this recipe is v2 or later */}
-          {(recipe.version ?? 1) > 1 && (
-            <span className="text-xs bg-purple-50 text-purple-700 font-semibold px-2 py-0.5 rounded-full">v{recipe.version}</span>
           )}
           {/* Not current version warning */}
           {recipe.is_current_version === false && (
