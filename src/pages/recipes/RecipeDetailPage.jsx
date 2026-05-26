@@ -9,7 +9,7 @@
  * All cost math is imported from recipeUtils.js — no inline calculations here.
  */
 import { useEffect, useState, useMemo, useRef, useCallback } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../services/supabase'
 import LoadingSpinner from '../../components/LoadingSpinner'
@@ -64,9 +64,10 @@ function safeParse(val, fallback) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function RecipeDetailPage() {
-  const { id }    = useParams()
-  const navigate  = useNavigate()
-  const { brewery } = useAuth()
+  const { id }          = useParams()
+  const navigate        = useNavigate()
+  const [searchParams]  = useSearchParams()
+  const { brewery }     = useAuth()
   const { isReadOnly, ReadOnlyTooltip } = useReadOnly()
 
   const [recipe, setRecipe]   = useState(null)
@@ -112,6 +113,20 @@ export default function RecipeDetailPage() {
   const [brewCheckOpen, setBrewCheckOpen] = useState(false)
   const [brewCheckResults, setBrewCheckResults] = useState([])
 
+  // Version control state
+  const [hasBrewed,          setHasBrewed]          = useState(false)
+  const [versionHistory,     setVersionHistory]      = useState([])   // all recipes in this version family
+  const [versionHistoryOpen, setVersionHistoryOpen]  = useState(() => searchParams.get('versions') === '1')
+  const [saveVersionOpen,    setSaveVersionOpen]     = useState(false)
+  const [versionNotes,       setVersionNotes]        = useState('')
+  const [versionSaving,      setVersionSaving]       = useState(false)
+  const [versionError,       setVersionError]        = useState('')
+  const [compareOpen,        setCompareOpen]         = useState(false)
+  const [compareIdA,         setCompareIdA]          = useState('')
+  const [compareIdB,         setCompareIdB]          = useState('')
+  const [compareData,        setCompareData]         = useState(null)  // { a: {recipe, lines}, b: {recipe, lines} }
+  const [compareLoading,     setCompareLoading]      = useState(false)
+
   // Autocomplete state — tracks which line's name input is active
   const [acLineId, setAcLineId]   = useState(null)
   const [acQuery, setAcQuery]     = useState('')
@@ -130,7 +145,7 @@ export default function RecipeDetailPage() {
     if (!id || !brewery?.id) return
     setLoading(true)
 
-    const [recipeResult, linesResult, libResult] = await Promise.all([
+    const [recipeResult, linesResult, libResult, brewedResult] = await Promise.all([
       supabase.from('recipes').select('*').eq('id', id).single(),
       supabase.from('recipe_ingredients')
         .select('*, ingredient:ingredients(id,name,category,unit,current_price_per_unit,ingredient_suppliers(*)), supplier:ingredient_suppliers(id,supplier_name,price_per_unit,is_preferred)')
@@ -140,6 +155,9 @@ export default function RecipeDetailPage() {
         .select('*, ingredient_suppliers(*)')
         .eq('brewery_id', brewery.id)
         .order('category').order('name'),
+      supabase.from('brew_days').select('id', { count: 'exact', head: true })
+        .eq('brewery_id', brewery.id)
+        .eq('recipe_id', id),
     ])
 
     if (recipeResult.error || !recipeResult.data) {
@@ -149,6 +167,37 @@ export default function RecipeDetailPage() {
     }
 
     const r = recipeResult.data
+    setHasBrewed((brewedResult.count ?? 0) > 0)
+
+    // Load all versions in this recipe's family (same root parent or is the root)
+    const rootId = r.parent_recipe_id ?? r.id
+    const { data: familyRows } = await supabase
+      .from('recipes')
+      .select('id, name, version, version_notes, is_current_version, parent_recipe_id, created_at, updated_at')
+      .eq('brewery_id', brewery.id)
+      .or(`id.eq.${rootId},parent_recipe_id.eq.${rootId}`)
+      .order('version', { ascending: false })
+
+    // Enrich each version with the first brew date that used it
+    const familyIds = (familyRows ?? []).map(v => v.id)
+    const { data: brewDayLinks } = familyIds.length > 0
+      ? await supabase.from('brew_days')
+          .select('recipe_id, brew_date')
+          .in('recipe_id', familyIds)
+          .order('brew_date', { ascending: true })
+      : { data: [] }
+
+    const firstBrewByRecipeId = {}
+    for (const bd of (brewDayLinks ?? [])) {
+      if (!firstBrewByRecipeId[bd.recipe_id]) firstBrewByRecipeId[bd.recipe_id] = bd.brew_date
+    }
+
+    const enrichedFamily = (familyRows ?? []).map(v => ({
+      ...v,
+      _firstBrewDate: firstBrewByRecipeId[v.id] ?? null,
+    }))
+    setVersionHistory(enrichedFamily)
+
     setRecipe(r)
     setBatchSize(String(r.base_batch_size ?? ''))
     setPackagingSplits(r.packaging_splits ?? [])
@@ -428,6 +477,104 @@ export default function RecipeDetailPage() {
     navigate(`/recipes/${copy.id}`)
   }
 
+  // ── Save New Version ─────────────────────────────────────────────────────────
+
+  async function handleSaveNewVersion() {
+    if (versionSaving) return
+    setVersionSaving(true)
+    setVersionError('')
+
+    const rootId = recipe.parent_recipe_id ?? recipe.id
+    const { error: markErr } = await supabase.from('recipes')
+      .update({ is_current_version: false })
+      .or(`id.eq.${rootId},parent_recipe_id.eq.${rootId}`)
+      .eq('brewery_id', brewery.id)
+    if (markErr) { setVersionError('Failed to mark old versions.'); setVersionSaving(false); return }
+
+    const { data: newRecipe, error: insertErr } = await supabase.from('recipes').insert({
+      brewery_id: brewery.id,
+      name: recipe.name,
+      style: recipe.style,
+      bjcp_category: recipe.bjcp_category,
+      base_batch_size: recipe.base_batch_size,
+      base_batch_size_unit: recipe.base_batch_size_unit,
+      description: recipe.description,
+      target_og: recipe.target_og,
+      target_fg: recipe.target_fg,
+      target_abv: recipe.target_abv,
+      target_ibu: recipe.target_ibu,
+      target_srm: recipe.target_srm,
+      packaging_splits:           recipe.packaging_splits ?? null,
+      packaging_container_type:   recipe.packaging_container_type,
+      packaging_cost_per_unit:    recipe.packaging_cost_per_unit,
+      label_cost_per_unit:        recipe.label_cost_per_unit,
+      carrier_cost_per_unit:      recipe.carrier_cost_per_unit,
+      packaging_yield_percentage: recipe.packaging_yield_percentage,
+      brew_hours:                 recipe.brew_hours,
+      labor_rate_per_hour:        recipe.labor_rate_per_hour,
+      utilities_cost_per_barrel:  recipe.utilities_cost_per_barrel,
+      cleaning_cost_per_batch:    recipe.cleaning_cost_per_batch,
+      water_cost_per_barrel:      recipe.water_cost_per_barrel,
+      wastewater_cost_per_barrel: recipe.wastewater_cost_per_barrel,
+      fixed_overhead_percentage:  recipe.fixed_overhead_percentage,
+      target_margin_percentage:   recipe.target_margin_percentage,
+      tax_rate:                   recipe.tax_rate,
+      version:                    recipe.version + 1,
+      parent_recipe_id:           rootId,
+      is_current_version:         true,
+      version_notes:              versionNotes.trim() || null,
+    }).select().single()
+    if (insertErr || !newRecipe) { setVersionError('Failed to create new version.'); setVersionSaving(false); return }
+
+    if (lines.length > 0) {
+      const { error: copyErr } = await supabase.from('recipe_ingredients').insert(
+        lines.map(l => ({
+          recipe_id:       newRecipe.id,
+          brewery_id:      brewery.id,
+          ingredient_id:   l.ingredient_id,
+          ingredient_name: l.ingredient_name,
+          amount:          l.amount,
+          unit:            l.unit,
+          scale_with_batch: l.scale_with_batch,
+          addition_type:   l.addition_type,
+          addition_time:   l.addition_time,
+          notes:           l.notes,
+          sort_order:      l.sort_order,
+          supplier_id:     l.supplier_id,
+        }))
+      )
+      if (copyErr) {
+        await supabase.from('recipes').delete().eq('id', newRecipe.id)
+        setVersionError('Failed to copy ingredients.')
+        setVersionSaving(false)
+        return
+      }
+    }
+
+    setSaveVersionOpen(false)
+    setVersionNotes('')
+    setVersionSaving(false)
+    navigate(`/recipes/${newRecipe.id}`)
+  }
+
+  // ── Compare versions ──────────────────────────────────────────────────────────
+
+  async function loadCompare(idA, idB) {
+    if (!idA || !idB) return
+    setCompareLoading(true)
+    const [resA, resB, linesA, linesB] = await Promise.all([
+      supabase.from('recipes').select('*').eq('id', idA).single(),
+      supabase.from('recipes').select('*').eq('id', idB).single(),
+      supabase.from('recipe_ingredients').select('*, ingredient:ingredients(id,name,category)').eq('recipe_id', idA).order('sort_order'),
+      supabase.from('recipe_ingredients').select('*, ingredient:ingredients(id,name,category)').eq('recipe_id', idB).order('sort_order'),
+    ])
+    setCompareData({
+      a: { recipe: resA.data, lines: linesA.data ?? [] },
+      b: { recipe: resB.data, lines: linesB.data ?? [] },
+    })
+    setCompareLoading(false)
+  }
+
   // ── Export CSV ────────────────────────────────────────────────────────────────
 
   function handleExportCSV() {
@@ -704,6 +851,15 @@ export default function RecipeDetailPage() {
                 Duplicate Recipe
               </button>
             </ReadOnlyTooltip>
+            {hasBrewed && !recipe.is_archived && (
+              <ReadOnlyTooltip isReadOnly={isReadOnly}>
+                <button onClick={() => setSaveVersionOpen(true)} disabled={isReadOnly}
+                  title="Preserve this version and start a new one with the same ingredients."
+                  className="text-xs border border-purple-200 text-purple-600 px-3 py-1.5 rounded-lg hover:bg-purple-50 transition-colors disabled:opacity-50">
+                  Save New Version
+                </button>
+              </ReadOnlyTooltip>
+            )}
             <ReadOnlyTooltip isReadOnly={isReadOnly}>
               <button onClick={handleArchive} disabled={isReadOnly}
                 className="text-xs border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50">
@@ -724,6 +880,80 @@ export default function RecipeDetailPage() {
           </div>
         )}
       </div>
+
+      {/* ── Brewed recipe warning banner ── */}
+      {hasBrewed && (
+        <div className="mb-4 flex items-start gap-3 bg-amber/10 border border-amber/30 rounded-xl px-4 py-3">
+          <span className="shrink-0 mt-0.5 text-amber">⚠</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-amber">This recipe has been brewed.</p>
+            <p className="text-xs text-gray-600 mt-0.5">Editing will change the recipe for future brews. To preserve this version, click Save New Version instead.</p>
+          </div>
+          {!recipe.is_archived && (
+            <button onClick={() => setSaveVersionOpen(true)}
+              className="shrink-0 text-xs font-semibold bg-amber text-white px-3 py-1.5 rounded-lg hover:bg-amber-dark transition-colors">
+              Save New Version
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ── Version history collapsible panel ── */}
+      {versionHistory.length > 1 && (
+        <div className="mb-4 bg-white border border-gray-200 rounded-xl overflow-hidden">
+          <button
+            onClick={() => setVersionHistoryOpen(v => !v)}
+            className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors text-left"
+          >
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-navy text-sm">Version History</span>
+              <span className="text-xs bg-purple-100 text-purple-600 font-semibold px-2 py-0.5 rounded-full">{versionHistory.length} versions</span>
+            </div>
+            <div className="flex items-center gap-3 text-gray-400">
+              <button
+                onClick={e => { e.stopPropagation(); setCompareIdA(''); setCompareIdB(''); setCompareData(null); setCompareOpen(true) }}
+                className="text-xs text-amber font-medium hover:underline"
+              >
+                Compare Versions
+              </button>
+              <span className="text-xs">{versionHistoryOpen ? '▲' : '▼'}</span>
+            </div>
+          </button>
+          {versionHistoryOpen && (
+            <div className="divide-y divide-gray-100">
+              {versionHistory.map(v => (
+                <div key={v.id} className="flex items-start gap-3 px-4 py-3 text-sm">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-navy">v{v.version}</span>
+                      {v.is_current_version && (
+                        <span className="text-xs bg-green-100 text-success font-semibold px-2 py-0.5 rounded-full">Current</span>
+                      )}
+                      {v.id === recipe.id && (
+                        <span className="text-xs bg-blue-50 text-blue-500 px-2 py-0.5 rounded-full">Viewing</span>
+                      )}
+                      {v._firstBrewDate && (
+                        <span className="text-xs text-gray-400">First brewed {new Date(v._firstBrewDate).toLocaleDateString()}</span>
+                      )}
+                    </div>
+                    {v.version_notes && (
+                      <p className="text-xs text-gray-500 mt-0.5">{v.version_notes}</p>
+                    )}
+                  </div>
+                  {v.id !== recipe.id && (
+                    <button
+                      onClick={() => navigate(`/recipes/${v.id}`)}
+                      className="shrink-0 text-xs text-amber font-medium hover:underline"
+                    >
+                      View →
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Recipe completion checklist ── */}
       <div className="mb-6">
@@ -960,6 +1190,115 @@ export default function RecipeDetailPage() {
           </div>
         </div>
       )}
+
+      {/* ── Save New Version modal ── */}
+      <ModalShell
+        isOpen={saveVersionOpen}
+        onClose={() => { setSaveVersionOpen(false); setVersionNotes(''); setVersionError('') }}
+        title="Save New Version"
+        maxWidth="max-w-md"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">
+            Creates a copy of this recipe as a new version. The current recipe is preserved unchanged. Use this before making changes you want to test while keeping this version available for future brews.
+          </p>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-600">What's changing? (optional)</label>
+            <textarea
+              value={versionNotes}
+              onChange={e => setVersionNotes(e.target.value)}
+              placeholder="e.g. Increased dry hop, swapped Columbus for Citra..."
+              rows={3}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber resize-none"
+            />
+          </div>
+          {versionError && <p className="text-sm text-danger">{versionError}</p>}
+          <div className="flex gap-3 pt-1">
+            <button onClick={handleSaveNewVersion} disabled={versionSaving}
+              className="flex-1 bg-amber hover:bg-amber-dark text-white font-semibold py-3 rounded-lg text-sm transition-colors disabled:opacity-50">
+              {versionSaving ? 'Saving...' : 'Create New Version'}
+            </button>
+            <button onClick={() => { setSaveVersionOpen(false); setVersionNotes(''); setVersionError('') }}
+              className="flex-1 border border-gray-300 text-gray-600 font-medium py-3 rounded-lg text-sm hover:bg-gray-50 transition-colors">
+              Cancel
+            </button>
+          </div>
+        </div>
+      </ModalShell>
+
+      {/* ── Compare Versions modal ── */}
+      <ModalShell
+        isOpen={compareOpen}
+        onClose={() => { setCompareOpen(false); setCompareData(null) }}
+        title="Compare Versions"
+        maxWidth="max-w-3xl"
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">Version A</label>
+              <select
+                value={compareIdA}
+                onChange={e => { setCompareIdA(e.target.value); if (compareIdB) loadCompare(e.target.value, compareIdB) }}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber"
+              >
+                <option value="">Select version...</option>
+                {versionHistory.map(v => (
+                  <option key={v.id} value={v.id}>v{v.version}{v.is_current_version ? ' (current)' : ''}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">Version B</label>
+              <select
+                value={compareIdB}
+                onChange={e => { setCompareIdB(e.target.value); if (compareIdA) loadCompare(compareIdA, e.target.value) }}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber"
+              >
+                <option value="">Select version...</option>
+                {versionHistory.map(v => (
+                  <option key={v.id} value={v.id}>v{v.version}{v.is_current_version ? ' (current)' : ''}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {compareLoading && (
+            <p className="text-sm text-gray-500 text-center py-6">Loading comparison...</p>
+          )}
+
+          {compareData && !compareLoading && (
+            <div className="grid grid-cols-2 gap-4 max-h-[50vh] overflow-y-auto border border-gray-100 rounded-lg p-3">
+              {['a', 'b'].map(side => (
+                <div key={side}>
+                  <p className="text-xs font-bold text-navy mb-3 uppercase tracking-wide">
+                    v{compareData[side].recipe?.version}
+                    {compareData[side].recipe?.is_current_version ? ' — Current' : ''}
+                  </p>
+                  {ADDITION_TYPES.map(addType => {
+                    const sLines = (compareData[side].lines ?? []).filter(l => l.addition_type === addType)
+                    if (!sLines.length) return null
+                    return (
+                      <div key={addType} className="mb-3">
+                        <p className="text-xs font-semibold text-gray-500 mb-1">{addType}</p>
+                        {sLines.map(l => (
+                          <p key={l.id} className="text-xs text-gray-700 py-0.5">
+                            {l.ingredient_name} — {l.amount} {l.unit}
+                          </p>
+                        ))}
+                      </div>
+                    )
+                  })}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {!compareData && !compareLoading && (
+            <p className="text-sm text-gray-400 text-center py-6">Select two versions above to compare their ingredients side by side.</p>
+          )}
+        </div>
+      </ModalShell>
 
       {/* Add Ingredient modal — opens when any section's "+ Add Ingredient" button is clicked */}
       <AddIngredientModal

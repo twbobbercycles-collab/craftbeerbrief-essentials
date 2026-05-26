@@ -131,6 +131,7 @@ export default function BrewDayPage() {
       .select('id, name, style, base_batch_size, base_batch_size_unit, target_og, target_fg, target_abv, target_ibu, fixed_overhead_percentage')
       .eq('brewery_id', brewery.id)
       .eq('is_archived', false)
+      .eq('is_current_version', true)
       .order('name')
     console.log('[BrewDayPage] loadRecipes:', { brewery_id: brewery.id, count: data?.length ?? 0, first: data?.[0]?.name ?? null, error })
     setRecipes(data ?? [])
@@ -517,6 +518,16 @@ export default function BrewDayPage() {
                       </option>
                     ))}
                   </select>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Showing current versions only.{' '}
+                    <button
+                      type="button"
+                      onClick={() => navigate('/recipes')}
+                      className="text-amber hover:underline font-medium"
+                    >
+                      View recipe history in the Recipe Builder →
+                    </button>
+                  </p>
                   {recipeWarning && (
                     <p className="text-xs text-amber mt-1">
                       ⚠ This recipe has incomplete items.{' '}

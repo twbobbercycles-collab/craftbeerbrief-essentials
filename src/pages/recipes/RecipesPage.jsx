@@ -3,7 +3,7 @@
  * Wrapped in TierGate so Essentials users see a locked frosted-glass preview.
  * Operations and Full Suite users get full access.
  */
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../services/supabase'
@@ -138,20 +138,37 @@ export default function RecipesPage() {
   const [saveError, setSaveError] = useState('')
   const draft = useModalDraft('modal_draft_recipe')
 
+  // Save New Version modal
+  const [versionModalRecipe, setVersionModalRecipe] = useState(null) // recipe being versioned
+  const [versionNotes, setVersionNotes]             = useState('')
+  const [versionSaving, setVersionSaving]           = useState(false)
+  const [versionError, setVersionError]             = useState('')
+
   // ── Load recipes ────────────────────────────────────────────────────────────
 
   const loadRecipes = useCallback(async () => {
     if (!brewery?.id) return
     setLoading(true)
 
-    // Fetch all recipes for this brewery
-    const { data: recipeRows, error } = await supabase
-      .from('recipes')
-      .select('*')
-      .eq('brewery_id', brewery.id)
-      .order('updated_at', { ascending: false })
+    // Fetch all recipes for this brewery plus brewed recipe IDs in parallel
+    const [recipeRes, brewedRes] = await Promise.all([
+      supabase.from('recipes').select('*').eq('brewery_id', brewery.id).order('updated_at', { ascending: false }),
+      supabase.from('brew_days').select('recipe_id').eq('brewery_id', brewery.id).not('recipe_id', 'is', null),
+    ])
 
-    if (error || !recipeRows) { setLoading(false); return }
+    if (recipeRes.error || !recipeRes.data) { setLoading(false); return }
+
+    const recipeRows = recipeRes.data
+    // Set of recipe IDs that have at least one brew day linked
+    const brewedSet  = new Set((brewedRes.data ?? []).map(b => b.recipe_id))
+
+    // Compute version family sizes so cards can show version badges and history links.
+    // Family root = parent_recipe_id if present, otherwise the recipe's own id.
+    const rootCount = {}
+    for (const r of recipeRows) {
+      const root = r.parent_recipe_id ?? r.id
+      rootCount[root] = (rootCount[root] ?? 0) + 1
+    }
 
     // Fetch ingredient lines for all recipes in one query to compute cost per pint on cards
     const ids = recipeRows.map(r => r.id)
@@ -171,7 +188,6 @@ export default function RecipesPage() {
 
     const enriched = recipeRows.map(r => {
       const lines = linesByRecipe[r.id] ?? []
-      // Map lines to the shape calculateTotalIngredientCost expects
       const mapped = lines.map(l => ({
         amount: parseFloat(l.amount) || 0,
         scale_with_batch: l.scale_with_batch,
@@ -181,7 +197,14 @@ export default function RecipesPage() {
       const totalIng  = calculateTotalIngredientCost(mapped, r.base_batch_size, r.base_batch_size)
       const breakdown = calculateTotalProductionCost(totalIng, 0, 0, 0, r.fixed_overhead_percentage ?? 15)
       const cpp       = calculateCostPerPint(calculateCostPerBarrel(breakdown.totalCost, barrels))
-      return { ...r, _ingredientCount: lines.length, _costPerPint: cpp }
+      const root      = r.parent_recipe_id ?? r.id
+      return {
+        ...r,
+        _ingredientCount:   lines.length,
+        _costPerPint:       cpp,
+        _hasBrewed:         brewedSet.has(r.id),
+        _versionFamilySize: rootCount[root] ?? 1,
+      }
     })
 
     setRecipes(enriched)
@@ -323,6 +346,104 @@ export default function RecipesPage() {
     navigate(`/recipes/${copy.id}`)
   }
 
+  // ── Save New Version ────────────────────────────────────────────────────────
+
+  function openVersionModal(recipe) {
+    setVersionModalRecipe(recipe)
+    setVersionNotes('')
+    setVersionError('')
+  }
+
+  function closeVersionModal() {
+    setVersionModalRecipe(null)
+    setVersionNotes('')
+    setVersionError('')
+  }
+
+  // Creates a new version of a recipe: marks the old one as not current, copies all fields
+  // and ingredients into a new row, then navigates to the new version.
+  async function handleSaveNewVersion(e) {
+    e.preventDefault()
+    if (!versionNotes.trim()) { setVersionError('Please describe what changed in this version.'); return }
+
+    const recipe = versionModalRecipe
+    setVersionSaving(true)
+    setVersionError('')
+
+    // The root parent is always the original recipe (never an intermediate version)
+    const rootParentId = recipe.parent_recipe_id ?? recipe.id
+
+    // Mark the current recipe as no longer the current version
+    await supabase.from('recipes').update({ is_current_version: false }).eq('id', recipe.id)
+
+    // Create the new version with all the same fields
+    const { data: copy, error: copyErr } = await supabase
+      .from('recipes')
+      .insert({
+        brewery_id:                  brewery.id,
+        name:                        recipe.name,
+        style:                       recipe.style,
+        bjcp_category:               recipe.bjcp_category,
+        base_batch_size:             recipe.base_batch_size,
+        base_batch_size_unit:        recipe.base_batch_size_unit,
+        description:                 recipe.description,
+        target_og:                   recipe.target_og,
+        target_fg:                   recipe.target_fg,
+        target_abv:                  recipe.target_abv,
+        target_ibu:                  recipe.target_ibu,
+        target_srm:                  recipe.target_srm,
+        packaging_splits:            recipe.packaging_splits ?? null,
+        packaging_container_type:    recipe.packaging_container_type,
+        packaging_cost_per_unit:     recipe.packaging_cost_per_unit,
+        label_cost_per_unit:         recipe.label_cost_per_unit,
+        carrier_cost_per_unit:       recipe.carrier_cost_per_unit,
+        packaging_yield_percentage:  recipe.packaging_yield_percentage,
+        brew_hours:                  recipe.brew_hours,
+        labor_rate_per_hour:         recipe.labor_rate_per_hour,
+        utilities_cost_per_barrel:   recipe.utilities_cost_per_barrel,
+        cleaning_cost_per_batch:     recipe.cleaning_cost_per_batch,
+        water_cost_per_barrel:       recipe.water_cost_per_barrel,
+        wastewater_cost_per_barrel:  recipe.wastewater_cost_per_barrel,
+        fixed_overhead_percentage:   recipe.fixed_overhead_percentage,
+        target_margin_percentage:    recipe.target_margin_percentage,
+        tax_rate:                    recipe.tax_rate,
+        version:                     (recipe.version ?? 1) + 1,
+        parent_recipe_id:            rootParentId,
+        version_notes:               versionNotes.trim(),
+        is_current_version:          true,
+      })
+      .select()
+      .single()
+
+    if (copyErr || !copy) {
+      // Roll back the is_current_version change if the copy failed
+      await supabase.from('recipes').update({ is_current_version: true }).eq('id', recipe.id)
+      setVersionError(copyErr?.message ?? 'Could not create new version. Please try again.')
+      setVersionSaving(false)
+      return
+    }
+
+    // Copy all ingredient lines to the new version
+    const { data: ings } = await supabase
+      .from('recipe_ingredients')
+      .select('*')
+      .eq('recipe_id', recipe.id)
+
+    if (ings?.length > 0) {
+      await supabase.from('recipe_ingredients').insert(
+        ings.map(({ id, recipe_id, created_at, ...rest }) => ({
+          ...rest,
+          recipe_id:  copy.id,
+          brewery_id: brewery.id,
+        }))
+      )
+    }
+
+    setVersionSaving(false)
+    closeVersionModal()
+    navigate(`/recipes/${copy.id}`)
+  }
+
   // ── Filtering ───────────────────────────────────────────────────────────────
 
   const allStyles = [...new Set(recipes.map(r => r.style).filter(Boolean))].sort()
@@ -424,6 +545,8 @@ export default function RecipesPage() {
               onEdit={() => navigate(`/recipes/${r.id}`)}
               onArchive={() => handleArchive(r)}
               onDuplicate={() => handleDuplicate(r)}
+              onSaveNewVersion={() => openVersionModal(r)}
+              onViewVersionHistory={() => navigate(`/recipes/${r.parent_recipe_id ?? r.id}?versions=1`)}
               isReadOnly={isReadOnly}
               ReadOnlyTooltip={ReadOnlyTooltip}
             />
@@ -443,6 +566,52 @@ export default function RecipesPage() {
       >
         {pageContent}
       </TierGate>
+
+      {/* Save New Version Modal */}
+      <ModalShell
+        isOpen={!!versionModalRecipe}
+        onClose={closeVersionModal}
+        title={`Save New Version — ${versionModalRecipe?.name ?? ''}`}
+        maxWidth="max-w-md"
+      >
+        <form onSubmit={handleSaveNewVersion} className="space-y-4">
+          <p className="text-sm text-gray-600 leading-relaxed">
+            The current recipe will be preserved as <strong>v{versionModalRecipe?.version ?? 1}</strong>. A new version
+            will be created as <strong>v{(versionModalRecipe?.version ?? 1) + 1}</strong> with all the same
+            ingredients and packaging splits. Make your edits after saving.
+          </p>
+
+          <div>
+            <label className="block text-sm font-semibold text-navy mb-1.5">
+              What changed in this version? <span className="text-danger">*</span>
+            </label>
+            <textarea
+              rows={3}
+              value={versionNotes}
+              onChange={e => setVersionNotes(e.target.value)}
+              placeholder="e.g. Increased dry hop addition, adjusted water chemistry..."
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber resize-none"
+            />
+          </div>
+
+          {versionError && (
+            <div className="bg-red-50 border border-danger text-danger rounded-lg px-4 py-3 text-sm">{versionError}</div>
+          )}
+
+          <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">
+            <button type="button" onClick={closeVersionModal} className="text-sm text-gray-500 hover:text-gray-700 px-4 py-2">
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={versionSaving}
+              className="bg-amber hover:bg-amber-dark text-white font-semibold px-5 py-2 rounded-lg text-sm transition-colors disabled:opacity-60"
+            >
+              {versionSaving ? 'Saving...' : 'Save New Version →'}
+            </button>
+          </div>
+        </form>
+      </ModalShell>
 
       {/* Add Recipe Modal */}
       <ModalShell
@@ -631,10 +800,11 @@ function recipeIncompleteCount(recipe) {
   return count
 }
 
-function RecipeCard({ recipe, onEdit, onArchive, onDuplicate, isReadOnly, ReadOnlyTooltip }) {
-  const hasIngredients = recipe._ingredientCount > 0
-  const cpp = recipe._costPerPint
+function RecipeCard({ recipe, onEdit, onArchive, onDuplicate, onSaveNewVersion, onViewVersionHistory, isReadOnly, ReadOnlyTooltip }) {
+  const hasIngredients  = recipe._ingredientCount > 0
+  const cpp             = recipe._costPerPint
   const incompleteCount = recipeIncompleteCount(recipe)
+  const hasVersions     = (recipe._versionFamilySize ?? 1) > 1
 
   return (
     <div className={`bg-white rounded-xl border border-gray-200 p-5 flex flex-col gap-3 ${recipe.is_archived ? 'opacity-60' : ''}`}>
@@ -663,10 +833,24 @@ function RecipeCard({ recipe, onEdit, onArchive, onDuplicate, isReadOnly, ReadOn
           {recipe.bjcp_category && (
             <span className="text-xs bg-navy/10 text-navy px-2 py-0.5 rounded-full">{recipe.bjcp_category}</span>
           )}
-          {recipe.version > 1 && (
-            <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">v{recipe.version}</span>
+          {/* Version badge — shown when this recipe is v2 or later */}
+          {(recipe.version ?? 1) > 1 && (
+            <span className="text-xs bg-purple-50 text-purple-700 font-semibold px-2 py-0.5 rounded-full">v{recipe.version}</span>
+          )}
+          {/* Not current version warning */}
+          {recipe.is_current_version === false && (
+            <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">older version</span>
           )}
         </div>
+        {/* Version history link — shown when a family has more than one member */}
+        {hasVersions && (
+          <button
+            onClick={onViewVersionHistory}
+            className="mt-1.5 text-xs text-amber hover:underline font-medium"
+          >
+            View version history →
+          </button>
+        )}
       </div>
 
       {/* Stats */}
@@ -704,6 +888,19 @@ function RecipeCard({ recipe, onEdit, onArchive, onDuplicate, isReadOnly, ReadOn
         >
           Edit Recipe
         </button>
+        {/* Save New Version — only shown for recipes that have been brewed at least once */}
+        {recipe._hasBrewed && !recipe.is_archived && (
+          <ReadOnlyTooltip isReadOnly={isReadOnly}>
+            <button
+              onClick={onSaveNewVersion}
+              disabled={isReadOnly}
+              title="Preserve this brewed version and create a new editable version"
+              className="text-sm text-purple-700 border border-purple-200 hover:bg-purple-50 px-3 py-2 rounded-lg transition-colors disabled:opacity-40 font-medium whitespace-nowrap"
+            >
+              + Version
+            </button>
+          </ReadOnlyTooltip>
+        )}
         <ReadOnlyTooltip isReadOnly={isReadOnly}>
           <button
             onClick={onDuplicate}

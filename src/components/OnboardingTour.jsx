@@ -108,7 +108,7 @@ function TourCardInner({ step, stepIdx, total, isFirst, isLast, arrow, onNext, o
 
 // ── Main export ───────────────────────────────────────────────────────────────
 export default function OnboardingTour({ onComplete }) {
-  const { hasAccess, isFullSuitePaid } = useAuth()
+  const { hasAccess, isFullSuitePaid, profile } = useAuth()
   const hasFullSuite  = hasAccess('full_suite')
   const fullSuitePaid = isFullSuitePaid()
 
@@ -267,6 +267,20 @@ export default function OnboardingTour({ onComplete }) {
       ? "You are ready to explore. Your trial includes full access to all modules — with 2 free advocacy templates to try. No credit card required."
       : "You are ready to brew smarter. Explore every module and reach out if you need help. Your 14-day Operations trial is active."
 
+    // ── AI assistant step — shown to all users (trial and paid) ─────────────
+    // Body text adapts based on whether the user is a paid subscriber or on trial
+    const aiAssistantStep = {
+      target: null,
+      title: '✨ Your AI Brewery Assistant',
+      body: (hasAccess('full_suite') && fullSuitePaid)
+        ? `Your paid subscription includes the Craft Brief AI Assistant. Look for the amber ✨ button in the bottom right corner of every page. Ask it anything — how to use the app, TTB compliance questions, brewery operations help, or advocacy guidance. You have ${
+            profile?.subscription_tier === 'full_suite' ? '60'
+            : profile?.subscription_tier === 'operations' ? '40'
+            : '20'
+          } messages per day included with your plan.`
+        : 'The Craft Brief AI Assistant is included with all paid plans — Essentials, Operations, and Full Suite. Upgrade after your trial to unlock the amber ✨ button in the bottom right corner. Ask it anything about brewery operations, TTB compliance, app navigation, and more.',
+    }
+
     // ── Steps 17-19 (or later): bottom nav + finale ───────────────────────────
     const baseStepsEnd = [
       {
@@ -288,8 +302,8 @@ export default function OnboardingTour({ onComplete }) {
       },
     ]
 
-    return [...baseStepsStart, ...fullSuiteSteps, ...baseStepsEnd]
-  }, [hasFullSuite, fullSuitePaid])
+    return [...baseStepsStart, ...fullSuiteSteps, ...baseStepsEnd.slice(0, -1), aiAssistantStep, baseStepsEnd[baseStepsEnd.length - 1]]
+  }, [hasFullSuite, fullSuitePaid, profile?.subscription_tier])
 
   const [stepIdx,      setStepIdx]      = useState(0)
   const [rect,         setRect]         = useState(null)

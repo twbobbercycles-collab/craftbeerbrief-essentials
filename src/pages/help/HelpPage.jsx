@@ -440,6 +440,37 @@ const CATEGORIES = [
       },
     ],
   },
+  // ── AI Assistant category ─────────────────────────────────────────────────────
+  {
+    id: 'ai-assistant',
+    label: 'AI Assistant',
+    items: [
+      {
+        q: 'What is the Craft Brief AI Assistant?',
+        a: 'The Craft Brief AI Assistant is a brewery-specific AI chat tool built into the app. It can help you navigate the app, answer TTB compliance questions, explain brewery operations concepts, help with advocacy strategy, and point you to the right features. Look for the amber ✨ button in the bottom right corner of any page. It is powered by Claude — Anthropic\'s AI — and trained with specific knowledge of The Craft Beer Brief app and the craft brewery industry.',
+      },
+      {
+        q: 'Which plans include the AI assistant?',
+        a: 'The AI assistant is available to all paying subscribers — Essentials, Operations, and Full Suite. It is not available during the free trial. Each plan includes a daily message allowance: Essentials subscribers get 20 messages per day, Operations subscribers get 40 messages per day, and Full Suite subscribers get 60 messages per day. Limits reset at midnight.',
+      },
+      {
+        q: 'What can the AI assistant help with?',
+        a: 'The AI assistant is great for app navigation (exactly where to find any feature), TTB compliance questions (excise tax rates, COLA requirements, Brewer\'s Notice, filing deadlines), brewery operations concepts (fermentation, packaging yields, cost per pint calculations), grant funding (which programs to apply for and how to find them in the app), and advocacy strategy (how to use the playbook templates, coalition building, legislative engagement). It knows the app inside and out and can walk you through any workflow step by step.',
+      },
+      {
+        q: 'What can the AI assistant NOT do?',
+        a: 'The AI assistant cannot access your actual brewery data — it does not know your specific recipes, fermentation readings, or distribution records. For those questions you need to look at your own data in the app. It also cannot provide legal advice or act as your attorney — for specific legal questions always consult a licensed alcohol beverage attorney. For specific tax advice consult a CPA. The assistant is a knowledgeable guide, not a licensed professional.',
+      },
+      {
+        q: 'What do I do if I hit my daily message limit?',
+        a: 'Your daily message limit resets at midnight in your local time zone. If you regularly hit your limit and need more messages consider upgrading to a higher tier — Operations subscribers get 40 messages per day and Full Suite subscribers get 60 messages per day. In the meantime the Help & FAQ section covers the most common questions and the search function finds answers quickly.',
+      },
+      {
+        q: 'How do I start a new conversation?',
+        a: 'Click the trash icon in the top right corner of the AI chat panel to clear the conversation and start fresh. Your conversation history is saved locally in your browser so it persists when you navigate between pages, but clearing it gives you a clean slate. Note that conversation history does not sync across different devices or browsers.',
+      },
+    ],
+  },
   // ── Universal categories ──────────────────────────────────────────────────────
   {
     id: 'account-billing',
