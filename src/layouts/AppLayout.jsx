@@ -34,6 +34,7 @@ const OPS_NAV = [
   { path: '/packaging',     label: 'Packaging',    icon: '📋' },
   { path: '/distribution',  label: 'Distribution', icon: '🚚' },
   { path: '/taproom',       label: 'Taproom',      icon: '🍺' },
+  { path: '/reports/batch-profitability', label: 'Batch Report', icon: '💹' },
 ]
 
 // Bottom nav items — always shown

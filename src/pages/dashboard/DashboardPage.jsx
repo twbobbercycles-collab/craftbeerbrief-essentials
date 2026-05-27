@@ -33,6 +33,7 @@ export default function DashboardPage() {
   const [wholesaleStats, setWholesaleStats] = useState({ followupDue: 0, atRisk: 0, activeCount: 0 })
   const [trainingStats,    setTrainingStats]    = useState({ overdueCount: 0, expiringCount: 0, pendingCount: 0 })
   const [benchmarkStats,   setBenchmarkStats]   = useState({ currentRevenue: null, lastYearRevenue: null, laborPct: null })
+  const [batchProfitStats, setBatchProfitStats] = useState({ recentBatch: null, avgCostDelta: null })
 
   useEffect(() => {
     if (!brewery?.id) return
@@ -206,7 +207,16 @@ export default function DashboardPage() {
           .in('metric_month', [benchMonth, lastYearMonth])
       : Promise.resolve({ data: [] })
 
-    const [deadlinesResult, grantsResult, periodsResult, recipesResult, inventoryResult, brewDayResult, fermentationResult, packagingResult, taproomResult, eventsResult, wholesaleResult, trainingResults, benchmarkResult] = await Promise.all([
+    // Last 5 batches for the Batch Profitability dashboard widget (Operations+)
+    const batchProfitPromise = hasAccess('operations')
+      ? supabase
+          .from('batch_profitability_summary')
+          .select('brew_day_id, beer_name, batch_number, recipe_cost_per_pint, actual_cost_per_pint, packaging_yield_percentage, packaging_status')
+          .order('brew_date', { ascending: false })
+          .limit(5)
+      : Promise.resolve({ data: [] })
+
+    const [deadlinesResult, grantsResult, periodsResult, recipesResult, inventoryResult, brewDayResult, fermentationResult, packagingResult, taproomResult, eventsResult, wholesaleResult, trainingResults, benchmarkResult, batchProfitResult] = await Promise.all([
       supabase
         .from('brewery_deadlines')
         .select('*, compliance_deadlines(*)')
@@ -242,6 +252,7 @@ export default function DashboardPage() {
       wholesalePromise,
       trainingPromise,
       benchmarkPromise,
+      batchProfitPromise,
     ])
 
     setUpcomingDeadlines(deadlinesResult.data ?? [])
@@ -373,6 +384,14 @@ export default function DashboardPage() {
         return Math.ceil((new Date(i.expiration_date) - new Date()) / 86400000) <= 30
       }).length,
     })
+    // Compute batch profitability widget stats from the last 5 batches
+    const batchRows = batchProfitResult.data ?? []
+    const withDeltas = batchRows.filter(b => b.recipe_cost_per_pint != null && b.actual_cost_per_pint != null)
+    const avgCostDelta = withDeltas.length > 0
+      ? withDeltas.reduce((s, b) => s + (parseFloat(b.actual_cost_per_pint) - parseFloat(b.recipe_cost_per_pint)), 0) / withDeltas.length
+      : null
+    setBatchProfitStats({ recentBatch: batchRows[0] ?? null, avgCostDelta })
+
     setLoading(false)
   }
 
@@ -722,6 +741,58 @@ export default function DashboardPage() {
                 </p>
               )}
             </div>
+          </div>
+
+          {/* Batch Profitability widget */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">💹</span>
+                <h3 className="font-semibold text-navy">Batch Profitability</h3>
+              </div>
+              <Link to="/reports/batch-profitability" className="text-amber text-sm hover:underline">View report →</Link>
+            </div>
+            {batchProfitStats.recentBatch ? (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <p className="text-xs text-gray-500 mb-0.5">Most recent batch</p>
+                  <p className="font-semibold text-navy text-sm">
+                    {batchProfitStats.recentBatch.beer_name || 'Unnamed batch'}
+                  </p>
+                  <p className="text-xs text-gray-400">#{batchProfitStats.recentBatch.batch_number}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-0.5">Last batch actual cost/pint</p>
+                  {batchProfitStats.recentBatch.actual_cost_per_pint != null ? (
+                    <p className="text-2xl font-bold text-navy">
+                      ${parseFloat(batchProfitStats.recentBatch.actual_cost_per_pint).toFixed(2)}
+                    </p>
+                  ) : (
+                    <p className="text-sm text-gray-400">No packaging data</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-0.5">Avg cost variance (last 5)</p>
+                  {batchProfitStats.avgCostDelta != null ? (
+                    <>
+                      <p className={`text-2xl font-bold ${batchProfitStats.avgCostDelta <= 0 ? 'text-success' : 'text-danger'}`}>
+                        {batchProfitStats.avgCostDelta >= 0 ? '+' : ''}${Math.abs(batchProfitStats.avgCostDelta).toFixed(2)}
+                      </p>
+                      <p className={`text-xs font-medium ${batchProfitStats.avgCostDelta <= 0 ? 'text-success' : 'text-danger'}`}>
+                        {batchProfitStats.avgCostDelta <= 0 ? 'Under budget' : 'Over budget'}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-sm text-gray-400">No cost data yet</p>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400">
+                No batches yet —{' '}
+                <Link to="/brewday" className="text-amber hover:underline">schedule your first brew</Link>.
+              </p>
+            )}
           </div>
 
           {/* Wholesale Account Manager widget — Full Suite only */}
