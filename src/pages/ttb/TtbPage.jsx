@@ -212,6 +212,65 @@ const fmtDate = (d) =>
 
 const toISO = (d) => d instanceof Date ? d.toISOString().split('T')[0] : d
 
+// ── Excise tax rate constants and calculation ─────────────────────────────────
+
+// The barrel threshold where the small-brewer rate rises from $3.50 to $16.00.
+// Almost all craft breweries stay well under this limit.
+const SMALL_BREWER_THRESHOLD = 60_000    // barrels per calendar year
+const LARGE_BREWER_CUTOFF    = 2_000_000 // annual production to lose small-brewer status
+
+// Pure calculation function — given the barrel inputs and brewery situation,
+// returns how many barrels fall into each rate tier and the total tax owed.
+// Called both for live display and when saving a period record.
+function calculateExciseTax(barrelsSale, barrelsExport, barrelsDestruction, barrelsTransferred, priorYTD, annualEstimate) {
+  // Step 1: taxable barrels = removed for sale minus allowed exemptions
+  const taxable = Math.max(0, barrelsSale - barrelsExport - barrelsDestruction - barrelsTransferred)
+  const cumulativeAfter = priorYTD + taxable
+
+  // Craft breweries producing under 2M barrels/year get the reduced rate
+  const isSmallBrewer = annualEstimate === 0 || annualEstimate < LARGE_BREWER_CUTOFF
+
+  let at350 = 0, at1600small = 0, at1600large = 0, at1800 = 0, tax = 0
+
+  if (isSmallBrewer) {
+    // Small brewer: $3.50/bbl on first 60,000 barrels, $16.00/bbl above that
+    const remainingIn350Tier = Math.max(0, SMALL_BREWER_THRESHOLD - priorYTD)
+    at350       = Math.min(taxable, remainingIn350Tier)
+    at1600small = Math.max(0, taxable - at350)
+    tax = (at350 * 3.50) + (at1600small * 16.00)
+  } else {
+    // Large brewer: $16.00/bbl on first 6M barrels, $18.00/bbl above that
+    const LARGE_THRESHOLD = 6_000_000
+    const remainingIn1600Tier = Math.max(0, LARGE_THRESHOLD - priorYTD)
+    at1600large = Math.min(taxable, remainingIn1600Tier)
+    at1800      = Math.max(0, taxable - at1600large)
+    tax = (at1600large * 16.00) + (at1800 * 18.00)
+  }
+
+  return { taxable, at350, at1600small, at1600large, at1800, tax, cumulativeAfter, isSmallBrewer }
+}
+
+// Returns the ISO date strings for the start and end of a filing period.
+// Used when querying brew_days for auto-population.
+function getPeriodDateRange(year, periodNum, periodType) {
+  if (periodType === 'quarterly') {
+    const monthStart = (periodNum - 1) * 3   // Q1→Jan, Q2→Apr, Q3→Jul, Q4→Oct
+    const start = new Date(year, monthStart, 1)
+    const end   = new Date(year, monthStart + 3, 0)  // last day of the quarter
+    return { start: toISO(start), end: toISO(end) }
+  }
+  // Monthly
+  const start = new Date(year, periodNum - 1, 1)
+  const end   = new Date(year, periodNum, 0)
+  return { start: toISO(start), end: toISO(end) }
+}
+
+// Returns the human-readable label for a saved excise_tax_periods row
+function excisePeriodLabel(row) {
+  if (row.period_type === 'quarterly') return `Q${row.period_number} ${row.period_year}`
+  return `${MONTH_NAMES[row.period_number - 1]} ${row.period_year}`
+}
+
 // ── Shared micro-components ───────────────────────────────────────────────────
 
 const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber'
@@ -859,6 +918,24 @@ export default function TtbPage() {
   const colaDraft    = useModalDraft('modal_draft_ttb_cola')
   const reportDraft  = useModalDraft('modal_draft_ttb_report')
 
+  // ── Excise Tax Calculator state ─────────────────────────────────────────────
+  const [excisePeriods,      setExcisePeriods]      = useState([])
+  const [calcProfile,        setCalcProfile]         = useState({ annual_production_estimate: '', excise_tax_ytd_paid: '' })
+  const [calcProfileSaving,  setCalcProfileSaving]   = useState(false)
+  const [calcProfileSaved,   setCalcProfileSaved]    = useState(false)
+  const [calcYear,           setCalcYear]            = useState(new Date().getFullYear())
+  const [calcPeriodNum,      setCalcPeriodNum]       = useState(1)
+  const [periodForm,         setPeriodForm]          = useState({
+    barrels_produced: '', barrels_removed_sale: '', barrels_removed_export: '0',
+    barrels_removed_destruction: '0', barrels_transferred: '0', status: 'estimated', notes: '',
+  })
+  const [existingPeriodRow,  setExistingPeriodRow]   = useState(null)
+  const [autoFilledProduced, setAutoFilledProduced]  = useState(false)
+  const [periodLoading,      setPeriodLoading]       = useState(false)
+  const [periodSaving,       setPeriodSaving]        = useState(false)
+  const [periodSaved,        setPeriodSaved]         = useState(false)
+  const [periodError,        setPeriodError]         = useState('')
+
   // Precompute the set of filed period keys for fast lookup
   const filedKeys = useMemo(
     () => new Set(filedPeriods.filter(p => p.status === 'filed').map(p => {
@@ -881,7 +958,7 @@ export default function TtbPage() {
     setLoading(true)
     setLoadError('')
 
-    const [filingsRes, colaRes, reportsRes, periodsRes] = await Promise.all([
+    const [filingsRes, colaRes, reportsRes, periodsRes, exciseRes] = await Promise.all([
       supabase.from('ttb_filings').select('*')
         .eq('brewery_id', brewery.id).order('created_at', { ascending: false }),
       supabase.from('cola_submissions').select('*')
@@ -890,6 +967,10 @@ export default function TtbPage() {
         .eq('brewery_id', brewery.id).order('report_month', { ascending: false }),
       supabase.from('ttb_filing_periods').select('*')
         .eq('brewery_id', brewery.id).order('period_start', { ascending: false }),
+      supabase.from('excise_tax_periods').select('*')
+        .eq('brewery_id', brewery.id)
+        .order('period_year', { ascending: false })
+        .order('period_number', { ascending: false }),
     ])
 
     if (filingsRes.error || colaRes.error || reportsRes.error || periodsRes.error) {
@@ -900,6 +981,7 @@ export default function TtbPage() {
     setColaList(colaRes.data ?? [])
     setReportLogs(reportsRes.data ?? [])
     setFiledPeriods(periodsRes.data ?? [])
+    setExcisePeriods(exciseRes.data ?? [])
     setLoading(false)
   }
 
@@ -919,6 +1001,175 @@ export default function TtbPage() {
     }, { onConflict: 'brewery_id,period_start,period_end' })
     setMarkingFiled(false)
     await loadAll()
+  }
+
+  // When the user switches to the Excise Tax Calculator tab, load the brewery's
+  // saved profile settings and default the selector to the current period.
+  useEffect(() => {
+    if (activeTab !== 'excise_calculator' || !brewery?.id) return
+    const now = new Date()
+    const currentFreq = frequency ?? 'quarterly'
+    setCalcYear(now.getFullYear())
+    setCalcPeriodNum(currentFreq === 'monthly' ? now.getMonth() + 1 : Math.floor(now.getMonth() / 3) + 1)
+    loadExciseTaxProfile()
+  }, [activeTab, brewery?.id])
+
+  // Reads annual_production_estimate and excise_tax_ytd_paid from the brewery row
+  async function loadExciseTaxProfile() {
+    const { data } = await supabase
+      .from('breweries')
+      .select('annual_production_estimate, excise_tax_ytd_paid')
+      .eq('id', brewery.id)
+      .single()
+    if (data) {
+      setCalcProfile({
+        annual_production_estimate: data.annual_production_estimate != null ? String(data.annual_production_estimate) : '',
+        excise_tax_ytd_paid:        data.excise_tax_ytd_paid        != null ? String(data.excise_tax_ytd_paid)        : '',
+      })
+    }
+  }
+
+  // Saves the annual production estimate and YTD paid back to the breweries table
+  async function handleSaveCalcProfile() {
+    setCalcProfileSaving(true)
+    setCalcProfileSaved(false)
+    const { error } = await supabase
+      .from('breweries')
+      .update({
+        annual_production_estimate: parseFloat(calcProfile.annual_production_estimate) || 0,
+        excise_tax_ytd_paid:        parseFloat(calcProfile.excise_tax_ytd_paid)        || 0,
+      })
+      .eq('id', brewery.id)
+    setCalcProfileSaving(false)
+    if (!error) { setCalcProfileSaved(true); setTimeout(() => setCalcProfileSaved(false), 3000) }
+  }
+
+  // Loads data for the chosen year + period. If a saved record exists, populates
+  // the form from it. Otherwise auto-fills barrels_produced from brew_days.
+  // Accepts optional arguments so the Edit button can pass values directly
+  // without relying on potentially stale state.
+  async function loadExcisePeriod(year = calcYear, periodNum = calcPeriodNum) {
+    if (!brewery?.id) return
+    setPeriodLoading(true)
+    setPeriodSaved(false)
+    setPeriodError('')
+    setAutoFilledProduced(false)
+
+    const periodType = (frequency ?? 'quarterly') === 'monthly' ? 'monthly' : 'quarterly'
+
+    // Look for an existing saved record for this exact period
+    const { data: existing } = await supabase
+      .from('excise_tax_periods')
+      .select('*')
+      .eq('brewery_id', brewery.id)
+      .eq('period_year', year)
+      .eq('period_number', periodNum)
+      .eq('period_type', periodType)
+      .maybeSingle()
+
+    if (existing) {
+      setExistingPeriodRow(existing)
+      setPeriodForm({
+        barrels_produced:            existing.barrels_produced            != null ? String(existing.barrels_produced)            : '',
+        barrels_removed_sale:        existing.barrels_removed_sale        != null ? String(existing.barrels_removed_sale)        : '',
+        barrels_removed_export:      existing.barrels_removed_export      != null ? String(existing.barrels_removed_export)      : '0',
+        barrels_removed_destruction: existing.barrels_removed_destruction != null ? String(existing.barrels_removed_destruction) : '0',
+        barrels_transferred:         existing.barrels_transferred         != null ? String(existing.barrels_transferred)         : '0',
+        status:                      existing.status ?? 'estimated',
+        notes:                       existing.notes  ?? '',
+      })
+      setPeriodLoading(false)
+      return
+    }
+
+    // No saved record — try to auto-fill barrels_produced from completed brew days
+    setExistingPeriodRow(null)
+    const { start, end } = getPeriodDateRange(year, periodNum, periodType)
+
+    const { data: brewDayData } = await supabase
+      .from('brew_days')
+      .select('planned_batch_size, planned_batch_unit')
+      .eq('brewery_id', brewery.id)
+      .gte('brew_date', start)
+      .lte('brew_date', end)
+      .in('status', ['scheduled', 'in_progress', 'completed'])
+
+    // Sum planned batch sizes for brew days that are already in barrels
+    const autoBarrels = (brewDayData ?? []).reduce((sum, bd) => {
+      if (!bd.planned_batch_unit || bd.planned_batch_unit === 'barrels') {
+        return sum + (parseFloat(bd.planned_batch_size) || 0)
+      }
+      return sum
+    }, 0)
+
+    setAutoFilledProduced(autoBarrels > 0)
+    setPeriodForm({
+      barrels_produced:            autoBarrels > 0 ? autoBarrels.toFixed(3) : '',
+      barrels_removed_sale:        '',
+      barrels_removed_export:      '0',
+      barrels_removed_destruction: '0',
+      barrels_transferred:         '0',
+      status:                      'estimated',
+      notes:                       '',
+    })
+    setPeriodLoading(false)
+  }
+
+  // Saves (or updates) the current period form to the excise_tax_periods table,
+  // using upsert so re-saving an existing period always works correctly.
+  async function handleSavePeriod() {
+    if (!brewery?.id) return
+    setPeriodSaving(true)
+    setPeriodError('')
+
+    const periodType = (frequency ?? 'quarterly') === 'monthly' ? 'monthly' : 'quarterly'
+    const payload = {
+      brewery_id:                  brewery.id,
+      period_year:                 calcYear,
+      period_number:               calcPeriodNum,
+      period_type:                 periodType,
+      barrels_produced:            parseFloat(periodForm.barrels_produced)            || 0,
+      barrels_removed_sale:        parseFloat(periodForm.barrels_removed_sale)        || 0,
+      barrels_removed_export:      parseFloat(periodForm.barrels_removed_export)      || 0,
+      barrels_removed_destruction: parseFloat(periodForm.barrels_removed_destruction) || 0,
+      barrels_transferred:         parseFloat(periodForm.barrels_transferred)         || 0,
+      tax_rate_applied:            calcResult.isSmallBrewer ? 3.50 : 16.00,
+      tax_owed:                    calcResult.tax,
+      cumulative_barrels_ytd:      calcResult.cumulativeAfter,
+      status:                      periodForm.status,
+      notes:                       periodForm.notes.trim() || null,
+    }
+
+    const { data, error } = await supabase
+      .from('excise_tax_periods')
+      .upsert(payload, { onConflict: 'brewery_id,period_year,period_number,period_type' })
+      .select()
+      .single()
+
+    if (error) { setPeriodError('Could not save period. Please try again.'); setPeriodSaving(false); return }
+
+    setExistingPeriodRow(data)
+    setPeriodSaved(true)
+    setTimeout(() => setPeriodSaved(false), 3000)
+    setPeriodSaving(false)
+
+    // Refresh the full list so the history table and YTD totals update
+    const { data: allPeriods } = await supabase
+      .from('excise_tax_periods').select('*').eq('brewery_id', brewery.id)
+      .order('period_year', { ascending: false }).order('period_number', { ascending: false })
+    setExcisePeriods(allPeriods ?? [])
+  }
+
+  // Updates a saved period's status to 'filed' or 'paid' and stamps the date
+  async function handleMarkPeriodStatus(id, newStatus) {
+    const update = { status: newStatus }
+    if (newStatus === 'filed') update.filed_date   = new Date().toISOString().slice(0, 10)
+    if (newStatus === 'paid')  update.payment_date = new Date().toISOString().slice(0, 10)
+    await supabase.from('excise_tax_periods').update(update).eq('id', id)
+    const { data: allPeriods } = await supabase
+      .from('excise_tax_periods').select('*').eq('brewery_id', brewery.id)
+      .order('period_year', { ascending: false }).order('period_number', { ascending: false })
+    setExcisePeriods(allPeriods ?? [])
   }
 
   // Delete helpers with optimistic removal
@@ -980,6 +1231,30 @@ export default function TtbPage() {
     const r = parseFloat(calcTier) || 0
     return b * r
   }, [calcBarrels, calcTier])
+
+  // Sum of taxable barrels from all periods in the same year that come BEFORE
+  // the currently selected period — used as the starting YTD position for the calculator
+  const priorYTDBarrels = useMemo(() => {
+    const periodType = (frequency ?? 'quarterly') === 'monthly' ? 'monthly' : 'quarterly'
+    return excisePeriods
+      .filter(p => p.period_year === calcYear && p.period_type === periodType && p.period_number < calcPeriodNum)
+      .reduce((sum, p) => sum + Math.max(0,
+        (parseFloat(p.barrels_removed_sale)        || 0)
+        - (parseFloat(p.barrels_removed_export)      || 0)
+        - (parseFloat(p.barrels_removed_destruction) || 0)
+        - (parseFloat(p.barrels_transferred)         || 0)
+      ), 0)
+  }, [excisePeriods, calcYear, calcPeriodNum, frequency])
+
+  // Live tax result — recomputes instantly as the user types in the period form
+  const calcResult = useMemo(() => calculateExciseTax(
+    parseFloat(periodForm.barrels_removed_sale)        || 0,
+    parseFloat(periodForm.barrels_removed_export)      || 0,
+    parseFloat(periodForm.barrels_removed_destruction) || 0,
+    parseFloat(periodForm.barrels_transferred)         || 0,
+    priorYTDBarrels,
+    parseFloat(calcProfile.annual_production_estimate) || 0,
+  ), [periodForm, priorYTDBarrels, calcProfile.annual_production_estimate])
 
   // ── Modals open/close handlers ─────────────────────────────────────────────
 
@@ -1044,6 +1319,438 @@ export default function TtbPage() {
   }
 
   // ── Tab content renderers ──────────────────────────────────────────────────
+
+  function renderExciseCalculator() {
+    const currentFreq = frequency ?? 'quarterly'
+    const periodType  = currentFreq === 'monthly' ? 'monthly' : 'quarterly'
+
+    // Period selector options — months Jan–Dec or quarters Q1–Q4
+    const periodOptions = currentFreq === 'monthly'
+      ? MONTH_NAMES.map((name, i) => ({ value: i + 1, label: name }))
+      : [1, 2, 3, 4].map(q => ({ value: q, label: `Q${q}` }))
+
+    const yearOptions  = [new Date().getFullYear(), new Date().getFullYear() - 1]
+    const annualEstimate = parseFloat(calcProfile.annual_production_estimate) || 0
+
+    // Threshold progress bar values — green → amber → red as 60k approaches
+    const ytdPercent    = annualEstimate === 0 || calcResult.isSmallBrewer
+      ? Math.min(100, (calcResult.cumulativeAfter / 60_000) * 100)
+      : 0
+    const progressColor  = ytdPercent >= 100 ? 'bg-danger' : ytdPercent >= 83 ? 'bg-amber' : 'bg-green-500'
+    const progressBorder = ytdPercent >= 100 ? 'border-red-200 bg-red-50'
+      : ytdPercent >= 83 ? 'border-amber/30 bg-amber/5' : 'border-green-200 bg-green-50'
+
+    // YTD totals from saved periods for the selected year
+    const yearPeriods  = excisePeriods.filter(p => p.period_year === calcYear && p.period_type === periodType)
+    const ytdTaxOwed   = yearPeriods.reduce((s, p) => s + (parseFloat(p.tax_owed) || 0), 0)
+    const ytdTaxPaid   = yearPeriods.filter(p => p.status === 'paid').reduce((s, p) => s + (parseFloat(p.tax_owed) || 0), 0)
+    const ytdOutstanding = Math.max(0, ytdTaxOwed - ytdTaxPaid)
+
+    // Whether the period form is populated enough to show the inputs panel
+    const periodFormVisible = existingPeriodRow !== null
+      || periodForm.barrels_produced !== ''
+      || periodForm.barrels_removed_sale !== ''
+
+    // Whether the live calculation summary should be shown
+    const showCalcSummary = parseFloat(periodForm.barrels_removed_sale) > 0
+      || parseFloat(periodForm.barrels_produced) > 0
+
+    return (
+      <div className="space-y-5">
+
+        {/* ── Disclaimer ── */}
+        <div className="bg-amber/10 border border-amber/30 rounded-xl px-4 py-3 flex gap-3">
+          <span className="text-amber text-lg flex-shrink-0 mt-0.5">⚠️</span>
+          <p className="text-sm text-gray-700 leading-relaxed">
+            <strong className="text-navy">Estimates only.</strong>{' '}
+            This calculator is for planning purposes. Consult a CPA or licensed alcohol beverage
+            attorney to confirm your exact liability before filing. File using{' '}
+            <strong>TTB Form 5000.24</strong> via{' '}
+            <a href="https://pay.gov" target="_blank" rel="noopener noreferrer"
+              className="text-amber underline hover:text-amber-dark">Pay.gov</a> or by mail.
+          </p>
+        </div>
+
+        {/* ── Section 1: Brewery Tax Profile ── */}
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <div className="flex items-center justify-between mb-1">
+            <div>
+              <h3 className="font-semibold text-navy">Brewery Tax Profile</h3>
+              <p className="text-xs text-gray-500 mt-0.5">Used to determine your rate tier and project your annual position.</p>
+            </div>
+            {calcProfileSaved && <span className="text-sm text-success font-medium">✓ Saved</span>}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+            <Field label="Estimated Annual Production (barrels)">
+              <input type="number" min="0" step="1"
+                value={calcProfile.annual_production_estimate}
+                onChange={e => setCalcProfile(p => ({ ...p, annual_production_estimate: e.target.value }))}
+                placeholder="e.g. 500" className={inputCls} />
+            </Field>
+            <Field label="Year-to-Date Excise Tax Already Paid ($)">
+              <input type="number" min="0" step="0.01"
+                value={calcProfile.excise_tax_ytd_paid}
+                onChange={e => setCalcProfile(p => ({ ...p, excise_tax_ytd_paid: e.target.value }))}
+                placeholder="e.g. 1200.00" className={inputCls} />
+            </Field>
+          </div>
+
+          {/* Rate tier callout */}
+          {annualEstimate > 0 ? (
+            <div className="mt-4 p-3 bg-green-50 rounded-lg border border-green-200 text-sm text-green-800">
+              <strong>✓ Small Brewer Rate — Qualified</strong><br />
+              Your estimated {annualEstimate.toLocaleString()} barrels/yr qualifies you for{' '}
+              <strong>$3.50/bbl</strong> on your first 60,000 barrels removed for sale.
+              Barrels above 60,000 are taxed at $16.00/bbl.
+            </div>
+          ) : (
+            <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200 text-sm text-gray-600">
+              Enter your estimated annual production above. Virtually all craft breweries
+              qualify for the small brewer rate of <strong>$3.50/bbl</strong> on their first 60,000 barrels.
+            </div>
+          )}
+
+          <div className="mt-3 p-3 bg-gray-50 rounded-lg text-xs text-gray-600">
+            <strong>Filing frequency:</strong>{' '}
+            {currentFreq.charAt(0).toUpperCase() + currentFreq.slice(1)}
+            {currentFreq !== 'monthly' && (
+              <span className="ml-1">
+                — Quarterly filing is available if your annual excise tax liability is $50,000 or less.
+                Most small craft breweries qualify.
+              </span>
+            )}
+          </div>
+
+          <button onClick={handleSaveCalcProfile} disabled={calcProfileSaving}
+            className="mt-4 bg-amber hover:bg-amber-dark text-white text-sm font-semibold px-5 py-2 rounded-lg transition-colors disabled:opacity-60">
+            {calcProfileSaving ? 'Saving…' : 'Save Profile'}
+          </button>
+        </div>
+
+        {/* ── Section 2: Period Calculator ── */}
+        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-5">
+          <h3 className="font-semibold text-navy">Period Calculator</h3>
+
+          {/* Period selector row */}
+          <div className="flex flex-wrap gap-3 items-end">
+            <div>
+              <label className="text-sm font-medium text-navy block mb-1">Year</label>
+              <select value={calcYear} onChange={e => setCalcYear(Number(e.target.value))}
+                className={`${inputCls} w-28`}>
+                {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-navy block mb-1">Period</label>
+              <select value={calcPeriodNum} onChange={e => setCalcPeriodNum(Number(e.target.value))}
+                className={`${inputCls} w-36`}>
+                {periodOptions.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+              </select>
+            </div>
+            <button onClick={() => loadExcisePeriod(calcYear, calcPeriodNum)} disabled={periodLoading}
+              className="bg-navy hover:opacity-90 text-white text-sm font-semibold px-5 py-2 rounded-lg transition-colors disabled:opacity-60">
+              {periodLoading ? 'Loading…' : 'Load Period'}
+            </button>
+          </div>
+
+          {/* Barrel input form — shown after a period is loaded */}
+          {periodFormVisible && (
+            <div className="border-t border-gray-100 pt-5 space-y-4">
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field label="Barrels Produced This Period"
+                  extra={autoFilledProduced && !existingPeriodRow ? '📊 Auto-filled from brew days — verify' : undefined}>
+                  <input type="number" min="0" step="0.001"
+                    value={periodForm.barrels_produced}
+                    onChange={e => setPeriodForm(p => ({ ...p, barrels_produced: e.target.value }))}
+                    placeholder="0.000" className={inputCls} />
+                </Field>
+                <Field label="Barrels Removed for Consumption / Sale">
+                  <input type="number" min="0" step="0.001"
+                    value={periodForm.barrels_removed_sale}
+                    onChange={e => setPeriodForm(p => ({ ...p, barrels_removed_sale: e.target.value }))}
+                    placeholder="0.000" className={inputCls} />
+                </Field>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <Field label="Barrels Removed for Export (exempt)">
+                  <input type="number" min="0" step="0.001"
+                    value={periodForm.barrels_removed_export}
+                    onChange={e => setPeriodForm(p => ({ ...p, barrels_removed_export: e.target.value }))}
+                    placeholder="0.000" className={inputCls} />
+                </Field>
+                <Field label="Barrels Removed for Destruction">
+                  <input type="number" min="0" step="0.001"
+                    value={periodForm.barrels_removed_destruction}
+                    onChange={e => setPeriodForm(p => ({ ...p, barrels_removed_destruction: e.target.value }))}
+                    placeholder="0.000" className={inputCls} />
+                </Field>
+                <Field label="Barrels Transferred (alt. proprietors)">
+                  <input type="number" min="0" step="0.001"
+                    value={periodForm.barrels_transferred}
+                    onChange={e => setPeriodForm(p => ({ ...p, barrels_transferred: e.target.value }))}
+                    placeholder="0.000" className={inputCls} />
+                </Field>
+              </div>
+
+              {/* Live calculation summary — shown as soon as any barrel value is entered */}
+              {showCalcSummary && (
+                <div className="bg-navy text-white rounded-xl p-5 font-mono text-sm leading-relaxed">
+                  <p className="font-bold text-amber mb-3 font-sans text-base">Calculation Summary</p>
+
+                  {/* Step 1: Taxable barrel derivation */}
+                  <div className="space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-gray-300">Barrels removed for sale this period:</span>
+                      <span>{(parseFloat(periodForm.barrels_removed_sale) || 0).toFixed(3)} bbl</span>
+                    </div>
+                    {parseFloat(periodForm.barrels_removed_export) > 0 && (
+                      <div className="flex justify-between text-gray-400">
+                        <span>Less: Export exemption:</span>
+                        <span>−{(parseFloat(periodForm.barrels_removed_export) || 0).toFixed(3)} bbl</span>
+                      </div>
+                    )}
+                    {parseFloat(periodForm.barrels_removed_destruction) > 0 && (
+                      <div className="flex justify-between text-gray-400">
+                        <span>Less: Destruction exemption:</span>
+                        <span>−{(parseFloat(periodForm.barrels_removed_destruction) || 0).toFixed(3)} bbl</span>
+                      </div>
+                    )}
+                    {parseFloat(periodForm.barrels_transferred) > 0 && (
+                      <div className="flex justify-between text-gray-400">
+                        <span>Less: Transfers:</span>
+                        <span>−{(parseFloat(periodForm.barrels_transferred) || 0).toFixed(3)} bbl</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between border-t border-gray-600 pt-1 font-semibold">
+                      <span>Taxable barrels this period:</span>
+                      <span>{calcResult.taxable.toFixed(3)} bbl</span>
+                    </div>
+                  </div>
+
+                  {/* Step 2: YTD position */}
+                  <div className="mt-3 pt-3 border-t border-gray-600 space-y-1">
+                    <div className="flex justify-between text-gray-300">
+                      <span>Year-to-date removals (prior periods):</span>
+                      <span>{priorYTDBarrels.toFixed(3)} bbl</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Cumulative YTD after this period:</span>
+                      <span className={
+                        calcResult.cumulativeAfter > 60_000 ? 'text-red-400 font-bold'
+                        : calcResult.cumulativeAfter > 50_000 ? 'text-amber font-semibold'
+                        : 'text-green-400'
+                      }>
+                        {calcResult.cumulativeAfter.toFixed(3)} bbl
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Step 3: Rate tier breakdown */}
+                  <div className="mt-3 pt-3 border-t border-gray-600 space-y-1">
+                    <p className="text-gray-300 mb-1">Rate calculation:</p>
+                    {calcResult.at350 > 0 && (
+                      <div className="flex justify-between pl-4">
+                        <span className="text-gray-300">Barrels at $3.50/bbl:</span>
+                        <span>{calcResult.at350.toFixed(3)} bbl = {fmtCurrency(calcResult.at350 * 3.50)}</span>
+                      </div>
+                    )}
+                    {calcResult.at1600small > 0 && (
+                      <div className="flex justify-between pl-4">
+                        <span className="text-gray-300">Barrels at $16.00/bbl:</span>
+                        <span>{calcResult.at1600small.toFixed(3)} bbl = {fmtCurrency(calcResult.at1600small * 16.00)}</span>
+                      </div>
+                    )}
+                    {calcResult.at1600large > 0 && (
+                      <div className="flex justify-between pl-4">
+                        <span className="text-gray-300">Barrels at $16.00/bbl:</span>
+                        <span>{calcResult.at1600large.toFixed(3)} bbl = {fmtCurrency(calcResult.at1600large * 16.00)}</span>
+                      </div>
+                    )}
+                    {calcResult.at1800 > 0 && (
+                      <div className="flex justify-between pl-4">
+                        <span className="text-gray-300">Barrels at $18.00/bbl:</span>
+                        <span>{calcResult.at1800.toFixed(3)} bbl = {fmtCurrency(calcResult.at1800 * 18.00)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between border-t border-gray-600 pt-2 mt-1 text-base font-bold">
+                      <span>EXCISE TAX OWED THIS PERIOD:</span>
+                      <span className="text-amber">{fmtCurrency(calcResult.tax)}</span>
+                    </div>
+                  </div>
+
+                  {/* YTD context */}
+                  <div className="mt-3 pt-3 border-t border-gray-600 space-y-1 text-gray-300">
+                    <div className="flex justify-between">
+                      <span>Year-to-date excise tax paid ({calcYear}):</span>
+                      <span>{fmtCurrency(ytdTaxPaid)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Projected annual excise tax:</span>
+                      <span>{fmtCurrency(calcResult.tax * (currentFreq === 'quarterly' ? 4 : currentFreq === 'monthly' ? 12 : 1))}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Threshold progress bar — small brewers only */}
+              {calcResult.isSmallBrewer && calcResult.cumulativeAfter > 0 && (
+                <div className={`p-4 rounded-xl border ${progressBorder}`}>
+                  <div className="flex flex-wrap justify-between items-center text-sm mb-2 gap-1">
+                    <span className="font-semibold text-navy">60,000 Barrel Threshold</span>
+                    <span className="text-gray-500 text-xs">
+                      {Math.round(calcResult.cumulativeAfter).toLocaleString()} of 60,000 bbl used ({ytdPercent.toFixed(1)}%)
+                    </span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-3">
+                    <div className={`h-3 rounded-full transition-all duration-300 ${progressColor}`}
+                      style={{ width: `${ytdPercent}%` }} />
+                  </div>
+                  {ytdPercent >= 83 && ytdPercent < 100 && (
+                    <p className="text-xs text-amber mt-2 font-medium">
+                      ⚠️ Approaching threshold — barrels above 60,000 will be taxed at $16.00/bbl instead of $3.50/bbl.
+                    </p>
+                  )}
+                  {ytdPercent >= 100 && (
+                    <p className="text-xs text-danger mt-2 font-medium">
+                      Threshold exceeded — all additional barrels this year are taxed at $16.00/bbl.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Status, notes, save */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field label="Filing Status">
+                  <select value={periodForm.status}
+                    onChange={e => setPeriodForm(p => ({ ...p, status: e.target.value }))}
+                    className={inputCls}>
+                    <option value="estimated">Estimated</option>
+                    <option value="filed">Filed</option>
+                    <option value="paid">Paid</option>
+                  </select>
+                </Field>
+                <Field label="Notes (optional)">
+                  <input type="text" value={periodForm.notes}
+                    onChange={e => setPeriodForm(p => ({ ...p, notes: e.target.value }))}
+                    placeholder="Any notes for this period…" className={inputCls} />
+                </Field>
+              </div>
+
+              {periodError && <p className="text-sm text-danger">{periodError}</p>}
+
+              <div className="flex items-center gap-3">
+                <button onClick={handleSavePeriod} disabled={periodSaving}
+                  className="bg-amber hover:bg-amber-dark text-white text-sm font-semibold px-6 py-2.5 rounded-lg transition-colors disabled:opacity-60">
+                  {periodSaving ? 'Saving…' : existingPeriodRow ? 'Update Period' : 'Save Period'}
+                </button>
+                {periodSaved && <span className="text-sm text-success font-medium">✓ Saved</span>}
+              </div>
+            </div>
+          )}
+
+          {/* Empty prompt — shown before a period is loaded */}
+          {!periodFormVisible && !periodLoading && (
+            <p className="text-sm text-gray-400 text-center py-4">
+              Select a year and period above, then click <strong>Load Period</strong> to begin.
+            </p>
+          )}
+        </div>
+
+        {/* ── Section 3: Filing History ── */}
+        {excisePeriods.filter(p => p.period_type === periodType).length > 0 && (
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="font-semibold text-navy">Filing History</h3>
+              <span className="text-xs text-gray-400">{currentFreq.charAt(0).toUpperCase() + currentFreq.slice(1)} periods</span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[720px]">
+                <thead className="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    {['Period', 'Taxable Bbl', 'Tax Owed', 'Cumulative YTD', 'Status', 'Filed Date', 'Paid Date', ''].map(h => (
+                      <th key={h} className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {excisePeriods.filter(p => p.period_type === periodType).map(p => {
+                    const taxable = Math.max(0,
+                      (parseFloat(p.barrels_removed_sale)        || 0)
+                      - (parseFloat(p.barrels_removed_export)      || 0)
+                      - (parseFloat(p.barrels_removed_destruction) || 0)
+                      - (parseFloat(p.barrels_transferred)         || 0)
+                    )
+                    return (
+                      <tr key={p.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-3 py-3 font-medium text-navy whitespace-nowrap">{excisePeriodLabel(p)}</td>
+                        <td className="px-3 py-3 text-gray-600">{taxable.toFixed(3)}</td>
+                        <td className="px-3 py-3 font-semibold text-navy">{fmtCurrency(p.tax_owed)}</td>
+                        <td className="px-3 py-3 text-gray-600">
+                          {p.cumulative_barrels_ytd != null ? Number(p.cumulative_barrels_ytd).toFixed(3) : '—'}
+                        </td>
+                        <td className="px-3 py-3">
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full capitalize ${
+                            p.status === 'paid'     ? 'bg-green-100 text-green-700'
+                            : p.status === 'filed'  ? 'bg-blue-100 text-blue-700'
+                            : 'bg-gray-100 text-gray-600'
+                          }`}>{p.status}</span>
+                        </td>
+                        <td className="px-3 py-3 text-gray-500 whitespace-nowrap">{fmtDate(p.filed_date)}</td>
+                        <td className="px-3 py-3 text-gray-500 whitespace-nowrap">{fmtDate(p.payment_date)}</td>
+                        <td className="px-3 py-3">
+                          <div className="flex gap-2 whitespace-nowrap">
+                            {p.status === 'estimated' && (
+                              <button onClick={() => handleMarkPeriodStatus(p.id, 'filed')}
+                                className="text-xs text-blue-600 hover:underline">Mark Filed</button>
+                            )}
+                            {p.status !== 'paid' && (
+                              <button onClick={() => handleMarkPeriodStatus(p.id, 'paid')}
+                                className="text-xs text-success hover:underline">Mark Paid</button>
+                            )}
+                            <button onClick={() => {
+                              setCalcYear(p.period_year)
+                              setCalcPeriodNum(p.period_number)
+                              loadExcisePeriod(p.period_year, p.period_number)
+                            }} className="text-xs text-amber hover:underline">Edit</button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+                {/* Summary footer row */}
+                <tfoot className="bg-gray-50 border-t-2 border-gray-200 font-semibold">
+                  <tr>
+                    <td className="px-3 py-3 text-navy">{calcYear} Total</td>
+                    <td className="px-3 py-3 text-navy">
+                      {yearPeriods.reduce((s, p) => s + Math.max(0,
+                        (parseFloat(p.barrels_removed_sale) || 0)
+                        - (parseFloat(p.barrels_removed_export) || 0)
+                        - (parseFloat(p.barrels_removed_destruction) || 0)
+                        - (parseFloat(p.barrels_transferred) || 0)
+                      ), 0).toFixed(3)} bbl
+                    </td>
+                    <td className="px-3 py-3 text-navy">{fmtCurrency(ytdTaxOwed)}</td>
+                    <td className="px-3 py-3 text-gray-500">—</td>
+                    <td colSpan={3} className="px-3 py-3 text-gray-600">
+                      Paid: <span className="text-success">{fmtCurrency(ytdTaxPaid)}</span>
+                      {ytdOutstanding > 0 && (
+                        <span className="ml-3">Outstanding: <span className="text-danger">{fmtCurrency(ytdOutstanding)}</span></span>
+                      )}
+                    </td>
+                    <td />
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
 
   function renderDashboard() {
     if (!frequency) {
@@ -1422,10 +2129,11 @@ export default function TtbPage() {
   if (loading) return <LoadingSpinner message="Loading TTB tracker…" />
 
   const TABS = [
-    { id: 'dashboard', label: 'Filing Dashboard' },
-    { id: 'payments',  label: 'Excise Tax Log' },
-    { id: 'cola',      label: 'COLA Tracker' },
-    { id: 'reports',   label: "Brewer's Report Log" },
+    { id: 'dashboard',          label: 'Filing Dashboard' },
+    { id: 'excise_calculator',  label: 'Excise Tax Calculator' },
+    { id: 'payments',           label: 'Excise Tax Log' },
+    { id: 'cola',               label: 'COLA Tracker' },
+    { id: 'reports',            label: "Brewer's Report Log" },
   ]
 
   return (
@@ -1466,10 +2174,11 @@ export default function TtbPage() {
 
       {/* Tab content */}
       <div>
-        {activeTab === 'dashboard' && renderDashboard()}
-        {activeTab === 'payments'  && renderPayments()}
-        {activeTab === 'cola'      && renderCola()}
-        {activeTab === 'reports'   && renderReports()}
+        {activeTab === 'dashboard'         && renderDashboard()}
+        {activeTab === 'excise_calculator' && renderExciseCalculator()}
+        {activeTab === 'payments'          && renderPayments()}
+        {activeTab === 'cola'              && renderCola()}
+        {activeTab === 'reports'           && renderReports()}
       </div>
 
       {/* Modals */}
