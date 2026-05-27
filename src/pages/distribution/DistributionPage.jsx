@@ -176,6 +176,7 @@ function DistributionTracker() {
             { key: 'assign',     label: 'Assign Distribution' },
             { key: 'deliveries', label: 'Deliveries' },
             { key: 'accounts',   label: 'Accounts' },
+            { key: 'keg_fleet',  label: '🍺 Keg Fleet' },
           ].map(({ key, label }) => (
             <button
               key={key}
@@ -225,6 +226,14 @@ function DistributionTracker() {
           accounts={accounts}
           onRefresh={loadAll}
           isReadOnly={isReadOnly}
+        />
+      )}
+      {activeTab === 'keg_fleet' && (
+        <KegFleetTab
+          breweryId={brewery.id}
+          distRecords={distRecords}
+          isReadOnly={isReadOnly}
+          onRefresh={loadAll}
         />
       )}
 
@@ -2031,6 +2040,773 @@ function EditAccountModal({ account, onClose, onSaved }) {
             {saving ? 'Saving…' : 'Save Changes'}
           </button>
           <button onClick={onClose} className="border border-gray-300 text-gray-600 px-5 py-2 rounded-lg text-sm hover:bg-gray-50 transition-colors">
+            Cancel
+          </button>
+        </div>
+      </div>
+    </ModalShell>
+  )
+}
+
+// ── Keg Fleet ──────────────────────────────────────────────────────────────────
+// Standard keg sizes the brewery can add to their fleet.
+const KEG_TYPES = [
+  'Sixth Barrel (5.16 gal)',
+  'Quarter Barrel (7.75 gal)',
+  'Slim Quarter (7.75 gal)',
+  'Half Barrel (15.5 gal)',
+  'European 50L (13.2 gal)',
+]
+
+// Returns true when a distribution record's package_type matches a keg_fleet keg_type.
+// Handles the naming difference: fleet uses "Half Barrel (15.5 gal)", distribution
+// records use package types like "Keg Half Barrel".
+function kegTypeMatchesPkg(kegType, packageType) {
+  const kt = (kegType    || '').toLowerCase()
+  const pt = (packageType || '').toLowerCase()
+  if (!pt.includes('keg') && !pt.includes('barrel') && !pt.includes('50l')) return false
+  if (kt.includes('sixth')   && pt.includes('sixth'))                     return true
+  if (kt.includes('slim')    && pt.includes('slim'))                      return true
+  if (kt.includes('quarter') && !kt.includes('slim')
+      && pt.includes('quarter') && !pt.includes('slim'))                   return true
+  if (kt.includes('half')    && pt.includes('half'))                      return true
+  if ((kt.includes('50l') || kt.includes('european'))
+      && (pt.includes('50l') || pt.includes('european')))                 return true
+  return false
+}
+
+// Small summary card used in the fleet summary row.
+function FleetSummaryCard({ label, value, amber }) {
+  return (
+    <div className={`rounded-xl border p-4 ${amber ? 'bg-amber/5 border-amber/30' : 'bg-white border-gray-200'}`}>
+      <div className="text-xs text-gray-500 mb-1">{label}</div>
+      <div className={`text-2xl font-bold ${amber ? 'text-amber' : 'text-navy'}`}>{value}</div>
+    </div>
+  )
+}
+
+// ── KegFleetTab ────────────────────────────────────────────────────────────────
+
+function KegFleetTab({ breweryId, distRecords, isReadOnly, onRefresh }) {
+  const [fleet,          setFleet]          = useState([])
+  const [depositRecords, setDepositRecords] = useState([])
+  const [loading,        setLoading]        = useState(true)
+  const [addKegOpen,     setAddKegOpen]     = useState(false)
+  const [editKegTarget,  setEditKegTarget]  = useState(null)
+  const [addDepositOpen, setAddDepositOpen] = useState(false)
+
+  // Load keg_fleet and keg_deposit_records from Supabase for this brewery.
+  async function loadFleetData() {
+    setLoading(true)
+    const [fleetRes, depositRes] = await Promise.all([
+      supabase.from('keg_fleet')
+        .select('*')
+        .eq('brewery_id', breweryId)
+        .order('keg_type'),
+      supabase.from('keg_deposit_records')
+        .select('*')
+        .eq('brewery_id', breweryId)
+        .order('account_name'),
+    ])
+    setFleet(fleetRes.data ?? [])
+    setDepositRecords(depositRes.data ?? [])
+    setLoading(false)
+  }
+
+  useEffect(() => { loadFleetData() }, [breweryId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Subset of distribution records that represent kegs currently out (not yet returned).
+  const kegRecordsOut = distRecords.filter(r => r.returnable_kegs && !r.kegs_returned)
+
+  // ── Fleet summary totals ────────────────────────────────────────────────────
+  const totalOwned     = fleet.reduce((s, f) => s + (f.owned_count || 0), 0)
+  const totalOut       = kegRecordsOut.reduce((s, r) => s + (parseInt(r.quantity) || 1), 0)
+  const totalAtBrewery = Math.max(0, totalOwned - totalOut)
+
+  // Total deposit liability = sum over each keg type of (kegs_out × deposit_amount).
+  const totalDepositsOut = fleet.reduce((s, f) => {
+    const typeOut = kegRecordsOut
+      .filter(r => kegTypeMatchesPkg(f.keg_type, r.package_type))
+      .reduce((n, r) => n + (parseInt(r.quantity) || 1), 0)
+    return s + typeOut * (parseFloat(f.deposit_amount) || 0)
+  }, 0)
+
+  // Overdue records: past the expected return date, or out more than 60 days.
+  const today = todayStr()
+  const overdueRecords = kegRecordsOut.filter(r => {
+    if (r.keg_return_date && r.keg_return_date < today) return true
+    if (!r.delivery_date) return false
+    const daysOut = Math.floor((new Date() - new Date(r.delivery_date)) / 86400000)
+    return daysOut > 60
+  })
+  const overdueKegCount   = overdueRecords.reduce((s, r) => s + (parseInt(r.quantity) || 1), 0)
+  const overdueAccountSet = new Set(overdueRecords.map(r => r.account_name || r.account_id))
+
+  // Mark a delivery record's kegs as returned and set the returned date to today.
+  async function handleMarkReturned(recordId) {
+    await supabase
+      .from('distribution_records')
+      .update({ kegs_returned: true, keg_returned_date: todayStr() })
+      .eq('id', recordId)
+    onRefresh()  // reload parent distRecords so the table updates immediately
+  }
+
+  if (loading) return <LoadingSpinner message="Loading keg fleet data…" />
+
+  return (
+    <div className="space-y-6">
+
+      {/* ── Overdue warning banner ── */}
+      {overdueRecords.length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-start gap-3">
+          <span className="shrink-0 mt-0.5 text-danger">⚠</span>
+          <p className="text-sm font-semibold text-danger">
+            {overdueKegCount} keg{overdueKegCount !== 1 ? 's' : ''} overdue for return
+            across {overdueAccountSet.size} account{overdueAccountSet.size !== 1 ? 's' : ''}.
+            Check the Kegs by Account section below.
+          </p>
+        </div>
+      )}
+
+      {/* ── Section 1: Fleet Summary Cards ── */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <FleetSummaryCard label="Total Kegs Owned"     value={totalOwned} />
+        <FleetSummaryCard label="Kegs Currently Out"   value={totalOut}   amber={totalOut > 0} />
+        <FleetSummaryCard label="Kegs at Brewery"      value={totalAtBrewery} />
+        <FleetSummaryCard label="Deposits Outstanding" value={fmtDollars(totalDepositsOut)} amber={totalDepositsOut > 0} />
+      </div>
+
+      {/* ── Section 2: Fleet Inventory by Type ── */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h3 className="font-semibold text-navy">Fleet Inventory by Type</h3>
+            <p className="text-xs text-gray-500 mt-0.5">Owned kegs and current utilization by keg size.</p>
+          </div>
+          {!isReadOnly && (
+            <button
+              onClick={() => setAddKegOpen(true)}
+              className="bg-amber text-white font-semibold px-3 py-1.5 rounded-lg text-sm hover:bg-amber-dark transition-colors"
+            >
+              + Add Keg Type
+            </button>
+          )}
+        </div>
+
+        {fleet.length === 0 ? (
+          <div className="p-12 text-center">
+            <div className="text-4xl mb-3">🍺</div>
+            <h3 className="text-lg font-bold text-navy mb-2">No Keg Types Added Yet</h3>
+            <p className="text-gray-500 text-sm max-w-sm mx-auto">
+              Add your keg types to start tracking your fleet. Click "Add Keg Type" to get started.
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  {['Keg Type', 'Owned', 'Out at Accounts', 'At Brewery', 'Utilization', 'Deposit/Keg', 'Total Deposits Out', ''].map(h => (
+                    <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {fleet.map(f => {
+                  // Count kegs of this type currently out across all delivery records
+                  const typeOut = kegRecordsOut
+                    .filter(r => kegTypeMatchesPkg(f.keg_type, r.package_type))
+                    .reduce((s, r) => s + (parseInt(r.quantity) || 1), 0)
+                  const atBrewery   = Math.max(0, (f.owned_count || 0) - typeOut)
+                  const utilPct     = f.owned_count > 0 ? (typeOut / f.owned_count) * 100 : 0
+                  const depositsOut = typeOut * (parseFloat(f.deposit_amount) || 0)
+
+                  // Utilization color: green < 70%, amber 70–90%, red > 90%
+                  const utilColor = utilPct > 90
+                    ? 'bg-red-100 text-danger'
+                    : utilPct > 70
+                    ? 'bg-amber/20 text-amber'
+                    : 'bg-green-100 text-success'
+
+                  return (
+                    <tr key={f.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-4 py-3 font-medium text-navy">{f.keg_type}</td>
+                      <td className="px-4 py-3 text-gray-700">{f.owned_count}</td>
+                      <td className="px-4 py-3 text-gray-700">{typeOut}</td>
+                      <td className="px-4 py-3 text-gray-700">{atBrewery}</td>
+                      <td className="px-4 py-3">
+                        {f.owned_count > 0 ? (
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${utilColor}`}>
+                            {utilPct.toFixed(0)}%
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-400">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-gray-700">{fmtDollars(f.deposit_amount)}</td>
+                      <td className="px-4 py-3 font-medium text-navy">
+                        {depositsOut > 0 ? fmtDollars(depositsOut) : '—'}
+                      </td>
+                      <td className="px-4 py-3">
+                        {!isReadOnly && (
+                          <button
+                            onClick={() => setEditKegTarget(f)}
+                            className="text-amber text-xs font-semibold hover:underline"
+                          >
+                            Edit
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ── Section 3: Kegs by Account ── */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100">
+          <h3 className="font-semibold text-navy">Kegs by Account</h3>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Kegs currently out at accounts, pulled from delivery records. Mark returned when kegs come back.
+          </p>
+        </div>
+
+        {kegRecordsOut.length === 0 ? (
+          <div className="p-8 text-center">
+            <p className="text-sm text-gray-400">No kegs currently out — all accounted for.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  {['Account', 'Keg Type', 'Kegs Out', 'Days Out', 'Expected Return', 'Status', 'Action'].map(h => (
+                    <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {kegRecordsOut.map(r => {
+                  // Calculate how many calendar days the kegs have been out
+                  const daysOut = r.delivery_date
+                    ? Math.floor((new Date() - new Date(r.delivery_date)) / 86400000)
+                    : null
+                  const isPastDueDate = r.keg_return_date && r.keg_return_date < today
+                  const isOverdue     = isPastDueDate || (daysOut != null && daysOut > 60)
+                  const isGettingLong = !isOverdue && daysOut != null && daysOut >= 30
+
+                  // Status badge color based on how long kegs have been out
+                  const statusStyle = isOverdue
+                    ? 'bg-red-100 text-danger border-red-200'
+                    : isGettingLong
+                    ? 'bg-amber/10 text-amber border-amber/20'
+                    : 'bg-green-50 text-success border-green-200'
+                  const statusLabel = isOverdue ? 'Overdue' : isGettingLong ? 'Getting Long' : 'On Track'
+
+                  return (
+                    <tr key={r.id} className={`hover:bg-gray-50 transition-colors ${isOverdue ? 'bg-red-50/30' : ''}`}>
+                      <td className="px-4 py-3 font-medium text-gray-800">{r.account_name || '—'}</td>
+                      <td className="px-4 py-3 text-gray-600 text-xs">{r.package_type || '—'}</td>
+                      <td className="px-4 py-3 text-gray-700">{r.quantity ?? 1}</td>
+                      <td className="px-4 py-3 text-gray-700">{daysOut != null ? `${daysOut}d` : '—'}</td>
+                      <td className="px-4 py-3 text-gray-600 text-xs">
+                        {r.keg_return_date ? fmtDate(r.keg_return_date) : '—'}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${statusStyle}`}>
+                          {statusLabel}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        {!isReadOnly ? (
+                          <button
+                            onClick={() => handleMarkReturned(r.id)}
+                            className="text-xs bg-green-100 text-success font-semibold px-2 py-1 rounded-lg hover:bg-green-200 transition-colors whitespace-nowrap"
+                          >
+                            Mark Returned
+                          </button>
+                        ) : (
+                          <span className="text-xs text-gray-400">Read only</span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ── Section 4: Deposit Tracking ── */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h3 className="font-semibold text-navy">Deposit Tracking</h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Log deposits received when kegs go out. Remove records when returned and refunded.
+            </p>
+          </div>
+          {!isReadOnly && (
+            <button
+              onClick={() => setAddDepositOpen(true)}
+              className="bg-amber text-white font-semibold px-3 py-1.5 rounded-lg text-sm hover:bg-amber-dark transition-colors"
+            >
+              + Add Deposit Record
+            </button>
+          )}
+        </div>
+
+        {depositRecords.length === 0 ? (
+          <div className="p-8 text-center">
+            <p className="text-sm text-gray-400 mb-1">No deposit records yet.</p>
+            <p className="text-xs text-gray-400">Click "Add Deposit Record" when an account pays a keg deposit.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  {['Account', 'Keg Type', 'Kegs Out', 'Deposit/Keg', 'Total Held', 'Last Updated', 'Notes'].map(h => (
+                    <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {depositRecords.map(r => (
+                  <tr key={r.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-4 py-3 font-medium text-gray-800">{r.account_name}</td>
+                    <td className="px-4 py-3 text-gray-600 text-xs">{r.keg_type}</td>
+                    <td className="px-4 py-3 text-gray-700">{r.kegs_out}</td>
+                    <td className="px-4 py-3 text-gray-700">{fmtDollars(r.deposit_per_keg)}</td>
+                    <td className="px-4 py-3 font-semibold text-navy">{fmtDollars(r.total_deposit_held)}</td>
+                    <td className="px-4 py-3 text-gray-500 text-xs">{fmtDate(r.last_updated)}</td>
+                    <td className="px-4 py-3 text-gray-500 text-xs">{r.notes || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+              {/* Running total of all deposits the brewery is currently holding */}
+              <tfoot className="bg-gray-50 border-t border-gray-200">
+                <tr>
+                  <td colSpan={4} className="px-4 py-3 text-sm font-semibold text-gray-600">Total Deposits Held</td>
+                  <td className="px-4 py-3 font-bold text-navy text-base">
+                    {fmtDollars(depositRecords.reduce((s, r) => s + (parseFloat(r.total_deposit_held) || 0), 0))}
+                  </td>
+                  <td colSpan={2} />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+
+        <div className="px-5 py-3 bg-gray-50 border-t border-gray-100">
+          <p className="text-xs text-gray-400">
+            Deposit tracking is manual. Update records when kegs are returned and deposits are refunded.
+          </p>
+        </div>
+      </div>
+
+      {/* ── Modals ── */}
+      {addKegOpen && (
+        <AddKegTypeModal
+          breweryId={breweryId}
+          existingTypes={fleet.map(f => f.keg_type)}
+          onClose={() => setAddKegOpen(false)}
+          onSaved={() => { setAddKegOpen(false); loadFleetData() }}
+        />
+      )}
+      {editKegTarget && (
+        <EditKegTypeModal
+          fleetRow={editKegTarget}
+          onClose={() => setEditKegTarget(null)}
+          onSaved={() => { setEditKegTarget(null); loadFleetData() }}
+        />
+      )}
+      {addDepositOpen && (
+        <AddDepositRecordModal
+          breweryId={breweryId}
+          onClose={() => setAddDepositOpen(false)}
+          onSaved={() => { setAddDepositOpen(false); loadFleetData() }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── AddKegTypeModal ────────────────────────────────────────────────────────────
+
+function AddKegTypeModal({ breweryId, existingTypes, onClose, onSaved }) {
+  const DRAFT_KEY = 'modal_draft_distribution_add_keg_type'
+  const { loadDraft, saveDraft, clearDraft, draftRestored, dismissDraftBanner } = useModalDraft(DRAFT_KEY)
+
+  const defaultForm = { keg_type: '', owned_count: '', deposit_amount: '', notes: '' }
+
+  const [form,   setForm]   = useState(() => loadDraft(false)?.form ?? defaultForm)
+  const [saving, setSaving] = useState(false)
+  const [error,  setError]  = useState(null)
+
+  // Only offer keg types the brewery hasn't already added
+  const availableTypes = KEG_TYPES.filter(t => !existingTypes.includes(t))
+
+  function set(field, val) {
+    const next = { ...form, [field]: val }
+    setForm(next)
+    saveDraft({ form: next })
+  }
+
+  const isDirty = !!form.keg_type || !!form.owned_count
+
+  async function handleSave() {
+    if (!form.keg_type)                                           { setError('Select a keg type.'); return }
+    if (form.owned_count === '' || parseInt(form.owned_count) < 0) { setError('Enter a valid owned count.'); return }
+    setSaving(true)
+    setError(null)
+    const { error: err } = await supabase.from('keg_fleet').insert({
+      brewery_id:     breweryId,
+      keg_type:       form.keg_type,
+      owned_count:    parseInt(form.owned_count)      || 0,
+      deposit_amount: parseFloat(form.deposit_amount) || 0,
+      notes:          form.notes || null,
+    })
+    if (err) { setError(err.message); setSaving(false); return }
+    clearDraft()
+    onSaved()
+  }
+
+  return (
+    <ModalShell
+      isOpen
+      onClose={onClose}
+      title="Add Keg Type to Fleet"
+      maxWidth="max-w-md"
+      isDirty={isDirty}
+      draftRestored={draftRestored}
+      onDismissDraft={dismissDraftBanner}
+    >
+      <div className="space-y-4">
+        {error && <div className="text-danger text-sm bg-red-50 rounded-lg px-3 py-2">{error}</div>}
+
+        <div>
+          <label className={LBL}>Keg Type *</label>
+          <select className={INPUT_CLS} value={form.keg_type} onChange={e => set('keg_type', e.target.value)}>
+            <option value="">— Select keg type —</option>
+            {availableTypes.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+          {availableTypes.length === 0 && (
+            <p className="text-xs text-gray-400 mt-1">All keg types have already been added to your fleet.</p>
+          )}
+        </div>
+
+        <div>
+          <label className={LBL}>Total Owned *</label>
+          <input
+            type="number" min="0" step="1" className={INPUT_CLS}
+            placeholder="e.g. 20"
+            value={form.owned_count}
+            onChange={e => set('owned_count', e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label className={LBL}>Deposit Amount per Keg ($)</label>
+          <input
+            type="number" min="0" step="0.01" className={INPUT_CLS}
+            placeholder="e.g. 30.00"
+            value={form.deposit_amount}
+            onChange={e => set('deposit_amount', e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label className={LBL}>Notes (optional)</label>
+          <input
+            type="text" className={INPUT_CLS}
+            placeholder="Anything worth noting about this keg type…"
+            value={form.notes}
+            onChange={e => set('notes', e.target.value)}
+          />
+        </div>
+
+        <div className="flex gap-3 pt-2">
+          <button onClick={handleSave} disabled={saving}
+            className="bg-amber text-white font-semibold px-5 py-2 rounded-lg text-sm hover:bg-amber-dark transition-colors disabled:opacity-50">
+            {saving ? 'Saving…' : 'Add Keg Type'}
+          </button>
+          <button onClick={onClose}
+            className="border border-gray-300 text-gray-600 px-5 py-2 rounded-lg text-sm hover:bg-gray-50 transition-colors">
+            Cancel
+          </button>
+        </div>
+      </div>
+    </ModalShell>
+  )
+}
+
+// ── EditKegTypeModal ───────────────────────────────────────────────────────────
+
+function EditKegTypeModal({ fleetRow, onClose, onSaved }) {
+  const DRAFT_KEY = `modal_draft_distribution_edit_keg_${fleetRow.id}`
+  const { loadDraft, saveDraft, clearDraft, draftRestored, dismissDraftBanner } = useModalDraft(DRAFT_KEY)
+
+  const defaultForm = {
+    owned_count:    String(fleetRow.owned_count    ?? ''),
+    deposit_amount: String(fleetRow.deposit_amount ?? ''),
+    notes:          fleetRow.notes || '',
+  }
+
+  const [form,          setForm]          = useState(() => loadDraft(false)?.form ?? defaultForm)
+  const [saving,        setSaving]        = useState(false)
+  const [error,         setError]         = useState(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+
+  function set(field, val) {
+    const next = { ...form, [field]: val }
+    setForm(next)
+    saveDraft({ form: next })
+  }
+
+  const isDirty = JSON.stringify(form) !== JSON.stringify(defaultForm)
+
+  async function handleSave() {
+    if (form.owned_count === '' || parseInt(form.owned_count) < 0) { setError('Enter a valid owned count.'); return }
+    setSaving(true)
+    setError(null)
+    const { error: err } = await supabase.from('keg_fleet').update({
+      owned_count:    parseInt(form.owned_count)      || 0,
+      deposit_amount: parseFloat(form.deposit_amount) || 0,
+      notes:          form.notes || null,
+    }).eq('id', fleetRow.id)
+    if (err) { setError(err.message); setSaving(false); return }
+    clearDraft()
+    onSaved()
+  }
+
+  // Permanently remove this keg type from the fleet
+  async function handleDelete() {
+    await supabase.from('keg_fleet').delete().eq('id', fleetRow.id)
+    clearDraft()
+    onSaved()
+  }
+
+  return (
+    <ModalShell
+      isOpen
+      onClose={onClose}
+      title={`Edit — ${fleetRow.keg_type}`}
+      maxWidth="max-w-md"
+      isDirty={isDirty}
+      draftRestored={draftRestored}
+      onDismissDraft={dismissDraftBanner}
+    >
+      <div className="space-y-4">
+        {error && <div className="text-danger text-sm bg-red-50 rounded-lg px-3 py-2">{error}</div>}
+
+        <div>
+          <label className={LBL}>Total Owned</label>
+          <input
+            type="number" min="0" step="1" className={INPUT_CLS}
+            value={form.owned_count}
+            onChange={e => set('owned_count', e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label className={LBL}>Deposit Amount per Keg ($)</label>
+          <input
+            type="number" min="0" step="0.01" className={INPUT_CLS}
+            value={form.deposit_amount}
+            onChange={e => set('deposit_amount', e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label className={LBL}>Notes (optional)</label>
+          <input
+            type="text" className={INPUT_CLS}
+            value={form.notes}
+            onChange={e => set('notes', e.target.value)}
+          />
+        </div>
+
+        <div className="flex flex-wrap gap-3 pt-2 items-center">
+          <button onClick={handleSave} disabled={saving}
+            className="bg-amber text-white font-semibold px-5 py-2 rounded-lg text-sm hover:bg-amber-dark transition-colors disabled:opacity-50">
+            {saving ? 'Saving…' : 'Save Changes'}
+          </button>
+          <button onClick={onClose}
+            className="border border-gray-300 text-gray-600 px-5 py-2 rounded-lg text-sm hover:bg-gray-50 transition-colors">
+            Cancel
+          </button>
+
+          {/* Two-step delete confirmation to prevent accidental removal */}
+          {!confirmDelete ? (
+            <button onClick={() => setConfirmDelete(true)}
+              className="ml-auto text-danger text-xs font-semibold border border-red-200 px-3 py-2 rounded-lg hover:bg-red-50 transition-colors">
+              Remove Keg Type
+            </button>
+          ) : (
+            <div className="ml-auto flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-danger font-medium">Remove this keg type?</span>
+              <button onClick={handleDelete}
+                className="text-xs text-white bg-danger font-semibold px-3 py-1.5 rounded-lg hover:opacity-80 transition-opacity">
+                Yes, Remove
+              </button>
+              <button onClick={() => setConfirmDelete(false)} className="text-xs text-gray-500 hover:underline">
+                Cancel
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </ModalShell>
+  )
+}
+
+// ── AddDepositRecordModal ──────────────────────────────────────────────────────
+
+function AddDepositRecordModal({ breweryId, onClose, onSaved }) {
+  const DRAFT_KEY = 'modal_draft_distribution_add_deposit'
+  const { loadDraft, saveDraft, clearDraft, draftRestored, dismissDraftBanner } = useModalDraft(DRAFT_KEY)
+
+  const defaultForm = {
+    account_name:    '',
+    keg_type:        '',
+    kegs_out:        '',
+    deposit_per_keg: '',
+    last_updated:    todayStr(),
+    notes:           '',
+  }
+
+  const [form,   setForm]   = useState(() => loadDraft(false)?.form ?? defaultForm)
+  const [saving, setSaving] = useState(false)
+  const [error,  setError]  = useState(null)
+
+  function set(field, val) {
+    const next = { ...form, [field]: val }
+    setForm(next)
+    saveDraft({ form: next })
+  }
+
+  const isDirty   = !!form.account_name || !!form.keg_type
+  // Live preview of total deposit so the user can verify before saving
+  const totalHeld = (parseInt(form.kegs_out) || 0) * (parseFloat(form.deposit_per_keg) || 0)
+
+  async function handleSave() {
+    if (!form.account_name.trim())                              { setError('Account name is required.'); return }
+    if (!form.keg_type)                                        { setError('Select a keg type.'); return }
+    if (!form.kegs_out || parseInt(form.kegs_out) < 0)         { setError('Enter a valid number of kegs.'); return }
+    setSaving(true)
+    setError(null)
+    const { error: err } = await supabase.from('keg_deposit_records').insert({
+      brewery_id:      breweryId,
+      account_name:    form.account_name.trim(),
+      keg_type:        form.keg_type,
+      kegs_out:        parseInt(form.kegs_out)         || 0,
+      deposit_per_keg: parseFloat(form.deposit_per_keg) || 0,
+      last_updated:    form.last_updated || todayStr(),
+      notes:           form.notes || null,
+    })
+    if (err) { setError(err.message); setSaving(false); return }
+    clearDraft()
+    onSaved()
+  }
+
+  return (
+    <ModalShell
+      isOpen
+      onClose={onClose}
+      title="Add Deposit Record"
+      maxWidth="max-w-md"
+      isDirty={isDirty}
+      draftRestored={draftRestored}
+      onDismissDraft={dismissDraftBanner}
+    >
+      <div className="space-y-4">
+        {error && <div className="text-danger text-sm bg-red-50 rounded-lg px-3 py-2">{error}</div>}
+
+        <div>
+          <label className={LBL}>Account Name *</label>
+          <input
+            type="text" className={INPUT_CLS}
+            placeholder="e.g. The Rusty Tap"
+            value={form.account_name}
+            onChange={e => set('account_name', e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label className={LBL}>Keg Type *</label>
+          <select className={INPUT_CLS} value={form.keg_type} onChange={e => set('keg_type', e.target.value)}>
+            <option value="">— Select keg type —</option>
+            {KEG_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className={LBL}>Number of Kegs *</label>
+            <input
+              type="number" min="0" step="1" className={INPUT_CLS}
+              placeholder="e.g. 5"
+              value={form.kegs_out}
+              onChange={e => set('kegs_out', e.target.value)}
+            />
+          </div>
+          <div>
+            <label className={LBL}>Deposit per Keg ($)</label>
+            <input
+              type="number" min="0" step="0.01" className={INPUT_CLS}
+              placeholder="e.g. 30.00"
+              value={form.deposit_per_keg}
+              onChange={e => set('deposit_per_keg', e.target.value)}
+            />
+          </div>
+        </div>
+
+        {/* Shows the total deposit held so the user can verify the math before saving */}
+        {totalHeld > 0 && (
+          <div className="bg-navy/5 border border-navy/10 rounded-lg px-4 py-2 flex justify-between items-center text-sm">
+            <span className="text-gray-600">Total deposit held</span>
+            <span className="font-bold text-navy">{fmtDollars(totalHeld)}</span>
+          </div>
+        )}
+
+        <div>
+          <label className={LBL}>Date Received</label>
+          <input
+            type="date" className={INPUT_CLS}
+            value={form.last_updated}
+            onChange={e => set('last_updated', e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label className={LBL}>Notes (optional)</label>
+          <input
+            type="text" className={INPUT_CLS}
+            placeholder="e.g. Paid via check, ref #1234"
+            value={form.notes}
+            onChange={e => set('notes', e.target.value)}
+          />
+        </div>
+
+        <div className="flex gap-3 pt-2">
+          <button onClick={handleSave} disabled={saving}
+            className="bg-amber text-white font-semibold px-5 py-2 rounded-lg text-sm hover:bg-amber-dark transition-colors disabled:opacity-50">
+            {saving ? 'Saving…' : 'Add Deposit Record'}
+          </button>
+          <button onClick={onClose}
+            className="border border-gray-300 text-gray-600 px-5 py-2 rounded-lg text-sm hover:bg-gray-50 transition-colors">
             Cancel
           </button>
         </div>
