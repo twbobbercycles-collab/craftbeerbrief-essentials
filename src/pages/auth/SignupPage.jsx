@@ -179,8 +179,16 @@ export default function SignupPage() {
                 I understand that The Craft Beer Brief Essentials is a tracking and information tool only.
                 It does not provide legal or tax advice, file documents on my behalf, or guarantee the
                 accuracy of any deadline, rate, or requirement. I agree to verify all compliance obligations
-                directly with the relevant government agency. By signing up I accept these terms and
-                acknowledge the{' '}
+                directly with the relevant government agency. By signing up I agree to the{' '}
+                <Link
+                  to="/terms"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-amber hover:underline"
+                >
+                  Terms of Service
+                </Link>
+                {' '}and{' '}
                 <Link
                   to="/privacy-policy"
                   target="_blank"

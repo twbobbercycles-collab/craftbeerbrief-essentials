@@ -121,6 +121,12 @@ export default function LoginPage() {
             Start free trial
           </Link>
         </p>
+        <p className="text-center text-xs text-gray-400 mt-3">
+          By logging in you agree to our{' '}
+          <Link to="/terms" className="text-gray-500 hover:underline">Terms of Service</Link>
+          {' '}and{' '}
+          <Link to="/privacy-policy" className="text-gray-500 hover:underline">Privacy Policy</Link>.
+        </p>
       </div>
     </div>
   )

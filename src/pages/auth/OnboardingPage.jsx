@@ -4,7 +4,7 @@
  * Saves structured license data to the breweries table via Supabase.
  */
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../../services/supabase'
 import { useAuth } from '../../context/AuthContext'
 
@@ -409,6 +409,13 @@ export default function OnboardingPage() {
         >
           {loading ? 'Saving...' : 'Finish Setup → Go to Dashboard'}
         </button>
+
+        <p className="text-center text-xs text-gray-400 pt-1">
+          By completing setup you agree to our{' '}
+          <Link to="/terms" className="text-amber hover:underline">Terms of Service</Link>
+          {' '}and{' '}
+          <Link to="/privacy-policy" className="text-amber hover:underline">Privacy Policy</Link>.
+        </p>
       </form>
     </div>
   )

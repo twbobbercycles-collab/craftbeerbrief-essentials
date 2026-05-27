@@ -18,6 +18,7 @@ import OnboardingPage from './pages/auth/OnboardingPage'
 import UpgradePage from './pages/auth/UpgradePage'
 import PrivacyPolicyPage from './pages/legal/PrivacyPolicyPage'
 import DisclaimerPage from './pages/legal/DisclaimerPage'
+import TermsOfServicePage from './pages/legal/TermsOfServicePage'
 
 // App pages — lazy loaded so the bundle stays small
 const DashboardPage    = lazy(() => import('./pages/dashboard/DashboardPage'))
@@ -82,6 +83,7 @@ export default function App() {
         <Route path="/upgrade" element={<UpgradePage />} />
         <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
         <Route path="/disclaimer" element={<DisclaimerPage />} />
+        <Route path="/terms" element={<TermsOfServicePage />} />
 
         {/* Protected routes — login + active trial/subscription required */}
         {/* All wrapped in AppLayout which renders the sidebar and top bar */}

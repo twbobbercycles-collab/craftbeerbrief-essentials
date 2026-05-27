@@ -560,6 +560,10 @@ export default function AppLayout() {
             <Link to="/disclaimer" className="text-gray-500 hover:text-gray-700 underline">
               Disclaimer
             </Link>
+            {' | '}
+            <Link to="/terms" className="text-gray-500 hover:text-gray-700 underline">
+              Terms of Service
+            </Link>
           </p>
         </footer>
       </div>
