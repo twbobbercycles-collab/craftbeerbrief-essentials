@@ -471,6 +471,97 @@ const CATEGORIES = [
       },
     ],
   },
+  // ── Operations tool deep-dive categories ─────────────────────────────────────
+  {
+    id: 'batch-profitability',
+    label: 'Batch Profitability Reports',
+    items: [
+      {
+        q: 'What is the Batch Profitability Report?',
+        a: 'The Batch Profitability Report connects data from your entire brewing workflow into one report per batch — brew day actuals, fermentation yield, packaging output, and distribution sales. It compares your planned profitability from the recipe cost calculator against what actually happened, so you can see exactly where margin was gained or lost on every batch.',
+      },
+      {
+        q: 'Where do I find the Batch Profitability Report?',
+        a: 'Go to the sidebar and look for Batch Profitability Reports in the Operations section. The report lists all completed batches with a summary view — planned vs actual cost per pint, total revenue, and margin. Click any batch to see the full line-by-line breakdown across brew day, fermentation, packaging, and distribution.',
+      },
+      {
+        q: 'Do I need to enter extra data to use the Batch Profitability Report?',
+        a: 'No extra data entry is needed. The report pulls automatically from data you have already logged across the app — recipe costs from the Recipe Builder, actual volumes from the Brew Day log, fermentation yield from the Fermentation Tracker, packaging units from the Packaging module, and sale prices from Distribution. If you follow the full Operations workflow, the report builds itself.',
+      },
+    ],
+  },
+  {
+    id: 'excise-tax-calculator',
+    label: 'TTB Excise Tax Calculator',
+    items: [
+      {
+        q: 'Where is the Excise Tax Calculator?',
+        a: 'The Excise Tax Calculator is inside the TTB Tracker module. Go to TTB Tracker in the Essentials section of the sidebar, then click the Excise Tax Calculator tab. Enter your barrels removed for the period and the calculator shows your estimated federal tax liability using the current verified rate.',
+      },
+      {
+        q: 'What excise tax rate does the calculator use?',
+        a: 'The calculator is pre-filled with the current federal reduced rate for domestic craft breweries: $3.50 per barrel for the first 60,000 barrels removed for consumption per calendar year. This rate applies to breweries producing under 2 million barrels annually. The standard rate of $16 per barrel applies above 60,000 barrels. You can edit the rate field if rates change — always verify the current rate at TTB.gov before filing.',
+      },
+      {
+        q: 'Does the Excise Tax Calculator file my return for me?',
+        a: "No. The calculator is a planning and estimation tool only — it does not file or submit anything to the TTB. All actual filings and payments must be made directly through the TTB's pay.gov system. The calculator helps you know what you owe before filing so there are no surprises. Always work with your accountant or CPA for final filing.",
+      },
+    ],
+  },
+  {
+    id: 'water-chemistry',
+    label: 'Water Chemistry Calculator',
+    items: [
+      {
+        q: 'Where is the Water Chemistry Calculator?',
+        a: 'The Water Chemistry Calculator is built into each recipe. Open any recipe in the Recipes module and scroll down to the Water Chemistry section — click Expand to open it. Your source water profile (the mineral levels of your brewing water) is entered once in Account Settings and reused automatically across all recipes.',
+      },
+      {
+        q: 'How do I set up my source water profile?',
+        a: "Go to Account Settings in the sidebar and look for the Source Water Profile section under Brewery Profile. Enter your water's calcium, magnesium, sodium, chloride, sulfate, and bicarbonate levels in mg/L. You can find these values in your municipal water quality report (usually on your city's website) or from a water test kit. These values carry over into every recipe automatically.",
+      },
+      {
+        q: 'How does the Water Chemistry Calculator work?',
+        a: 'Select a target style profile — Pilsner, Pale Ale, IPA, Stout, or others — and the calculator shows your source water levels alongside the target mineral ranges for that style. It then calculates the specific mineral additions needed (gypsum, calcium chloride, Epsom salt, baking soda, chalk) in grams scaled to your recipe batch size. The additions are saved with the recipe for future reference.',
+      },
+    ],
+  },
+  {
+    id: 'keg-fleet',
+    label: 'Keg Fleet Tracker',
+    items: [
+      {
+        q: 'What is the Keg Fleet Tracker?',
+        a: 'The Keg Fleet Tracker is a tab inside the Distribution module that helps you manage your owned keg inventory using pool-based tracking — you track kegs by type and size, not by individual serial numbers. It shows how many kegs you own per type, how many are currently out at accounts, how many are back at the brewery, and your total deposit balance outstanding across all accounts.',
+      },
+      {
+        q: 'How do I add my kegs to the Fleet Tracker?',
+        a: 'Go to Distribution in the sidebar and click the Keg Fleet tab. Click Add Keg Type to enter each keg type you own — for example Half Barrel (15.5 gal) or Sixth Barrel (5.16 gal). Enter how many you own of that type and the deposit amount you charge per keg. The tracker automatically calculates kegs currently out by matching your active distribution delivery records.',
+      },
+      {
+        q: 'How are deposits tracked in the Keg Fleet?',
+        a: 'The Keg Fleet tab includes a Deposit Ledger where you can log deposits held from each wholesale account. Enter the account name, keg type, number of kegs they currently hold, and the deposit per keg — the total deposit held calculates automatically. Update or remove the record when kegs are returned and deposits refunded. The summary cards at the top always show your running total deposits outstanding.',
+      },
+    ],
+  },
+  {
+    id: 'compliance-alerts',
+    label: 'Compliance Email Alerts',
+    items: [
+      {
+        q: 'What are Compliance Email Alerts?',
+        a: 'Compliance Email Alerts are automated email reminders that notify you before compliance deadlines come due. You can set an alert on any deadline in the Compliance Calendar — choose how many days in advance you want the reminder, such as 30 days before a license renewal or 14 days before a TTB filing. Alerts are sent to the email address on your account.',
+      },
+      {
+        q: 'How do I set up a compliance deadline alert?',
+        a: 'Open any deadline on the Compliance Calendar by clicking it. In the detail panel look for the Alert Me option. Turn it on and select how far in advance you want to be notified. You can set multiple reminders for the same deadline — for example 60 days out and again 14 days out. Alerts are saved automatically and you can turn them off at any time by returning to the deadline detail.',
+      },
+      {
+        q: 'Can I set alerts for grant application deadlines too?',
+        a: 'Yes. When you bookmark a grant in the Grant Finder that has a posted application deadline, the Alert Me button appears on the bookmark. Click it to receive an email reminder 30 days before the deadline. This is especially useful for competitive grant programs where early preparation matters — you will not miss a window because it slipped off your radar.',
+      },
+    ],
+  },
   // ── Universal categories ──────────────────────────────────────────────────────
   {
     id: 'account-billing',

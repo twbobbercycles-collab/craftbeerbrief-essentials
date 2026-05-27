@@ -163,7 +163,7 @@ export default function OnboardingTour({ onComplete }) {
         target: 'a[href="/ttb"]',
         placement: 'right',
         title: 'TTB Tracker',
-        body: "Track TTB filing deadlines, excise tax payments, COLA approvals, and Brewer's Report submissions.",
+        body: "Track TTB filing deadlines, excise tax payments, COLA approvals, and Brewer's Report submissions. Includes a built-in Excise Tax Calculator with verified federal rates — $3.50/bbl on your first 60,000 barrels.",
       },
       {
         target: 'a[href="/grants"]',
@@ -176,7 +176,7 @@ export default function OnboardingTour({ onComplete }) {
       {
         target: null,
         title: 'Operations Tools',
-        body: "Your 14-day Operations trial gives you full access to all these brewery management tools — included at no charge during your trial.",
+        body: "Your Operations subscription includes 7 brewery management modules plus Batch Profitability Reports, an Excise Tax Calculator, Water Chemistry tools, and Keg Fleet tracking. Let us walk you through everything.",
       },
 
       // Operations nav — top to bottom
@@ -190,7 +190,7 @@ export default function OnboardingTour({ onComplete }) {
         target: 'a[href="/recipes"]',
         placement: 'right',
         title: 'Recipes',
-        body: "Build recipes, calculate true cost per pint, and track ingredients directly from your inventory.",
+        body: "Build recipes, calculate true cost per pint, and track ingredients from inventory. Includes a Water Chemistry Calculator to hit target mineral profiles for any beer style.",
       },
       {
         target: 'a[href="/brewday"]',
@@ -214,7 +214,13 @@ export default function OnboardingTour({ onComplete }) {
         target: 'a[href="/distribution"]',
         placement: 'right',
         title: 'Distribution',
-        body: "Track wholesale accounts, assign package splits, record deliveries, and monitor keg returns.",
+        body: "Track wholesale accounts, assign package splits, monitor taproom margins, and manage your keg fleet with pool-based tracking. No serial numbers required.",
+      },
+      {
+        target: 'a[href="/reports/batch-profitability"]',
+        placement: 'right',
+        title: 'Batch Profitability Reports',
+        body: "See planned vs actual profitability for every batch. Connects your brew day, fermentation, packaging, and distribution data into one report — no extra data entry needed.",
       },
       {
         target: 'a[href="/taproom"]',

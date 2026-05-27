@@ -17,6 +17,7 @@ import ResetPasswordPage from './pages/auth/ResetPasswordPage'
 import OnboardingPage from './pages/auth/OnboardingPage'
 import UpgradePage from './pages/auth/UpgradePage'
 import PrivacyPolicyPage from './pages/legal/PrivacyPolicyPage'
+import DisclaimerPage from './pages/legal/DisclaimerPage'
 
 // App pages — lazy loaded so the bundle stays small
 const DashboardPage    = lazy(() => import('./pages/dashboard/DashboardPage'))
@@ -80,6 +81,7 @@ export default function App() {
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/upgrade" element={<UpgradePage />} />
         <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+        <Route path="/disclaimer" element={<DisclaimerPage />} />
 
         {/* Protected routes — login + active trial/subscription required */}
         {/* All wrapped in AppLayout which renders the sidebar and top bar */}
