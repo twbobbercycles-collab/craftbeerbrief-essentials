@@ -25,6 +25,7 @@ import {
   calculateSuggestedRetail, calculateTaxInclusivePrice, calculateGrossMargin,
   formatDollars, formatPct,
 } from './recipeUtils'
+import WaterChemistryTab from './WaterChemistryTab'
 
 // Container type options — simplified names, synced with 016 migration constraint.
 // Default volume for unit count estimates uses the most common size per type.
@@ -108,6 +109,9 @@ export default function RecipeDetailPage() {
 
   // Mobile cost panel bottom sheet
   const [costPanelOpen, setCostPanelOpen] = useState(false)
+
+  // Water chemistry section collapsed/expanded
+  const [waterChemOpen, setWaterChemOpen] = useState(false)
 
   // Inventory / brew-check panel
   const [brewCheckOpen, setBrewCheckOpen] = useState(false)
@@ -1190,6 +1194,33 @@ export default function RecipeDetailPage() {
           </div>
         </div>
       )}
+
+      {/* ── Water Chemistry Calculator ── */}
+      <div className="mt-6 bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <button
+          onClick={() => setWaterChemOpen(o => !o)}
+          className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors text-left"
+        >
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-navy">Water Chemistry</span>
+            <span className="text-xs bg-blue-50 text-blue-600 font-semibold px-2 py-0.5 rounded-full">
+              {recipe.water_target_profile || 'No profile set'}
+            </span>
+          </div>
+          <span className="text-xs text-gray-400">{waterChemOpen ? '▲ Collapse' : '▼ Expand'}</span>
+        </button>
+        {waterChemOpen && (
+          <div className="border-t border-gray-100 p-5">
+            <WaterChemistryTab
+              recipeId={recipe.id}
+              recipe={recipe}
+              batchSize={batchSize}
+              lines={lines}
+              isReadOnly={isReadOnly}
+            />
+          </div>
+        )}
+      </div>
 
       {/* ── Save New Version modal ── */}
       <ModalShell
