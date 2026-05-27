@@ -87,6 +87,11 @@ export default function AccountPage() {
   const [inviteLoading, setInviteLoading] = useState(false)
   const [inviteMessage, setInviteMessage] = useState('')
 
+  // ── Notification preferences state ──
+  const [alertsEnabled, setAlertsEnabled]   = useState(true)
+  const [alertsLoading, setAlertsLoading]   = useState(false)
+  const [alertsSaved,   setAlertsSaved]     = useState(false)
+
   // ── Brewery profile form state ──
   const [profileForm, setProfileForm] = useState({
     name: '',
@@ -101,6 +106,41 @@ export default function AccountPage() {
   const [profileSaving, setProfileSaving] = useState(false)
   const [profileSuccess, setProfileSuccess] = useState(false)
   const [profileError, setProfileError] = useState('')
+
+  // Load the user's current compliance alert preference from the database
+  useEffect(() => {
+    if (!user) return
+    supabase
+      .from('users')
+      .select('compliance_alerts_enabled')
+      .eq('id', user.id)
+      .single()
+      .then(({ data }) => {
+        // If the column is null (pre-migration row) treat it as enabled (default)
+        if (data) setAlertsEnabled(data.compliance_alerts_enabled ?? true)
+      })
+  }, [user])
+
+  // Saves the toggled compliance alert preference to the users table
+  async function handleToggleAlerts() {
+    const newValue = !alertsEnabled
+    setAlertsLoading(true)
+    setAlertsSaved(false)
+    try {
+      const { error } = await supabase
+        .from('users')
+        .update({ compliance_alerts_enabled: newValue })
+        .eq('id', user.id)
+      if (error) throw error
+      setAlertsEnabled(newValue)
+      setAlertsSaved(true)
+      setTimeout(() => setAlertsSaved(false), 3000)
+    } catch (err) {
+      console.error('Failed to update alert preference:', err)
+    } finally {
+      setAlertsLoading(false)
+    }
+  }
 
   // Populate the form from the brewery row when context loads
   useEffect(() => {
@@ -303,6 +343,49 @@ export default function AccountPage() {
           </button>
         </form>
         {inviteMessage && <p className="text-sm mt-3 text-gray-700">{inviteMessage}</p>}
+      </div>
+
+      {/* ── Notifications ── */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="font-semibold text-navy">Notifications</h3>
+          {alertsSaved && (
+            <span className="text-sm text-success font-medium">✓ Saved</span>
+          )}
+        </div>
+
+        <div className="flex items-start justify-between gap-4 pt-3">
+          <div className="flex-1">
+            <p className="text-sm font-medium text-navy">Compliance Email Alerts</p>
+            <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+              Receive email reminders 30 days and 7 days before compliance deadlines,
+              license renewals, and staff certification expirations.
+            </p>
+            <p className="text-xs mt-2 font-medium" style={{ color: alertsEnabled ? '#15803d' : '#6b7280' }}>
+              {alertsEnabled
+                ? 'Currently enabled — you will receive alerts for upcoming deadlines.'
+                : 'Currently disabled — you will not receive compliance reminders.'}
+            </p>
+          </div>
+
+          {/* Toggle switch */}
+          <button
+            type="button"
+            role="switch"
+            aria-checked={alertsEnabled}
+            disabled={alertsLoading}
+            onClick={handleToggleAlerts}
+            className={`relative flex-shrink-0 mt-0.5 w-11 h-6 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-amber focus:ring-offset-2 disabled:opacity-60 ${
+              alertsEnabled ? 'bg-amber' : 'bg-gray-300'
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                alertsEnabled ? 'translate-x-5' : 'translate-x-0'
+              }`}
+            />
+          </button>
+        </div>
       </div>
 
       {/* ── Cancel Subscription Modal ── */}

@@ -31,18 +31,35 @@ enable_confirmations = false  # Set to true in production
 # Each folder becomes a function endpoint at /functions/v1/<folder-name>
 
 # =============================================================================
-# Cron job: runs the grants-sync function every 24 hours
-# This is set in the Supabase dashboard under Database → Cron Jobs, not here.
-# SQL to add the cron job (run in Supabase SQL editor):
+# Cron job: compliance-alerts — runs every day at 8:00 AM UTC
+# Sends proactive compliance deadline reminder emails to all active subscribers.
+#
+# Supabase supports scheduling via config.toml (preferred) OR pg_cron (fallback).
+# =============================================================================
+
+# =============================================================================
+# FALLBACK: pg_cron SQL (use this if config.toml scheduling is not available
+# on your Supabase plan, or to add the job manually via the SQL editor).
+#
+# Run this in Supabase Dashboard → SQL Editor:
 #
 # select cron.schedule(
-#   'grants-sync-daily',          -- job name
-#   '0 6 * * *',                  -- cron expression: every day at 6:00 AM UTC
+#   'compliance-alerts-daily',
+#   '0 8 * * *',
 #   $$
-#     select net.http_post(
-#       url := 'https://<your-project>.supabase.co/functions/v1/grants-sync',
-#       headers := '{"Authorization": "Bearer <your-anon-key>"}'::jsonb
-#     )
+#   select net.http_post(
+#     url := 'https://orjekijkixswvnzenilb.supabase.co/functions/v1/compliance-alerts',
+#     headers := '{"Authorization": "Bearer ' || current_setting('app.service_role_key') || '"}'::jsonb
+#   )
 #   $$
 # );
+#
+# To check it was created:   SELECT * FROM cron.job;
+# To remove it:              SELECT cron.unschedule('compliance-alerts-daily');
+# =============================================================================
+
+# =============================================================================
+# Cron job: grants-sync — DISABLED (grants data is now manually curated)
+# SQL to remove the old job if it's still running:
+#   SELECT cron.unschedule('grants-sync-daily');
 # =============================================================================
