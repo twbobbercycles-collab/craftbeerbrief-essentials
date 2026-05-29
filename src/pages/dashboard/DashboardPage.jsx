@@ -932,6 +932,16 @@ export default function DashboardPage() {
             </div>
           )}
 
+          {/* View Full Analytics link — Operations+ users */}
+          <div className="text-center py-2">
+            <Link
+              to="/analytics"
+              className="inline-flex items-center gap-1.5 text-sm font-semibold text-amber hover:underline"
+            >
+              📊 View Full Analytics Dashboard →
+            </Link>
+          </div>
+
           {/* Taproom Events widget — Full Suite only */}
           {hasAccess('full_suite') && (
             <div className="bg-white rounded-xl border border-gray-200 p-5">

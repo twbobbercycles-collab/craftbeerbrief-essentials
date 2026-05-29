@@ -50,7 +50,8 @@ const FULL_SUITE_NAV = [
   { path: '/wholesale',    label: 'Wholesale Manager',    icon: '🤝' },
   { path: '/training',     label: 'Staff Training',       icon: '🎓' },
   { path: '/benchmarking', label: 'Revenue Benchmarking', icon: '📈' },
-  { path: '/playbook',     label: 'Regulation Playbook',  icon: '📜' },
+  { path: '/analytics',   label: 'Analytics',            icon: '📊' },
+  { path: '/playbook',    label: 'Regulation Playbook',  icon: '📜' },
 ]
 
 // Maps OPS_NAV paths to sidebar warning keys

@@ -48,6 +48,7 @@ const TrainingPage            = lazy(() => import('./pages/training/TrainingPage
 const BenchmarkingPage        = lazy(() => import('./pages/benchmarking/BenchmarkingPage'))
 const PlaybookPage            = lazy(() => import('./pages/playbook/PlaybookPage'))
 const BatchProfitabilityPage  = lazy(() => import('./pages/reports/BatchProfitabilityPage'))
+const AnalyticsPage           = lazy(() => import('./pages/analytics/AnalyticsPage'))
 
 // Suspense fallback wraps all lazy pages — shows a spinner during code loading
 function PageLoader() {
@@ -125,6 +126,7 @@ export default function App() {
           <Route path="playbook"       element={<PlaybookPage />} />
           <Route path="recipes"  element={<RecipesPage />} />
           <Route path="recipes/:id" element={<RecipeDetailPage />} />
+          <Route path="analytics" element={<AnalyticsPage />} />
           <Route path="reports/batch-profitability" element={<BatchProfitabilityPage />} />
 
           {/* Admin-only route — only visible to VITE_ADMIN_EMAIL */}
