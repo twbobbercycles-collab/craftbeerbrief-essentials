@@ -37,8 +37,9 @@ const OPS_NAV = [
   { path: '/reports/batch-profitability', label: 'Batch Report', icon: '💹' },
 ]
 
-// Bottom nav items — always shown
+// Bottom nav items — always shown to all authenticated users
 const BOTTOM_NAV = [
+  { path: '/news',    label: 'Industry News',    icon: '📰' },
   { path: '/help',    label: 'Help & FAQ',       icon: '❓' },
   { path: '/account', label: 'Account Settings', icon: '⚙️' },
 ]
