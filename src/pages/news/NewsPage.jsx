@@ -104,14 +104,14 @@ const DATA_RESOURCES = [
     title: 'Brewers Association Production Report',
     description: 'Annual craft brewery production data, brewery count, and market share statistics.',
     source: 'Brewers Association',
-    url: 'https://www.brewersassociation.org/statistics-and-data/national-beer-sales-production-data/',
+    url: 'https://www.brewersassociation.org/statistics-and-data/national-beer-stats/',
   },
   {
     icon: '💼',
     title: 'Brewers Association Economic Impact',
     description: 'Economic impact of craft brewing on local and national economies.',
     source: 'Brewers Association',
-    url: 'https://www.brewersassociation.org/statistics-and-data/craft-beer-industry-market-segments/',
+    url: 'https://www.brewersassociation.org/statistics-and-data/state-craft-beer-stats/',
   },
   {
     icon: '🏛️',
@@ -139,28 +139,31 @@ const DATA_RESOURCES = [
     title: 'Brewers Association Data & Statistics',
     description: 'Annual financial benchmarking data for craft breweries including margins, labor costs, and revenue per barrel.',
     source: 'Brewers Association',
-    url: 'https://www.brewersassociation.org/category/data/',
+    url: 'https://www.brewersassociation.org/statistics-and-data/',
   },
 ]
 
 const STATE_RESOURCES = [
   {
-    icon: '🏛️',
-    title: 'Your State ABC Agency',
-    description: 'Find your state alcohol control agency for licensing and compliance requirements.',
-    url: 'https://www.google.com/search?q=state+ABC+agency+brewery+license',
+    icon: '🍻',
+    title: 'Find Your State Brewery Guild',
+    description: 'The Brewers Association maintains a directory of all 50 state brewery guilds with contact information and links. Join your state guild for legislative alerts and collective advocacy.',
+    source: 'Brewers Association',
+    url: 'https://www.brewersassociation.org/government-affairs/state-legal-resources/state-guilds/',
   },
   {
-    icon: '🍻',
-    title: 'Your State Brewery Guild',
-    description: 'State guilds provide legislative advocacy, group purchasing, and networking for craft brewers.',
-    url: 'https://www.brewersassociation.org/government-affairs/state-brewer-guilds/',
+    icon: '🏛️',
+    title: 'State Legal Resources for Brewers',
+    description: 'State-by-state ABC agency links, self-distribution rules, franchise law summaries, and licensing information maintained by the Brewers Association.',
+    source: 'Brewers Association',
+    url: 'https://www.brewersassociation.org/government-affairs/state-legal-resources/',
   },
   {
     icon: '📝',
-    title: 'TTB myTTB Portal',
-    description: "File your Brewer's Report of Operations, pay excise tax, and manage your Brewer's Notice.",
-    url: 'https://www.ttb.gov/mytTb',
+    title: 'myTTB Portal',
+    description: "File your Brewer's Report of Operations, pay excise tax, and manage your Brewer's Notice. Requires TTB credentials — contact TTB at 1-877-882-3277 if you need access.",
+    source: 'TTB',
+    url: 'https://www.ttb.gov/mytTB',
   },
 ]
 
