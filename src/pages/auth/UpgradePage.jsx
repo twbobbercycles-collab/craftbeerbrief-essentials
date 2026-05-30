@@ -384,8 +384,8 @@ export default function UpgradePage() {
         </div>
       </div>
 
-      <p className="text-center text-gray-400 text-xs mt-8">
-        Secured by Stripe. No credit card required for trial. Cancel anytime. Your data is never deleted.
+      <p className="text-center text-gray-400 text-xs mt-8 max-w-xl mx-auto leading-relaxed">
+        Secured by Stripe. No credit card required for trial. Cancel anytime. Your data is saved for 90 days so you can reactivate and pick up right where you left off. After 90 days inactive accounts are permanently deleted. You can export or delete your data at any time in Account Settings.
       </p>
     </div>
   )

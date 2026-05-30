@@ -5,6 +5,8 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../services/supabase'
+import ModalShell from '../../components/ModalShell'
+import { useModalDraft } from '../../hooks/useModalDraft'
 
 // ─── Shared option lists (mirror OnboardingPage) ─────────────────────────────
 
@@ -245,6 +247,95 @@ export default function AccountPage() {
     }
   }
 
+  // ── Data export state ──
+  const [exportLoading, setExportLoading] = useState(false)
+  const [exportMessage, setExportMessage] = useState('')
+
+  // ── Delete account state ──
+  const [deleteModalOpen, setDeleteModalOpen]     = useState(false)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
+  const [deleteLoading, setDeleteLoading]         = useState(false)
+  const [deleteError, setDeleteError]             = useState('')
+  // useModalDraft is required by convention even though delete has no draft state to persist
+  const { draftRestored, dismissDraftBanner } = useModalDraft('delete-account-confirm')
+
+  // Fetches all brewery data from every operational table and triggers a JSON download
+  async function exportBreweryData() {
+    setExportLoading(true)
+    setExportMessage('')
+    try {
+      const breweryId = brewery?.id
+      if (!breweryId) throw new Error('No brewery found')
+
+      const tableNames = [
+        'recipes', 'recipe_ingredients', 'ingredients', 'brew_days',
+        'fermentations', 'gravity_readings', 'packaging_runs',
+        'distribution_records', 'distribution_accounts', 'taproom_events',
+        'wholesale_accounts', 'training_programs', 'staff_training_records',
+        'taproom_metrics', 'tracked_bills', 'excise_tax_periods',
+      ]
+
+      // Fetch all tables in parallel; tables that error return an empty array
+      const results = await Promise.all(
+        tableNames.map(async (table) => {
+          const { data, error } = await supabase
+            .from(table)
+            .select('*')
+            .eq('brewery_id', breweryId)
+          if (error) console.warn(`Export: could not fetch ${table}:`, error.message)
+          return [table, data ?? []]
+        })
+      )
+
+      const exportObj = {
+        metadata: {
+          brewery_name: brewery?.name ?? 'Unknown Brewery',
+          export_date: new Date().toISOString(),
+          app_version: 'The Craft Beer Brief Essentials',
+        },
+        ...Object.fromEntries(results),
+      }
+
+      // Build file name: craftbeerbrief-export-[brewery-name]-[date].json
+      const slug = (brewery?.name ?? 'brewery').replace(/[^a-z0-9]+/gi, '-').toLowerCase()
+      const date = new Date().toISOString().slice(0, 10)
+      const fileName = `craftbeerbrief-export-${slug}-${date}.json`
+
+      // Trigger browser download
+      const blob = new Blob([JSON.stringify(exportObj, null, 2)], { type: 'application/json' })
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href     = url
+      a.download = fileName
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      setExportMessage('Export complete — check your downloads.')
+    } catch (err) {
+      setExportMessage(`Export failed: ${err.message}`)
+    } finally {
+      setExportLoading(false)
+    }
+  }
+
+  // Calls the delete-account Edge Function then signs out and redirects to login
+  async function handleDeleteAccount() {
+    setDeleteLoading(true)
+    setDeleteError('')
+    try {
+      const { data, error } = await supabase.functions.invoke('delete-account', { body: {} })
+      if (error) throw new Error(error.message)
+      if (data?.error) throw new Error(data.message ?? data.error)
+      await supabase.auth.signOut()
+      window.location.href = '/login?deleted=1'
+    } catch (err) {
+      setDeleteError(err.message || 'Failed to delete account. Please try again.')
+      setDeleteLoading(false)
+    }
+  }
+
   const statusColors = {
     active: 'bg-green-100 text-success',
     trialing: 'bg-amber/10 text-amber',
@@ -388,6 +479,102 @@ export default function AccountPage() {
         </div>
       </div>
 
+      {/* ── Data & Privacy ── */}
+
+      {/* Part A: Export Your Data */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <h3 className="font-semibold text-navy mb-1">Export Your Data</h3>
+        <p className="text-sm text-gray-500 mb-4 leading-relaxed">
+          Download all your brewery data including recipes, brew days, fermentation records,
+          inventory, and distribution history as a JSON file.
+        </p>
+        <button
+          onClick={exportBreweryData}
+          disabled={exportLoading}
+          className="border border-navy text-navy text-sm font-semibold px-5 py-2 rounded-lg hover:bg-navy hover:text-white transition-colors disabled:opacity-60"
+        >
+          {exportLoading ? 'Exporting...' : 'Export Data'}
+        </button>
+        {exportMessage && (
+          <p className={`text-sm mt-3 font-medium ${exportMessage.startsWith('Export failed') ? 'text-danger' : 'text-success'}`}>
+            {exportMessage}
+          </p>
+        )}
+      </div>
+
+      {/* Part B: Delete Account */}
+      <div className="bg-white rounded-xl border-2 border-danger/40 p-5">
+        <h3 className="font-semibold text-danger mb-1">Delete Account</h3>
+        <p className="text-sm text-gray-500 mb-4 leading-relaxed">
+          Permanently delete your account and all brewery data. This cannot be undone. All recipes,
+          brew logs, compliance records, and other data will be permanently removed immediately.
+        </p>
+        <button
+          onClick={() => { setDeleteConfirmText(''); setDeleteError(''); setDeleteModalOpen(true) }}
+          className="border border-danger text-danger text-sm font-semibold px-5 py-2 rounded-lg hover:bg-danger hover:text-white transition-colors"
+        >
+          Delete Account
+        </button>
+      </div>
+
+      {/* ── Delete Account Modal ── */}
+      <ModalShell
+        isOpen={deleteModalOpen}
+        onClose={() => setDeleteModalOpen(false)}
+        isDirty={deleteConfirmText.length > 0}
+        title="⚠ Permanently Delete Account"
+        draftRestored={draftRestored}
+        onDismissDraft={dismissDraftBanner}
+        maxWidth="max-w-md"
+      >
+        <div className="space-y-4">
+          <div className="bg-red-50 border border-danger rounded-lg px-4 py-3 text-sm text-danger leading-relaxed">
+            <p className="font-semibold mb-2">This will immediately and permanently delete:</p>
+            <ul className="list-disc list-inside space-y-1 text-xs">
+              <li>All recipes and ingredients</li>
+              <li>All brew day logs and fermentation records</li>
+              <li>All packaging and distribution records</li>
+              <li>All compliance data</li>
+              <li>Your brewery profile and account</li>
+            </ul>
+            <p className="mt-3 font-semibold">This action cannot be undone and your data cannot be recovered.</p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-navy mb-1.5">
+              Type <span className="font-mono text-danger">DELETE</span> to confirm
+            </label>
+            <input
+              type="text"
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              placeholder="DELETE"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-danger"
+            />
+          </div>
+
+          {deleteError && (
+            <p className="text-sm text-danger font-medium">{deleteError}</p>
+          )}
+
+          <div className="flex flex-col sm:flex-row gap-3 pt-1">
+            <button
+              onClick={() => setDeleteModalOpen(false)}
+              className="flex-1 border border-gray-300 text-gray-600 font-semibold py-2.5 rounded-lg text-sm hover:bg-gray-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleDeleteAccount}
+              disabled={deleteConfirmText !== 'DELETE' || deleteLoading}
+              className="flex-1 bg-danger hover:bg-red-700 text-white font-semibold py-2.5 rounded-lg text-sm transition-colors disabled:opacity-40"
+            >
+              {deleteLoading ? 'Deleting...' : 'Delete Everything'}
+            </button>
+          </div>
+        </div>
+      </ModalShell>
+
       {/* ── Cancel Subscription Modal ── */}
       {cancelModalOpen && (
         <div
@@ -406,9 +593,9 @@ export default function AccountPage() {
                   <h3 className="text-lg font-bold text-navy mb-3">Subscription Cancelled</h3>
                 </div>
                 <p className="text-sm text-gray-600 leading-relaxed">
-                  Your subscription has been cancelled. You will retain full read access to all
-                  your data indefinitely. Nothing will be deleted. If you change your mind you
-                  can resubscribe at any time and pick up exactly where you left off.
+                  Your subscription has been cancelled. Your data is saved for 90 days — resubscribe
+                  any time to pick up right where you left off. After 90 days inactive accounts are
+                  permanently deleted. You can export your data at any time in Account Settings.
                 </p>
                 <button
                   onClick={() => { setCancelModalOpen(false); setCancelConfirmed(false) }}
@@ -423,9 +610,9 @@ export default function AccountPage() {
                 <h3 className="text-lg font-bold text-navy">Are you sure you want to cancel?</h3>
                 <p className="text-sm text-gray-600 leading-relaxed">
                   You will lose the ability to add or edit data at the end of your current billing
-                  period. <strong>Your data is never deleted</strong> — everything is preserved
-                  indefinitely so you can resubscribe at any time and pick up exactly where you
-                  left off.
+                  period. <strong>Your data is saved for 90 days</strong> — resubscribe any time to
+                  pick up exactly where you left off. After 90 days inactive accounts are permanently
+                  deleted.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-3 pt-1">
                   <button
