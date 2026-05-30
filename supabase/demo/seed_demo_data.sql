@@ -154,8 +154,8 @@ BEGIN
     (v_ing_crystal,    v_brewery_id, 'Crystal 60L',       'Malt/Grain', 'lb',     0.75,  60, 'lb',     20, true),
     (v_ing_oats,       v_brewery_id, 'Flaked Oats',       'Adjunct',    'lb',     0.70,  40, 'lb',     15, true),
     (v_ing_centennial, v_brewery_id, 'Centennial Hops',   'Hops',       'oz',     2.10,  32, 'oz',      8, true),
-    (v_ing_cascade,    v_brewery_id, 'Cascade Hops',      'Hops',       'oz',     1.85,  24, 'oz',      8, true),
-    (v_ing_citra,      v_brewery_id, 'Citra Hops',        'Hops',       'oz',     2.75,  48, 'oz',     12, true),
+    (v_ing_cascade,    v_brewery_id, 'Cascade Hops',      'Hops',       'oz',     1.85,  25, 'oz',     30, true),
+    (v_ing_citra,      v_brewery_id, 'Citra Hops',        'Hops',       'oz',     2.75,  20, 'oz',     25, true),
     (v_ing_us05,       v_brewery_id, 'US-05 Dry Yeast',   'Yeast',      'packet', 4.50,  12, 'packet',  4, true);
 
   -- ── 5. Recipes ────────────────────────────────────────────────────────────

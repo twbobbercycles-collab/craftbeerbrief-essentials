@@ -243,8 +243,8 @@ Deno.serve(async (req) => {
       { id: ids.ingCrystal,    brewery_id: b, name: 'Crystal 60L',       category: 'Malt/Grain', unit: 'lb',     current_price_per_unit: 0.75, current_stock_quantity: 60,  stock_unit: 'lb',     reorder_threshold: 20, is_active: true },
       { id: ids.ingOats,       brewery_id: b, name: 'Flaked Oats',       category: 'Adjunct',    unit: 'lb',     current_price_per_unit: 0.70, current_stock_quantity: 40,  stock_unit: 'lb',     reorder_threshold: 15, is_active: true },
       { id: ids.ingCentennial, brewery_id: b, name: 'Centennial Hops',   category: 'Hops',       unit: 'oz',     current_price_per_unit: 2.10, current_stock_quantity: 32,  stock_unit: 'oz',     reorder_threshold: 8,  is_active: true },
-      { id: ids.ingCascade,    brewery_id: b, name: 'Cascade Hops',      category: 'Hops',       unit: 'oz',     current_price_per_unit: 1.85, current_stock_quantity: 24,  stock_unit: 'oz',     reorder_threshold: 8,  is_active: true },
-      { id: ids.ingCitra,      brewery_id: b, name: 'Citra Hops',        category: 'Hops',       unit: 'oz',     current_price_per_unit: 2.75, current_stock_quantity: 48,  stock_unit: 'oz',     reorder_threshold: 12, is_active: true },
+      { id: ids.ingCascade,    brewery_id: b, name: 'Cascade Hops',      category: 'Hops',       unit: 'oz',     current_price_per_unit: 1.85, current_stock_quantity: 25,  stock_unit: 'oz',     reorder_threshold: 30, is_active: true },
+      { id: ids.ingCitra,      brewery_id: b, name: 'Citra Hops',        category: 'Hops',       unit: 'oz',     current_price_per_unit: 2.75, current_stock_quantity: 20,  stock_unit: 'oz',     reorder_threshold: 25, is_active: true },
       { id: ids.ingUs05,       brewery_id: b, name: 'US-05 Dry Yeast',   category: 'Yeast',      unit: 'packet', current_price_per_unit: 4.50, current_stock_quantity: 12,  stock_unit: 'packet', reorder_threshold: 4,  is_active: true },
     ])
     check(ingErr, 'insert ingredients')
