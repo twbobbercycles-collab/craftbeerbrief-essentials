@@ -383,6 +383,12 @@ export default function AdminPage() {
   const [savingEdit, setSavingEdit]     = useState(false)
   const [editSaveMsg, setEditSaveMsg]   = useState('')   // '' | 'success' | 'error:...'
 
+  // Demo Mode tab
+  const [demoConfirm1, setDemoConfirm1]       = useState(false)
+  const [demoConfirmText, setDemoConfirmText] = useState('')
+  const [demoResetting, setDemoResetting]     = useState(false)
+  const [demoResetMsg, setDemoResetMsg]       = useState('')  // '' | 'success' | 'error:...'
+
   useEffect(() => { loadAdminData() }, [])
 
   async function loadAdminData() {
@@ -540,6 +546,28 @@ export default function AdminPage() {
     }
   }
 
+  // ── Demo Mode reset ─────────────────────────────────────────────────────────
+
+  // Calls the reset-demo-data Edge Function (admin-only) to wipe and re-seed
+  // all data for the demo brewery account in one click.
+  async function handleDemoReset() {
+    setDemoResetting(true)
+    setDemoResetMsg('')
+    try {
+      const { data, error } = await supabase.functions.invoke('reset-demo-data', {
+        body: {},
+      })
+      if (error) throw new Error(error.message)
+      if (data?.error) throw new Error(data.message ?? data.error)
+      setDemoResetMsg('success')
+      setDemoConfirm1(false)
+      setDemoConfirmText('')
+    } catch (err) {
+      setDemoResetMsg(`error:${err.message}`)
+    }
+    setDemoResetting(false)
+  }
+
   // ── CSV Import helpers ──────────────────────────────────────────────────────
 
   // Parses raw CSV text into { headers (lowercase), rows (array of arrays) }.
@@ -665,6 +693,9 @@ export default function AdminPage() {
           </AdminTab>
           <AdminTab active={activeTab === 'import'} onClick={() => setActiveTab('import')}>
             Import Data
+          </AdminTab>
+          <AdminTab active={activeTab === 'demo'} onClick={() => setActiveTab('demo')}>
+            Demo Mode
           </AdminTab>
         </div>
 
@@ -1106,6 +1137,126 @@ export default function AdminPage() {
 
                 </div>
               )}
+
+            </div>
+          )}
+
+          {/* ── Demo Mode ───────────────────────────────────────────────────── */}
+          {activeTab === 'demo' && (
+            <div className="space-y-6 max-w-2xl">
+
+              {/* Credentials card */}
+              <div className="bg-navy/5 border border-navy/20 rounded-xl p-5">
+                <h3 className="font-semibold text-navy text-sm mb-3">Demo Login Credentials</h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center gap-3">
+                    <span className="text-gray-500 w-20 shrink-0">Email</span>
+                    <code className="font-mono text-navy bg-white border border-gray-200 px-2 py-0.5 rounded text-xs">
+                      demo@thecraftbeerbrief.com
+                    </code>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-gray-500 w-20 shrink-0">Password</span>
+                    <code className="font-mono text-navy bg-white border border-gray-200 px-2 py-0.5 rounded text-xs">
+                      AdaptiveBrew2026!
+                    </code>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-gray-500 w-20 shrink-0">Plan</span>
+                    <span className="text-green-700 font-medium text-xs">Full Suite — Active</span>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500 mt-3">
+                  Share these credentials with prospects for a self-guided demo. The account has no expiry.
+                </p>
+              </div>
+
+              {/* Demo story card */}
+              <div className="bg-amber/5 border border-amber/20 rounded-xl p-5">
+                <h3 className="font-semibold text-amber text-sm mb-2">About the Demo Account</h3>
+                <p className="text-xs text-gray-700 leading-relaxed">
+                  <strong>Adaptive Brewing Co.</strong> is a fictional 5-barrel brewpub in Denver, CO.
+                  The demo account includes two completed batches (Hazy IPA + Amber Ale), full fermentation
+                  logs with gravity readings, a packaged and distributed IPA batch, three months of taproom
+                  metrics, keg fleet tracking, two staff-priority legislative bills, insurance policies,
+                  local permits, and excise tax records — enough data to demonstrate every module.
+                </p>
+              </div>
+
+              {/* Reset section */}
+              <div className="border-t border-gray-200 pt-5 space-y-3">
+                <p className="text-sm font-semibold text-gray-800">Reset Demo Data</p>
+                <p className="text-xs text-gray-500">
+                  Wipes all data for Adaptive Brewing Co. and re-inserts fresh seed data.
+                  Use this after a prospect has made changes and the account needs to be cleaned up.
+                  The demo auth user and credentials are not affected.
+                </p>
+
+                {demoResetMsg === 'success' && (
+                  <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3">
+                    <p className="text-sm font-semibold text-green-800">
+                      ✅ Demo data reset successfully. The account is fresh and ready.
+                    </p>
+                  </div>
+                )}
+                {typeof demoResetMsg === 'string' && demoResetMsg.startsWith('error:') && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+                    <p className="text-sm font-medium text-danger">❌ {demoResetMsg.slice(6)}</p>
+                  </div>
+                )}
+
+                {!demoConfirm1 ? (
+                  <button
+                    onClick={() => { setDemoConfirm1(true); setDemoResetMsg('') }}
+                    className="text-sm border border-danger/50 text-danger px-4 py-2 rounded-lg hover:bg-red-50 transition-colors"
+                  >
+                    🔄 Reset Demo Data
+                  </button>
+                ) : (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4 space-y-3">
+                    <p className="text-sm font-semibold text-danger">
+                      ⚠️ This will permanently delete all current demo data and replace it with fresh seed data.
+                    </p>
+                    <p className="text-xs text-red-600">
+                      Type <strong>RESET</strong> below to confirm, then click the button.
+                    </p>
+                    <input
+                      type="text"
+                      value={demoConfirmText}
+                      onChange={e => setDemoConfirmText(e.target.value)}
+                      placeholder="Type RESET to confirm"
+                      className="border border-red-300 rounded-lg px-3 py-2 text-sm w-48 focus:outline-none focus:ring-2 focus:ring-danger"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleDemoReset}
+                        disabled={demoConfirmText !== 'RESET' || demoResetting}
+                        className="text-sm bg-danger text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-40"
+                      >
+                        {demoResetting ? 'Resetting…' : 'Confirm Reset'}
+                      </button>
+                      <button
+                        onClick={() => { setDemoConfirm1(false); setDemoConfirmText('') }}
+                        className="text-sm border border-gray-300 text-gray-600 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Setup note */}
+              <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+                <p className="text-xs font-semibold text-gray-700 mb-1">First-time setup</p>
+                <p className="text-xs text-gray-500 leading-relaxed">
+                  The demo auth user must be created manually in the Supabase Auth dashboard before
+                  running a reset for the first time. Use the credentials above.
+                  Once created, click Reset Demo Data to seed all brewery data automatically.
+                  See <code className="font-mono text-xs">supabase/demo/seed_demo_data.sql</code> for
+                  the full SQL seed file if you prefer to run it directly.
+                </p>
+              </div>
 
             </div>
           )}
