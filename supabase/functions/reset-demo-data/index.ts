@@ -233,6 +233,7 @@ Deno.serve(async (req) => {
   }
 
   const b = breweryId  // shorthand for readability below
+  console.log('Demo brewery ID:', breweryId)
 
   try {
     // ── Ingredients ──────────────────────────────────────────────────────────
@@ -294,13 +295,13 @@ Deno.serve(async (req) => {
 
     // ── Gravity Readings ──────────────────────────────────────────────────────
     const { error: grErr } = await svc.from('gravity_readings').insert([
-      { fermentation_id: ids.fermHazy,  reading_date: '2026-03-11', gravity: 1.056, temperature: 68 },
-      { fermentation_id: ids.fermHazy,  reading_date: '2026-03-13', gravity: 1.032, temperature: 69 },
-      { fermentation_id: ids.fermHazy,  reading_date: '2026-03-16', gravity: 1.018, temperature: 70 },
-      { fermentation_id: ids.fermHazy,  reading_date: '2026-03-19', gravity: 1.012, temperature: 70 },
-      { fermentation_id: ids.fermAmber, reading_date: '2026-04-08', gravity: 1.046, temperature: 66 },
-      { fermentation_id: ids.fermAmber, reading_date: '2026-04-11', gravity: 1.028, temperature: 68 },
-      { fermentation_id: ids.fermAmber, reading_date: '2026-04-15', gravity: 1.014, temperature: 68 },
+      { brewery_id: b, fermentation_id: ids.fermHazy,  reading_date: '2026-03-11', gravity: 1.056, temperature: 68 },
+      { brewery_id: b, fermentation_id: ids.fermHazy,  reading_date: '2026-03-13', gravity: 1.032, temperature: 69 },
+      { brewery_id: b, fermentation_id: ids.fermHazy,  reading_date: '2026-03-16', gravity: 1.018, temperature: 70 },
+      { brewery_id: b, fermentation_id: ids.fermHazy,  reading_date: '2026-03-19', gravity: 1.012, temperature: 70 },
+      { brewery_id: b, fermentation_id: ids.fermAmber, reading_date: '2026-04-08', gravity: 1.046, temperature: 66 },
+      { brewery_id: b, fermentation_id: ids.fermAmber, reading_date: '2026-04-11', gravity: 1.028, temperature: 68 },
+      { brewery_id: b, fermentation_id: ids.fermAmber, reading_date: '2026-04-15', gravity: 1.014, temperature: 68 },
     ])
     check(grErr, 'insert gravity_readings')
 
