@@ -249,11 +249,6 @@ export default function UpgradePage() {
           }`}
         >
           Annual
-          {annualEnabled ? (
-            <span className="ml-1.5 text-xs font-semibold text-green-600">Save up to $60</span>
-          ) : (
-            <span className="ml-1.5 text-xs text-gray-400">(Coming soon)</span>
-          )}
         </button>
       </div>
 
@@ -277,11 +272,12 @@ export default function UpgradePage() {
       )}
 
       {/* ── Comparison table ─────────────────────────────────────────────────── */}
-      <div className="max-w-4xl mx-auto overflow-x-auto rounded-xl shadow-sm border border-gray-200">
+      {/* Note: no overflow-x-auto here — any overflow value breaks position:sticky on children */}
+      <div className="max-w-4xl mx-auto rounded-xl shadow-sm border border-gray-200">
         <div className="min-w-[580px]">
 
           {/* Sticky header — tier names, prices, CTA buttons */}
-          <div className="sticky top-0 z-10 grid grid-cols-[1fr_160px_160px_160px] bg-white border-b-2 border-gray-200 shadow-sm">
+          <div className="sticky top-0 z-20 grid grid-cols-[1fr_160px_160px_160px] bg-white border-b-2 border-gray-200 shadow-sm">
 
             {/* Feature column label */}
             <div className="px-6 py-5 flex items-end">
@@ -327,10 +323,10 @@ export default function UpgradePage() {
                       </div>
                     ) : (
                       <div>
-                        <span className="text-xl font-bold text-navy">${tier.annualMonthly.toFixed(2)}</span>
-                        <span className="text-xs text-gray-400">/mo</span>
+                        <span className="text-xl font-bold text-navy">${tier.annualPrice.toFixed(2)}</span>
+                        <span className="text-xs text-gray-400">/yr</span>
                         <div className="text-xs text-green-600 font-semibold mt-0.5">
-                          Billed ${tier.annualPrice}/yr
+                          Save ${tier.annualSavings.toFixed(2)} vs monthly
                         </div>
                       </div>
                     )}
