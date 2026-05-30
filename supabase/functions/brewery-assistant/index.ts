@@ -49,6 +49,7 @@ APP NAVIGATION — always give the exact sidebar path:
 - Training: Full Suite section → Staff Training
 - Benchmarking: Full Suite section → Revenue Benchmarking
 - Playbook: Full Suite section → Regulation Playbook (26 document templates)
+- Legislative Tracker: Full Suite section → Legislative Tracker (track bills, log advocacy actions, connect LegiScan for auto-updates)
 
 KEY WORKFLOWS:
 - To build a recipe: Recipes → Add Recipe → add ingredients → set packaging splits in cost calculator
@@ -64,6 +65,9 @@ KEY WORKFLOWS:
 - To view batch profitability: Batch Profitability Reports (sidebar) → select a completed batch → review planned vs actual cost, yield, and margin
 - To set a compliance alert: Compliance Calendar → click any deadline → Alert Me → choose advance notice days
 - To generate advocacy doc: Full Suite → Regulation Playbook → select template → fill form → Generate Document
+- To track a bill: Full Suite → Legislative Tracker → Add Bill → enter bill details, set A/B/C/D priority, add bill URL → Save
+- To log advocacy action: Legislative Tracker → click View on a bill → Actions tab → Log Action
+- To connect LegiScan: Legislative Tracker → Settings tab → follow the 7-step setup instructions
 
 TTB KNOWLEDGE:
 - Excise tax rates: $3.50/bbl for first 60,000 bbls (domestic brewers under 2M bbls annual production); $16/bbl over 60,000 bbls

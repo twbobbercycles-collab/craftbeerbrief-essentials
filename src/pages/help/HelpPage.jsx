@@ -440,6 +440,25 @@ const CATEGORIES = [
       },
     ],
   },
+  // ── Legislative Tracker category ─────────────────────────────────────────────
+  {
+    id: 'legislative-tracker',
+    label: 'Legislative Tracker',
+    items: [
+      {
+        q: 'What is the Legislative Tracker?',
+        a: 'The Legislative Tracker is a Full Suite tool for monitoring legislation that affects your brewery. Add bills you want to track, set priority levels using the playbook\'s A/B/C/D system, log your advocacy actions, and optionally connect your free LegiScan account for automatic bill status updates. Find it in the Full Suite section of the sidebar under Legislative Tracker.',
+      },
+      {
+        q: 'What is the A/B/C/D priority system?',
+        a: 'The priority system matches The Craft Beer Brief Legislative Playbook\'s tracking framework. A = Act Now — high financial impact, short advocacy window, full mobilization required. B = Watch — moderate impact or longer timeline, prepare materials and monitor closely. C = FYI — low immediate impact, track periodically with no active engagement yet. D = Noise — minimal relevance, record in system and review quarterly.',
+      },
+      {
+        q: 'How does LegiScan integration work?',
+        a: 'LegiScan is a free third-party service that tracks legislation in all 50 states and Congress. If you create your own free LegiScan account and connect your API key in the Legislative Tracker Settings tab, your tracked bills will automatically update their status every night. LegiScan accounts are free and the setup instructions are built into the Settings tab. Your API key is stored securely and only used to fetch bill status updates — The Craft Beer Brief never has access to your LegiScan account.',
+      },
+    ],
+  },
   // ── AI Assistant category ─────────────────────────────────────────────────────
   {
     id: 'ai-assistant',
