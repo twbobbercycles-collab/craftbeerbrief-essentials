@@ -217,16 +217,16 @@ export default function OnboardingTour({ onComplete }) {
         body: "Track wholesale accounts, assign package splits, monitor taproom margins, and manage your keg fleet with pool-based tracking. No serial numbers required.",
       },
       {
-        target: 'a[href="/reports/batch-profitability"]',
-        placement: 'right',
-        title: 'Batch Profitability Reports',
-        body: "See planned vs actual profitability for every batch. Connects your brew day, fermentation, packaging, and distribution data into one report — no extra data entry needed.",
-      },
-      {
         target: 'a[href="/taproom"]',
         placement: 'right',
         title: 'Taproom',
         body: "See what is on tap, track margin per handle, and compare taproom profitability across all active beers.",
+      },
+      {
+        target: 'a[href="/reports/batch-profitability"]',
+        placement: 'right',
+        title: 'Batch Profitability Reports',
+        body: "See planned vs actual profitability for every batch. Connects your brew day, fermentation, packaging, and distribution data into one report — no extra data entry needed.",
       },
     ]
 
@@ -255,6 +255,18 @@ export default function OnboardingTour({ onComplete }) {
         placement: 'right',
         title: 'Taproom Revenue Benchmarking',
         body: 'Enter your monthly taproom metrics and compare against Brewers Association industry benchmarks. See where you are outperforming and where you have room to grow.',
+      },
+      {
+        target: 'a[href="/analytics"]',
+        placement: 'right',
+        title: 'Analytics Dashboard',
+        body: 'Visualize your brewery performance across all modules. Track revenue trends, production efficiency, and key metrics over time.',
+      },
+      {
+        target: 'a[href="/legislative"]',
+        placement: 'right',
+        title: 'Legislative Tracker',
+        body: 'Track state and federal bills that affect your brewery. Set A/B/C/D priorities, log advocacy actions, and connect LegiScan for automatic bill updates.',
       },
       {
         target: 'a[href="/playbook"]',
@@ -287,7 +299,21 @@ export default function OnboardingTour({ onComplete }) {
         : 'The Craft Brief AI Assistant is included with all paid plans — Essentials, Operations, and Full Suite. Upgrade after your trial to unlock the amber ✨ button in the bottom right corner. Ask it anything about brewery operations, TTB compliance, app navigation, and more.',
     }
 
-    // ── Steps 17-19 (or later): bottom nav + finale ───────────────────────────
+    // ── Bottom nav steps + finale ─────────────────────────────────────────────
+    const newsStep = {
+      target: 'a[href="/news"]',
+      placement: 'right',
+      title: 'Industry News',
+      body: 'Stay current with the latest craft beer industry news, regulatory updates, and trends — curated daily for brewery owners.',
+    }
+
+    const adminStep = profile?.email === 'twbobbercycles@gmail.com' ? {
+      target: 'a[href="/admin"]',
+      placement: 'right',
+      title: 'Admin Panel',
+      body: 'Manage grant submissions, import data, and reset the demo account for live demos.',
+    } : null
+
     const baseStepsEnd = [
       {
         target: 'a[href="/help"]',
@@ -308,7 +334,15 @@ export default function OnboardingTour({ onComplete }) {
       },
     ]
 
-    return [...baseStepsStart, ...fullSuiteSteps, ...baseStepsEnd.slice(0, -1), aiAssistantStep, baseStepsEnd[baseStepsEnd.length - 1]]
+    return [
+      ...baseStepsStart,
+      ...fullSuiteSteps,
+      newsStep,
+      ...baseStepsEnd.slice(0, -1),
+      ...(adminStep ? [adminStep] : []),
+      aiAssistantStep,
+      baseStepsEnd[baseStepsEnd.length - 1],
+    ]
   }, [hasFullSuite, fullSuitePaid, profile?.subscription_tier])
 
   const [stepIdx,      setStepIdx]      = useState(0)
