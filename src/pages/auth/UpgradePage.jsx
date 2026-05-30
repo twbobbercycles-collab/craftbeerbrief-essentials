@@ -280,8 +280,8 @@ export default function UpgradePage() {
           <div className="sticky top-0 z-20 grid grid-cols-[1fr_160px_160px_160px] bg-white border-b-2 border-gray-200 shadow-sm">
 
             {/* Feature column label */}
-            <div className="px-6 py-5 flex items-end">
-              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Features</span>
+            <div className="px-6 py-6 flex items-end">
+              <span className="text-xl font-extrabold text-navy">Features</span>
             </div>
 
             {TIERS.map((tier) => {
@@ -289,13 +289,19 @@ export default function UpgradePage() {
               const isTrialPlan   = isTrialExpired && tier.key === 'operations'
               const isHighlighted = tier.popular || isTrialPlan || isCurrentTier
 
+              // Each tier gets a distinct color so the columns are immediately distinguishable
+              const tierColor =
+                tier.key === 'operations' ? 'text-amber'
+                : tier.key === 'full_suite' ? 'text-navy'
+                : 'text-gray-800'
+
               return (
                 <div
                   key={tier.key}
-                  className={`px-3 py-4 text-center border-l border-gray-200 ${isHighlighted ? 'bg-amber/5' : ''}`}
+                  className={`px-3 py-6 text-center border-l border-gray-200 ${isHighlighted ? 'bg-amber/5' : ''}`}
                 >
                   {/* Tier name */}
-                  <div className="font-bold text-navy text-sm">{tier.name}</div>
+                  <div className={`text-xl font-extrabold ${tierColor}`}>{tier.name}</div>
 
                   {/* Status badges */}
                   {isCurrentTier && (
