@@ -52,6 +52,7 @@ const FULL_SUITE_NAV = [
   { path: '/training',     label: 'Staff Training',       icon: '🎓' },
   { path: '/benchmarking', label: 'Revenue Benchmarking', icon: '📈' },
   { path: '/analytics',   label: 'Analytics',            icon: '📊' },
+  { path: '/legislative', label: 'Legislative Tracker',  icon: '⚖️' },
   { path: '/playbook',    label: 'Regulation Playbook',  icon: '📜' },
 ]
 
