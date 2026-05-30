@@ -1,7 +1,8 @@
 /**
  * UpgradePage — displays all three subscription tiers and initiates Stripe checkout.
  * Accessible from trial expiry, TierGate locked previews, and Account Settings.
- * Replaces the single-plan view with a full three-tier comparison layout.
+ * Renders a sticky-header comparison table with alternating row stripes and
+ * green check / gray dash indicators for each feature × tier combination.
  */
 import { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
@@ -25,7 +26,6 @@ const PRICE_IDS = {
 }
 
 // Annual billing is enabled only when at least one annual price ID is configured.
-// Until annual IDs are added to Stripe and .env, the toggle shows "Coming soon".
 const annualEnabled = !!(
   PRICE_IDS.operations.annual || PRICE_IDS.full_suite.annual
 )
@@ -33,7 +33,7 @@ const annualEnabled = !!(
 // Numeric rank so we can compare tiers and hide downgrade buttons
 const TIER_RANK = { essentials: 0, operations: 1, full_suite: 2 }
 
-// Features shown on each card — higher tiers include a null sentinel for a visual divider
+// Feature lists — kept separate so the comparison table can build inclusion patterns
 const ESSENTIALS_LIST = [
   'State Compliance Calendar with pre-loaded deadlines',
   'TTB Filing & Excise Tax Tracker',
@@ -62,7 +62,6 @@ const FULL_SUITE_ONLY = [
   'Regulation, Policy & Advocacy Playbook (PDF)',
 ]
 
-// Each tier's complete feature list. null renders as a divider between inherited and new features.
 const TIERS = [
   {
     key: 'essentials',
@@ -71,7 +70,6 @@ const TIERS = [
     annualPrice: 99.99,
     annualMonthly: 8.33,
     annualSavings: 19.89,
-    features: ESSENTIALS_LIST,
   },
   {
     key: 'operations',
@@ -80,7 +78,6 @@ const TIERS = [
     annualPrice: 149.99,
     annualMonthly: 12.50,
     annualSavings: 29.89,
-    features: [...ESSENTIALS_LIST, null, ...OPERATIONS_ONLY],
     popular: true,
   },
   {
@@ -90,28 +87,49 @@ const TIERS = [
     annualPrice: 199.99,
     annualMonthly: 16.67,
     annualSavings: 39.89,
-    features: [...ESSENTIALS_LIST, null, ...OPERATIONS_ONLY, null, ...FULL_SUITE_ONLY],
   },
 ]
 
+// ── Check / dash cell used in every feature row ───────────────────────────────
+function CheckCell({ included }) {
+  return (
+    <div className="flex items-center justify-center border-l border-gray-200 py-3 px-2">
+      {included ? (
+        <span className="inline-flex items-center justify-center w-6 h-6 bg-green-500 rounded-full shrink-0">
+          <span className="text-white text-xs font-bold leading-none">✓</span>
+        </span>
+      ) : (
+        <span className="text-gray-300 text-base leading-none select-none">—</span>
+      )}
+    </div>
+  )
+}
+
+// ── Section header row spanning the full table width ──────────────────────────
+function SectionHeader({ title }) {
+  return (
+    <div className="px-6 py-2 bg-gray-100 border-b border-gray-200">
+      <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">{title}</span>
+    </div>
+  )
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 export default function UpgradePage() {
   const { user, profile } = useAuth()
   const [billing, setBilling] = useState('monthly')
   const [loading, setLoading] = useState('')   // set to a tierKey while that checkout is loading
-  const [error, setError] = useState('')
+  const [error, setError]     = useState('')
 
-  const currentTier = profile?.subscription_tier ?? 'essentials'
+  const currentTier        = profile?.subscription_tier ?? 'essentials'
   const subscriptionStatus = profile?.subscription_status
-  const isActiveSub = subscriptionStatus === 'active'
-  const isCancelled = subscriptionStatus === 'cancelled'
+  const isActiveSub        = subscriptionStatus === 'active'
+  const isCancelled        = subscriptionStatus === 'cancelled'
 
-  // True when the user had a trial that is now expired and they haven't subscribed yet.
-  // Used to tailor card labels and show a retention warning on the Essentials card.
   const isTrialExpired = !isActiveSub
     && !!profile?.trial_expires_at
     && new Date(profile.trial_expires_at) <= new Date()
 
-  // Kick off Stripe checkout for the selected tier and billing cycle
   async function handleCheckout(tierKey) {
     const priceId = PRICE_IDS[tierKey]?.[billing]
 
@@ -129,8 +147,8 @@ export default function UpgradePage() {
       const { data, error: fnError } = await supabase.functions.invoke('create-checkout-session', {
         body: {
           priceId,
-          userId: user.id,
-          email: user.email,
+          userId:     user.id,
+          email:      user.email,
           successUrl: `${window.location.origin}/dashboard?checkout=success`,
           cancelUrl:  `${window.location.origin}/upgrade`,
         },
@@ -144,34 +162,27 @@ export default function UpgradePage() {
     }
   }
 
-  // Returns the CTA element for a given tier card
   function renderButton(tier) {
-    const tierRank = TIER_RANK[tier.key] ?? 0
-    const userRank = TIER_RANK[currentTier] ?? 0
+    const tierRank    = TIER_RANK[tier.key] ?? 0
+    const userRank    = TIER_RANK[currentTier] ?? 0
     const isCurrentTier = tier.key === currentTier && isActiveSub
 
-    // Already on this plan
     if (isCurrentTier) {
       return (
-        <button
-          disabled
-          className="w-full py-3 rounded-lg text-sm font-semibold bg-gray-100 text-gray-400 cursor-default"
-        >
+        <button disabled className="w-full py-2 rounded-lg text-xs font-semibold bg-gray-100 text-gray-400 cursor-default">
           Current Plan
         </button>
       )
     }
 
-    // Downgrade — don't show a checkout button, just a contact note
     if (isActiveSub && tierRank < userRank) {
       return (
-        <p className="text-xs text-center text-gray-400 py-3">
+        <p className="text-xs text-center text-gray-400 py-2 leading-snug">
           Contact us to switch to a lower tier
         </p>
       )
     }
 
-    // Determine button label based on context
     let label
     if (tier.key === 'essentials') {
       label = isCancelled ? 'Resubscribe' : 'Get Started'
@@ -187,9 +198,9 @@ export default function UpgradePage() {
       <button
         onClick={() => handleCheckout(tier.key)}
         disabled={!!loading}
-        className="w-full bg-amber hover:bg-amber-dark text-white font-semibold py-3 rounded-lg text-sm transition-colors disabled:opacity-60"
+        className="w-full bg-amber hover:bg-amber-dark text-white font-semibold py-2 rounded-lg text-xs transition-colors disabled:opacity-60"
       >
-        {isLoading ? 'Redirecting to checkout...' : label}
+        {isLoading ? 'Redirecting…' : label}
       </button>
     )
   }
@@ -211,7 +222,6 @@ export default function UpgradePage() {
         ) : (
           <p className="text-gray-600 mt-2">Choose the plan that fits your brewery.</p>
         )}
-        <p className="text-gray-500 text-sm mt-1">Choose the plan that fits your brewery.</p>
       </div>
 
       {/* Billing cycle toggle */}
@@ -227,7 +237,6 @@ export default function UpgradePage() {
           Monthly
         </button>
 
-        {/* Annual toggle — disabled with "Coming soon" label if price IDs are not yet configured */}
         <button
           onClick={() => annualEnabled && setBilling('annual')}
           title={annualEnabled ? undefined : 'Annual plans coming soon'}
@@ -248,113 +257,135 @@ export default function UpgradePage() {
         </button>
       </div>
 
-      {/* Global error message */}
+      {/* Global error */}
       {error && (
-        <div className="max-w-5xl mx-auto mb-6">
+        <div className="max-w-4xl mx-auto mb-4">
           <div className="bg-red-50 border border-danger text-danger rounded-lg px-4 py-3 text-sm">
             {error}
           </div>
         </div>
       )}
 
-      {/* Three tier cards — side by side on desktop, stacked on mobile */}
-      <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
-        {TIERS.map((tier) => {
-          const isCurrentTier = tier.key === currentTier && isActiveSub
+      {/* Trial-expired retention warning */}
+      {isTrialExpired && (
+        <div className="max-w-4xl mx-auto mb-4">
+          <div className="bg-red-50 border border-danger rounded-lg px-4 py-3 text-xs text-danger leading-relaxed">
+            <p className="font-semibold mb-1">Heads up before choosing Essentials:</p>
+            <p>You will lose access to the Recipe Builder, Brew Day Scheduler, Fermentation Tracker, Packaging, Distribution, and Taproom Profitability tools you used during your trial.</p>
+          </div>
+        </div>
+      )}
 
-          // When the trial has just expired, Operations is the user's "familiar" plan
-          const isTrialPlan = isTrialExpired && tier.key === 'operations'
+      {/* ── Comparison table ─────────────────────────────────────────────────── */}
+      <div className="max-w-4xl mx-auto overflow-x-auto rounded-xl shadow-sm border border-gray-200">
+        <div className="min-w-[580px]">
 
-          // Card border highlight
-          const borderCls = isCurrentTier
-            ? 'border-amber'
-            : isTrialPlan
-              ? 'border-amber'
-              : tier.popular && !isTrialExpired
-                ? 'border-navy'
-                : 'border-gray-200'
+          {/* Sticky header — tier names, prices, CTA buttons */}
+          <div className="sticky top-0 z-10 grid grid-cols-[1fr_160px_160px_160px] bg-white border-b-2 border-gray-200 shadow-sm">
 
-          return (
-            <div key={tier.key} className="flex flex-col gap-3">
-            <div
-              className={`bg-white rounded-xl shadow-sm flex flex-col relative border-2 ${borderCls}`}
-            >
-              {/* Badge — "Your Trial Plan" for trial-expired Operations, "Most Popular" otherwise */}
-              {(isTrialPlan || (tier.popular && !isTrialExpired)) && (
-                <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
-                  <span className="bg-amber text-white text-xs font-bold px-3 py-1 rounded-full whitespace-nowrap">
-                    {isTrialPlan ? 'Your Trial Plan — Recommended' : 'Most Popular'}
-                  </span>
-                </div>
-              )}
+            {/* Feature column label */}
+            <div className="px-6 py-5 flex items-end">
+              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Features</span>
+            </div>
 
-              {/* Card header */}
-              <div className={`px-6 pt-6 pb-4 border-b border-gray-100 ${isTrialPlan || (tier.popular && !isTrialExpired) ? 'pt-8' : ''}`}>
-                <div className="flex items-center justify-between mb-1">
-                  <h2 className="font-bold text-navy text-lg">{tier.name}</h2>
+            {TIERS.map((tier) => {
+              const isCurrentTier = tier.key === currentTier && isActiveSub
+              const isTrialPlan   = isTrialExpired && tier.key === 'operations'
+              const isHighlighted = tier.popular || isTrialPlan || isCurrentTier
+
+              return (
+                <div
+                  key={tier.key}
+                  className={`px-3 py-4 text-center border-l border-gray-200 ${isHighlighted ? 'bg-amber/5' : ''}`}
+                >
+                  {/* Tier name */}
+                  <div className="font-bold text-navy text-sm">{tier.name}</div>
+
+                  {/* Status badges */}
                   {isCurrentTier && (
-                    <span className="bg-amber/10 text-amber text-xs font-semibold px-2 py-0.5 rounded-full">
+                    <span className="inline-block text-xs text-amber font-semibold bg-amber/10 px-2 py-0.5 rounded-full mt-1">
                       Your Plan
                     </span>
                   )}
-                  {/* Contextual label when trial expired */}
-                  {isTrialExpired && !isCurrentTier && (
-                    <span className="text-xs text-gray-400 font-medium">
-                      {tier.key === 'essentials' ? 'Basic Plan' : tier.key === 'full_suite' ? 'Everything Included' : ''}
+                  {isTrialPlan && !isCurrentTier && (
+                    <span className="inline-block text-xs text-amber font-semibold bg-amber/10 px-2 py-0.5 rounded-full mt-1">
+                      Trial Plan
                     </span>
                   )}
+                  {tier.popular && !isTrialExpired && !isCurrentTier && (
+                    <span className="inline-block text-xs text-amber font-semibold bg-amber/10 px-2 py-0.5 rounded-full mt-1">
+                      Most Popular
+                    </span>
+                  )}
+
+                  {/* Price */}
+                  <div className="mt-2">
+                    {billing === 'monthly' || !annualEnabled ? (
+                      <div>
+                        <span className="text-xl font-bold text-navy">${tier.monthlyPrice.toFixed(2)}</span>
+                        <span className="text-xs text-gray-400">/mo</span>
+                      </div>
+                    ) : (
+                      <div>
+                        <span className="text-xl font-bold text-navy">${tier.annualMonthly.toFixed(2)}</span>
+                        <span className="text-xs text-gray-400">/mo</span>
+                        <div className="text-xs text-green-600 font-semibold mt-0.5">
+                          Billed ${tier.annualPrice}/yr
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* CTA */}
+                  <div className="mt-3">{renderButton(tier)}</div>
                 </div>
+              )
+            })}
+          </div>
 
-                {billing === 'monthly' || !annualEnabled ? (
-                  <p className="text-3xl font-bold text-navy">
-                    ${tier.monthlyPrice.toFixed(2)}
-                    <span className="text-base font-normal text-gray-400">/mo</span>
-                  </p>
-                ) : (
-                  <>
-                    <p className="text-3xl font-bold text-navy">
-                      ${tier.annualPrice.toFixed(2)}
-                      <span className="text-base font-normal text-gray-400">/yr</span>
-                    </p>
-                    <p className="text-xs text-success font-semibold mt-0.5">
-                      ${tier.annualMonthly.toFixed(2)}/mo — save ${tier.annualSavings.toFixed(2)}
-                    </p>
-                  </>
-                )}
-              </div>
-
-              {/* Feature checklist */}
-              <div className="px-6 py-5 flex-1 space-y-2">
-                {tier.features.map((feature, i) => {
-                  // null is a divider between inherited and new features
-                  if (feature === null) {
-                    return <div key={i} className="border-t border-gray-100 my-3" />
-                  }
-                  return (
-                    <div key={i} className="flex items-start gap-2">
-                      <span className="text-amber font-bold text-sm shrink-0 mt-0.5">✓</span>
-                      <span className="text-gray-600 text-sm leading-snug">{feature}</span>
-                    </div>
-                  )
-                })}
-              </div>
-
-              {/* CTA button */}
-              <div className="px-6 pb-6">
-                {renderButton(tier)}
-              </div>
+          {/* ── Essentials features ── */}
+          <SectionHeader title="Essentials" />
+          {ESSENTIALS_LIST.map((feat, i) => (
+            <div
+              key={i}
+              className={`grid grid-cols-[1fr_160px_160px_160px] items-center border-b border-gray-200 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}
+            >
+              <div className="px-6 py-3 text-sm text-gray-700 leading-snug">{feat}</div>
+              <CheckCell included />
+              <CheckCell included />
+              <CheckCell included />
             </div>
+          ))}
 
-            {/* Retention warning below Essentials card — only shown when trial has expired */}
-            {isTrialExpired && tier.key === 'essentials' && (
-              <div className="bg-red-50 border border-danger rounded-lg px-4 py-3 text-xs text-danger leading-relaxed">
-                <p className="font-semibold mb-1">Heads up before choosing Essentials:</p>
-                <p>You will lose access to the Recipe Builder, Brew Day Scheduler, Fermentation Tracker, Packaging, Distribution, and Taproom Profitability tools you used during your trial.</p>
-              </div>
-            )}
+          {/* ── Operations add-ons ── */}
+          <SectionHeader title="Operations Add-ons" />
+          {OPERATIONS_ONLY.map((feat, i) => (
+            <div
+              key={i}
+              className={`grid grid-cols-[1fr_160px_160px_160px] items-center border-b border-gray-200 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}
+            >
+              <div className="px-6 py-3 text-sm text-gray-700 leading-snug">{feat}</div>
+              <CheckCell />
+              <CheckCell included />
+              <CheckCell included />
             </div>
-          )
-        })}
+          ))}
+
+          {/* ── Full Suite add-ons ── */}
+          <SectionHeader title="Full Suite Add-ons" />
+          {FULL_SUITE_ONLY.map((feat, i) => (
+            <div
+              key={i}
+              className={`grid grid-cols-[1fr_160px_160px_160px] items-center ${i < FULL_SUITE_ONLY.length - 1 ? 'border-b border-gray-200' : ''} ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}
+            >
+              <div className="px-6 py-3 text-sm text-gray-700 leading-snug">{feat}</div>
+              <CheckCell />
+              <CheckCell />
+              <CheckCell included />
+            </div>
+          ))}
+
+        </div>
       </div>
 
       <p className="text-center text-gray-400 text-xs mt-8">
