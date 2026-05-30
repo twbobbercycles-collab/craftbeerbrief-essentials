@@ -194,11 +194,17 @@ export default function UpgradePage() {
 
     const isLoading = loading === tier.key
 
+    const buttonColor = {
+      essentials: 'bg-[#1A2744] hover:bg-[#243562] text-white',
+      operations: 'bg-[#C8871A] hover:bg-[#A06E15] text-white',
+      full_suite:  'bg-[#0D9488] hover:bg-[#0A7A70] text-white',
+    }[tier.key] ?? 'bg-[#1A2744] hover:bg-[#243562] text-white'
+
     return (
       <button
         onClick={() => handleCheckout(tier.key)}
         disabled={!!loading}
-        className="w-full bg-amber hover:bg-amber-dark text-white font-semibold py-2 rounded-lg text-xs transition-colors disabled:opacity-60"
+        className={`w-full font-semibold py-2 rounded-lg text-xs transition-colors disabled:opacity-60 ${buttonColor}`}
       >
         {isLoading ? 'Redirecting…' : label}
       </button>
@@ -374,7 +380,7 @@ export default function UpgradePage() {
           ))}
 
           {/* ── Full Suite add-ons ── */}
-          <SectionHeader title="Full Suite Add-ons" className="bg-navy text-white" />
+          <SectionHeader title="Full Suite Add-ons" className="bg-[#0D9488] text-white" />
           {FULL_SUITE_ONLY.map((feat, i) => (
             <div
               key={i}
