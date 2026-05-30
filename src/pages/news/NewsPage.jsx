@@ -100,20 +100,6 @@ const DATA_RESOURCES = [
     url: 'https://www.beerinstitute.org/data-economic/non-alcohol-beer-growth-trends/',
   },
   {
-    icon: '🍺',
-    title: 'Brewers Association Production Report',
-    description: 'Annual craft brewery production data, brewery count, and market share statistics.',
-    source: 'Brewers Association',
-    url: 'https://www.brewersassociation.org/statistics-and-data/national-beer-stats/',
-  },
-  {
-    icon: '💼',
-    title: 'Brewers Association Economic Impact',
-    description: 'Economic impact of craft brewing on local and national economies.',
-    source: 'Brewers Association',
-    url: 'https://www.brewersassociation.org/statistics-and-data/state-craft-beer-stats/',
-  },
-  {
     icon: '🏛️',
     title: 'TTB Beer Statistical Reports',
     description: 'Official TTB beer production and removal statistics including monthly and quarterly reports.',
@@ -134,13 +120,6 @@ const DATA_RESOURCES = [
     source: 'NBWA',
     url: 'https://www.nbwa.org/resources/beer-purchasers-index',
   },
-  {
-    icon: '📋',
-    title: 'Brewers Association Data & Statistics',
-    description: 'Annual financial benchmarking data for craft breweries including margins, labor costs, and revenue per barrel.',
-    source: 'Brewers Association',
-    url: 'https://www.brewersassociation.org/statistics-and-data/',
-  },
 ]
 
 const STATE_RESOURCES = [
@@ -157,13 +136,6 @@ const STATE_RESOURCES = [
     description: 'State-by-state ABC agency links, self-distribution rules, franchise law summaries, and licensing information maintained by the Brewers Association.',
     source: 'Brewers Association',
     url: 'https://www.brewersassociation.org/government-affairs/state-legal-resources/',
-  },
-  {
-    icon: '📝',
-    title: 'myTTB Portal',
-    description: "File your Brewer's Report of Operations, pay excise tax, and manage your Brewer's Notice. Requires TTB credentials — contact TTB at 1-877-882-3277 if you need access.",
-    source: 'TTB',
-    url: 'https://www.ttb.gov/mytTB',
   },
 ]
 
