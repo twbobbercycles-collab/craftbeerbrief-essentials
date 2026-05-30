@@ -106,10 +106,10 @@ function CheckCell({ included }) {
 }
 
 // ── Section header row spanning the full table width ──────────────────────────
-function SectionHeader({ title }) {
+function SectionHeader({ title, className = 'bg-gray-100 text-gray-500' }) {
   return (
-    <div className="px-6 py-2 bg-gray-100 border-b border-gray-200">
-      <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">{title}</span>
+    <div className={`px-6 py-2 border-b border-gray-200 ${className}`}>
+      <span className="text-sm font-bold uppercase tracking-wider">{title}</span>
     </div>
   )
 }
@@ -346,7 +346,7 @@ export default function UpgradePage() {
           </div>
 
           {/* ── Essentials features ── */}
-          <SectionHeader title="Essentials" />
+          <SectionHeader title="Essentials" className="bg-navy text-white" />
           {ESSENTIALS_LIST.map((feat, i) => (
             <div
               key={i}
@@ -360,7 +360,7 @@ export default function UpgradePage() {
           ))}
 
           {/* ── Operations add-ons ── */}
-          <SectionHeader title="Operations Add-ons" />
+          <SectionHeader title="Operations Add-ons" className="bg-amber text-white" />
           {OPERATIONS_ONLY.map((feat, i) => (
             <div
               key={i}
@@ -374,7 +374,7 @@ export default function UpgradePage() {
           ))}
 
           {/* ── Full Suite add-ons ── */}
-          <SectionHeader title="Full Suite Add-ons" />
+          <SectionHeader title="Full Suite Add-ons" className="bg-navy text-white" />
           {FULL_SUITE_ONLY.map((feat, i) => (
             <div
               key={i}
