@@ -1208,43 +1208,110 @@ function SettingsTab({ profile, user, brewery, onRefresh }) {
             <span>{stepsOpen ? '▾' : '▸'}</span>
           </button>
           {stepsOpen && (
-            <div className="px-4 pb-4 pt-2 space-y-4 text-sm text-gray-700">
-              {[
-                {
-                  n: 1, title: 'Create a free LegiScan account',
-                  body: "Go to legiscan.com and click Sign Up. LegiScan's free tier includes 30,000 queries per month — more than enough for monitoring brewery legislation at no cost.",
-                  link: { label: 'Visit LegiScan →', href: 'https://legiscan.com' },
-                },
-                {
-                  n: 2, title: 'Get your API key',
-                  body: "After signing in go to your Account page → API. Click Create Key and copy your API key. It looks like a long string of letters and numbers (e.g. a1b2c3d4e5f6...).",
-                },
-                {
-                  n: 3, title: 'Enter your API key below',
-                  body: "Paste your LegiScan API key in the field below and click Connect. Your key is stored securely and only used to fetch bill status updates for your tracked bills. We never share your key.",
-                },
-                {
-                  n: 4, title: 'Add LegiScan Bill IDs to your tracked bills',
-                  body: 'When adding a bill to track, find it on legiscan.com and copy the bill ID from the bill details page. Enter this number in the LegiScan Bill ID field when adding or editing a bill.',
-                },
-                {
-                  n: 5, title: 'Automatic updates',
-                  body: 'Once connected your bill statuses will update automatically every night at 7am UTC. You will see a Last Updated timestamp on each bill that has a LegiScan ID.',
-                },
-              ].map(step => (
-                <div key={step.n} className="flex gap-3">
-                  <span className="flex-shrink-0 w-6 h-6 bg-navy text-white text-xs font-bold rounded-full flex items-center justify-center">{step.n}</span>
-                  <div>
-                    <p className="font-semibold text-navy mb-0.5">{step.title}</p>
-                    <p className="text-xs text-gray-600">{step.body}</p>
-                    {step.link && (
-                      <a href={step.link.href} target="_blank" rel="noopener noreferrer" className="inline-block mt-1.5 text-xs font-semibold text-amber hover:underline">
-                        {step.link.label}
-                      </a>
-                    )}
-                  </div>
+            <div className="px-4 pb-5 pt-3 space-y-5 text-sm text-gray-700">
+
+              {/* Step 1 */}
+              <div className="flex gap-3">
+                <span className="flex-shrink-0 w-6 h-6 bg-navy text-white text-xs font-bold rounded-full flex items-center justify-center mt-0.5">1</span>
+                <div className="flex-1">
+                  <p className="font-semibold text-navy mb-1.5">Create a free LegiScan account</p>
+                  <p className="text-xs text-gray-600 mb-2">Go to legiscan.com and click <strong>Sign Up</strong> or <strong>Register</strong>. Fill in the registration form:</p>
+                  <ul className="text-xs text-gray-600 space-y-1 mb-2.5 ml-3 list-disc">
+                    <li><strong>Username:</strong> choose any username</li>
+                    <li><strong>Email address:</strong> enter your brewery email</li>
+                    <li><strong>Password:</strong> create a strong password</li>
+                    <li><strong>Account Type:</strong> select "OneVote — Free public service for accessing and monitoring the national legislative database"</li>
+                    <li><strong>State:</strong> select your home state</li>
+                    <li>Complete the reCAPTCHA and agree to the Terms of Service, then click <strong>Create Account</strong></li>
+                  </ul>
+                  <p className="text-xs text-amber-dark bg-amber/10 border border-amber/30 rounded-lg px-3 py-2 mb-2.5">
+                    <strong>Important:</strong> Check your email and verify your account before continuing. You will not be able to generate an API key until your email is verified.
+                  </p>
+                  <a href="https://legiscan.com" target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-white bg-amber hover:bg-amber/90 px-3 py-1.5 rounded-lg transition-colors">
+                    Visit LegiScan →
+                  </a>
                 </div>
-              ))}
+              </div>
+
+              {/* Step 2 */}
+              <div className="flex gap-3">
+                <span className="flex-shrink-0 w-6 h-6 bg-navy text-white text-xs font-bold rounded-full flex items-center justify-center mt-0.5">2</span>
+                <div className="flex-1">
+                  <p className="font-semibold text-navy mb-1.5">Find the API registration page</p>
+                  <p className="text-xs text-gray-600 mb-2.5">After verifying your email and logging in, go to the LegiScan API page at <strong>legiscan.com/legiscan/api</strong>. On the left side of the page find the LegiScan user box and look for the API section.</p>
+                  <a href="https://legiscan.com/legiscan/api" target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-white bg-amber hover:bg-amber/90 px-3 py-1.5 rounded-lg transition-colors">
+                    Find API Page →
+                  </a>
+                </div>
+              </div>
+
+              {/* Step 3 */}
+              <div className="flex gap-3">
+                <span className="flex-shrink-0 w-6 h-6 bg-navy text-white text-xs font-bold rounded-full flex items-center justify-center mt-0.5">3</span>
+                <div className="flex-1">
+                  <p className="font-semibold text-navy mb-1.5">Fill in the API Key Generation Form</p>
+                  <p className="text-xs text-gray-600 mb-2">You will see an API Key Generation Form with these fields:</p>
+                  <ul className="text-xs text-gray-600 space-y-1 ml-3 list-disc">
+                    <li><strong>Contact Name:</strong> your name</li>
+                    <li><strong>Contact Email:</strong> your email</li>
+                    <li><strong>Organization Name:</strong> your brewery name</li>
+                    <li><strong>Organization URL:</strong> your brewery website or social media page</li>
+                    <li><strong>Intended Use:</strong> describe that you are tracking brewery-related legislation for your business (example: "I am tracking state and federal legislation affecting craft breweries including excise tax, distribution rights, taproom regulations, and alcohol licensing laws")</li>
+                    <li>Check the acknowledgment checkbox, then click <strong>Generate Key</strong></li>
+                  </ul>
+                </div>
+              </div>
+
+              {/* Step 4 */}
+              <div className="flex gap-3">
+                <span className="flex-shrink-0 w-6 h-6 bg-navy text-white text-xs font-bold rounded-full flex items-center justify-center mt-0.5">4</span>
+                <div className="flex-1">
+                  <p className="font-semibold text-navy mb-1.5">Complete the API Survey</p>
+                  <p className="text-xs text-gray-600 mb-2">After submitting you will be directed to complete a short registration survey. Answer each question honestly:</p>
+                  <ul className="text-xs text-gray-600 space-y-1 ml-3 list-disc">
+                    <li><strong>Commercial or non-commercial use:</strong> select Non-Commercial if tracking for your own brewery; Commercial if using as part of a paid service</li>
+                    <li><strong>Derivative works:</strong> Internal Use Only</li>
+                    <li><strong>Use Case:</strong> tracking brewery legislation (excise tax, franchise law, taproom regulations, distribution rights)</li>
+                    <li><strong>State Coverage:</strong> your home state and any states you distribute to</li>
+                    <li><strong>Bill Volume:</strong> "Small — fewer than 50 bills focused on alcohol beverage and brewery topics"</li>
+                    <li><strong>Query Strategy:</strong> "Manual bill entry with nightly status checks for a small number of tracked bills within the 30,000 monthly limit"</li>
+                    <li><strong>Data Scope:</strong> "Core bill data only — status and basic information"</li>
+                    <li><strong>Client Interface:</strong> "Custom API interface for internal brewery management application"</li>
+                    <li><strong>License &amp; Attribution:</strong> confirm yes</li>
+                    <li><strong>Origin:</strong> enter your IP address (search "what is my IP" in Google to find it)</li>
+                  </ul>
+                </div>
+              </div>
+
+              {/* Step 5 */}
+              <div className="flex gap-3">
+                <span className="flex-shrink-0 w-6 h-6 bg-navy text-white text-xs font-bold rounded-full flex items-center justify-center mt-0.5">5</span>
+                <div className="flex-1">
+                  <p className="font-semibold text-navy mb-1.5">Wait for approval and get your API key</p>
+                  <p className="text-xs text-gray-600">LegiScan reviews API applications manually. Allow 1–3 business days for approval. You will receive an email when your key is ready. Once approved, log back into legiscan.com, go to your account page, and find your API key — it will be a long string of letters and numbers.</p>
+                </div>
+              </div>
+
+              {/* Step 6 */}
+              <div className="flex gap-3">
+                <span className="flex-shrink-0 w-6 h-6 bg-navy text-white text-xs font-bold rounded-full flex items-center justify-center mt-0.5">6</span>
+                <div className="flex-1">
+                  <p className="font-semibold text-navy mb-1.5">Enter your API key here</p>
+                  <p className="text-xs text-gray-600">Paste your LegiScan API key in the field below and click <strong>Connect</strong>. Your key is stored securely and only used to fetch bill status updates for your tracked bills.</p>
+                </div>
+              </div>
+
+              {/* Step 7 */}
+              <div className="flex gap-3">
+                <span className="flex-shrink-0 w-6 h-6 bg-navy text-white text-xs font-bold rounded-full flex items-center justify-center mt-0.5">7</span>
+                <div className="flex-1">
+                  <p className="font-semibold text-navy mb-1.5">Add LegiScan Bill IDs to your tracked bills</p>
+                  <p className="text-xs text-gray-600">When adding a bill, go to legiscan.com, search for the bill, and open the bill details page. The bill ID is shown in the bill details — it is a number. Copy this number and enter it in the <strong>LegiScan Bill ID</strong> field when adding or editing a bill. Once connected, your bill statuses will update automatically every night. You will see a <strong>Last Updated</strong> timestamp on each tracked bill.</p>
+                </div>
+              </div>
+
             </div>
           )}
         </div>
