@@ -176,7 +176,9 @@ export default function OnboardingTour({ onComplete }) {
       {
         target: null,
         title: 'Operations Tools',
-        body: "Your Operations subscription includes 7 brewery management modules plus Batch Profitability Reports, an Excise Tax Calculator, Water Chemistry tools, and Keg Fleet tracking. Let us walk you through everything.",
+        body: hasFullSuite
+          ? "Your subscription includes 7 Operations modules — Inventory, Recipes, Brew Day, Fermentation, Packaging, Distribution, and Taproom — plus Batch Profitability Reports, Water Chemistry tools, and Keg Fleet tracking. After Operations we will cover your Full Suite tools."
+          : "Your Operations subscription includes 7 brewery management modules plus Batch Profitability Reports, an Excise Tax Calculator, Water Chemistry tools, and Keg Fleet tracking. Let us walk you through everything.",
       },
 
       // Operations nav — top to bottom
@@ -232,6 +234,14 @@ export default function OnboardingTour({ onComplete }) {
 
     // ── Full Suite steps — only included when user has full_suite access ──────
     const fullSuiteSteps = hasFullSuite ? [
+      // Full Suite section intro (no target — centered overlay)
+      {
+        target: null,
+        title: 'Full Suite — Business Growth & Advocacy Tools',
+        body: fullSuitePaid
+          ? 'Your Full Suite subscription includes 7 additional modules for business development and legislative advocacy — on top of everything in Essentials and Operations.'
+          : 'Your trial includes access to all Full Suite modules. Upgrade to Full Suite at $19.99/month to keep access after your trial ends.',
+      },
       {
         target: 'a[href="/events"]',
         placement: 'right',
