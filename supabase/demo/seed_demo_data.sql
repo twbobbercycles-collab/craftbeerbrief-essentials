@@ -168,24 +168,24 @@ BEGIN
 
   -- ── 6. Recipe Ingredients — Hazy IPA ──────────────────────────────────────
   INSERT INTO recipe_ingredients
-    (recipe_id, ingredient_id, ingredient_name, amount, unit, addition_type)
+    (brewery_id, recipe_id, ingredient_id, ingredient_name, amount, unit, addition_type)
   VALUES
-    (v_recipe_hazy, v_ing_pale,  'Pale Malt 2-Row', 120, 'lb',     'Mash'),
-    (v_recipe_hazy, v_ing_oats,  'Flaked Oats',      30, 'lb',     'Mash'),
-    (v_recipe_hazy, v_ing_citra, 'Citra Hops',       16, 'oz',     'Whirlpool'),
-    (v_recipe_hazy, v_ing_citra, 'Citra Hops',       12, 'oz',     'Dry Hop'),
-    (v_recipe_hazy, v_ing_us05,  'US-05 Dry Yeast',   2, 'packet', 'Fermentation');
+    (v_brewery_id, v_recipe_hazy, v_ing_pale,  'Pale Malt 2-Row', 120, 'lb',     'Mash'),
+    (v_brewery_id, v_recipe_hazy, v_ing_oats,  'Flaked Oats',      30, 'lb',     'Mash'),
+    (v_brewery_id, v_recipe_hazy, v_ing_citra, 'Citra Hops',       16, 'oz',     'Whirlpool'),
+    (v_brewery_id, v_recipe_hazy, v_ing_citra, 'Citra Hops',       12, 'oz',     'Dry Hop'),
+    (v_brewery_id, v_recipe_hazy, v_ing_us05,  'US-05 Dry Yeast',   2, 'packet', 'Fermentation');
 
   -- ── 7. Recipe Ingredients — Amber Ale ────────────────────────────────────
   INSERT INTO recipe_ingredients
-    (recipe_id, ingredient_id, ingredient_name, amount, unit, addition_type)
+    (brewery_id, recipe_id, ingredient_id, ingredient_name, amount, unit, addition_type)
   VALUES
-    (v_recipe_amber, v_ing_pale,       'Pale Malt 2-Row',  100, 'lb',     'Mash'),
-    (v_recipe_amber, v_ing_munich,     'Munich Malt',        20, 'lb',     'Mash'),
-    (v_recipe_amber, v_ing_crystal,    'Crystal 60L',        15, 'lb',     'Mash'),
-    (v_recipe_amber, v_ing_centennial, 'Centennial Hops',     8, 'oz',     'Boil'),
-    (v_recipe_amber, v_ing_cascade,    'Cascade Hops',        6, 'oz',     'Boil'),
-    (v_recipe_amber, v_ing_us05,       'US-05 Dry Yeast',     2, 'packet', 'Fermentation');
+    (v_brewery_id, v_recipe_amber, v_ing_pale,       'Pale Malt 2-Row',  100, 'lb',     'Mash'),
+    (v_brewery_id, v_recipe_amber, v_ing_munich,     'Munich Malt',        20, 'lb',     'Mash'),
+    (v_brewery_id, v_recipe_amber, v_ing_crystal,    'Crystal 60L',        15, 'lb',     'Mash'),
+    (v_brewery_id, v_recipe_amber, v_ing_centennial, 'Centennial Hops',     8, 'oz',     'Boil'),
+    (v_brewery_id, v_recipe_amber, v_ing_cascade,    'Cascade Hops',        6, 'oz',     'Boil'),
+    (v_brewery_id, v_recipe_amber, v_ing_us05,       'US-05 Dry Yeast',     2, 'packet', 'Fermentation');
 
   -- ── 8. Brew Days ──────────────────────────────────────────────────────────
   INSERT INTO brew_days

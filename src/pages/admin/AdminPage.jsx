@@ -1167,7 +1167,7 @@ export default function AdminPage() {
                   </div>
                 </div>
                 <p className="text-xs text-gray-500 mt-3">
-                  Share these credentials with prospects for a self-guided demo. The account has no expiry.
+                  Use these credentials to log in for live demos. Reset data before each demo for a consistent starting point.
                 </p>
               </div>
 
@@ -1188,7 +1188,7 @@ export default function AdminPage() {
                 <p className="text-sm font-semibold text-gray-800">Reset Demo Data</p>
                 <p className="text-xs text-gray-500">
                   Wipes all data for Adaptive Brewing Co. and re-inserts fresh seed data.
-                  Use this after a prospect has made changes and the account needs to be cleaned up.
+                  Use this after a demo session to restore the account to a clean, consistent starting state.
                   The demo auth user and credentials are not affected.
                 </p>
 

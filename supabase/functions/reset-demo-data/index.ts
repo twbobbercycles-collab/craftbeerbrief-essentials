@@ -257,17 +257,17 @@ Deno.serve(async (req) => {
 
     // ── Recipe Ingredients ────────────────────────────────────────────────────
     const { error: riErr } = await svc.from('recipe_ingredients').insert([
-      { recipe_id: ids.recipeHazy,  ingredient_id: ids.ingPale,       ingredient_name: 'Pale Malt 2-Row',  amount: 120, unit: 'lb',     addition_type: 'Mash' },
-      { recipe_id: ids.recipeHazy,  ingredient_id: ids.ingOats,       ingredient_name: 'Flaked Oats',      amount: 30,  unit: 'lb',     addition_type: 'Mash' },
-      { recipe_id: ids.recipeHazy,  ingredient_id: ids.ingCitra,      ingredient_name: 'Citra Hops',       amount: 16,  unit: 'oz',     addition_type: 'Whirlpool' },
-      { recipe_id: ids.recipeHazy,  ingredient_id: ids.ingCitra,      ingredient_name: 'Citra Hops',       amount: 12,  unit: 'oz',     addition_type: 'Dry Hop' },
-      { recipe_id: ids.recipeHazy,  ingredient_id: ids.ingUs05,       ingredient_name: 'US-05 Dry Yeast',  amount: 2,   unit: 'packet', addition_type: 'Fermentation' },
-      { recipe_id: ids.recipeAmber, ingredient_id: ids.ingPale,       ingredient_name: 'Pale Malt 2-Row',  amount: 100, unit: 'lb',     addition_type: 'Mash' },
-      { recipe_id: ids.recipeAmber, ingredient_id: ids.ingMunich,     ingredient_name: 'Munich Malt',      amount: 20,  unit: 'lb',     addition_type: 'Mash' },
-      { recipe_id: ids.recipeAmber, ingredient_id: ids.ingCrystal,    ingredient_name: 'Crystal 60L',      amount: 15,  unit: 'lb',     addition_type: 'Mash' },
-      { recipe_id: ids.recipeAmber, ingredient_id: ids.ingCentennial, ingredient_name: 'Centennial Hops',  amount: 8,   unit: 'oz',     addition_type: 'Boil' },
-      { recipe_id: ids.recipeAmber, ingredient_id: ids.ingCascade,    ingredient_name: 'Cascade Hops',     amount: 6,   unit: 'oz',     addition_type: 'Boil' },
-      { recipe_id: ids.recipeAmber, ingredient_id: ids.ingUs05,       ingredient_name: 'US-05 Dry Yeast',  amount: 2,   unit: 'packet', addition_type: 'Fermentation' },
+      { brewery_id: b, recipe_id: ids.recipeHazy,  ingredient_id: ids.ingPale,       ingredient_name: 'Pale Malt 2-Row',  amount: 120, unit: 'lb',     addition_type: 'Mash' },
+      { brewery_id: b, recipe_id: ids.recipeHazy,  ingredient_id: ids.ingOats,       ingredient_name: 'Flaked Oats',      amount: 30,  unit: 'lb',     addition_type: 'Mash' },
+      { brewery_id: b, recipe_id: ids.recipeHazy,  ingredient_id: ids.ingCitra,      ingredient_name: 'Citra Hops',       amount: 16,  unit: 'oz',     addition_type: 'Whirlpool' },
+      { brewery_id: b, recipe_id: ids.recipeHazy,  ingredient_id: ids.ingCitra,      ingredient_name: 'Citra Hops',       amount: 12,  unit: 'oz',     addition_type: 'Dry Hop' },
+      { brewery_id: b, recipe_id: ids.recipeHazy,  ingredient_id: ids.ingUs05,       ingredient_name: 'US-05 Dry Yeast',  amount: 2,   unit: 'packet', addition_type: 'Fermentation' },
+      { brewery_id: b, recipe_id: ids.recipeAmber, ingredient_id: ids.ingPale,       ingredient_name: 'Pale Malt 2-Row',  amount: 100, unit: 'lb',     addition_type: 'Mash' },
+      { brewery_id: b, recipe_id: ids.recipeAmber, ingredient_id: ids.ingMunich,     ingredient_name: 'Munich Malt',      amount: 20,  unit: 'lb',     addition_type: 'Mash' },
+      { brewery_id: b, recipe_id: ids.recipeAmber, ingredient_id: ids.ingCrystal,    ingredient_name: 'Crystal 60L',      amount: 15,  unit: 'lb',     addition_type: 'Mash' },
+      { brewery_id: b, recipe_id: ids.recipeAmber, ingredient_id: ids.ingCentennial, ingredient_name: 'Centennial Hops',  amount: 8,   unit: 'oz',     addition_type: 'Boil' },
+      { brewery_id: b, recipe_id: ids.recipeAmber, ingredient_id: ids.ingCascade,    ingredient_name: 'Cascade Hops',     amount: 6,   unit: 'oz',     addition_type: 'Boil' },
+      { brewery_id: b, recipe_id: ids.recipeAmber, ingredient_id: ids.ingUs05,       ingredient_name: 'US-05 Dry Yeast',  amount: 2,   unit: 'packet', addition_type: 'Fermentation' },
     ])
     check(riErr, 'insert recipe_ingredients')
 
