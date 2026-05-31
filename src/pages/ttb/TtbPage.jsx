@@ -10,6 +10,7 @@
  * This is a tracking tool only. It does not file or communicate with the TTB.
  */
 import { useEffect, useState, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { usePersistedTab } from '../../hooks/usePersistedTab'
 import { supabase } from '../../services/supabase'
 import { useAuth } from '../../context/AuthContext'
@@ -529,299 +530,6 @@ function AddPaymentModal({ isOpen, onClose, onSuccess, breweryId, frequency,
   )
 }
 
-// ── AddColaModal ──────────────────────────────────────────────────────────────
-
-const EMPTY_COLA = {
-  beer_name: '', brand_name: '', container_size: '12oz Can',
-  submission_date: '', status: 'pending', approval_number: '',
-  approval_date: '', rejection_reason: '', notes: '',
-}
-
-function AddColaModal({ isOpen, onClose, onSuccess, breweryId,
-  initialDraft, draftRestored, onDismissDraft, onSaveDraft, editing }) {
-  const [form, setForm]     = useState(EMPTY_COLA)
-  const [saving, setSaving] = useState(false)
-  const [error, setError]   = useState('')
-
-  const isDirty = Object.entries(form).some(([k, v]) => v !== (EMPTY_COLA[k] ?? ''))
-
-  useEffect(() => {
-    if (isOpen) {
-      if (editing) {
-        setForm({
-          beer_name:        editing.beer_name ?? '',
-          brand_name:       editing.brand_name ?? '',
-          container_size:   editing.container_size ?? '12oz Can',
-          submission_date:  editing.submission_date ?? '',
-          status:           editing.status ?? 'pending',
-          approval_number:  editing.approval_number ?? '',
-          approval_date:    editing.approval_date ?? '',
-          rejection_reason: editing.rejection_reason ?? '',
-          notes:            editing.notes ?? '',
-        })
-      } else {
-        setForm(initialDraft ?? EMPTY_COLA)
-      }
-      setError('')
-    }
-  }, [isOpen, editing, initialDraft])
-
-  useEffect(() => {
-    if (!isOpen || editing) return
-    onSaveDraft(form)
-  }, [form, isOpen, editing])
-
-  function setField(k, v) { setForm(p => ({ ...p, [k]: v })) }
-
-  async function handleSubmit(e) {
-    e.preventDefault()
-    setSaving(true)
-    setError('')
-
-    const payload = {
-      brewery_id:       breweryId,
-      beer_name:        form.beer_name.trim(),
-      brand_name:       form.brand_name.trim() || null,
-      container_size:   form.container_size || null,
-      submission_date:  form.submission_date || null,
-      status:           form.status,
-      approval_number:  form.approval_number.trim() || null,
-      approval_date:    form.status === 'approved' ? (form.approval_date || null) : null,
-      rejection_reason: form.status === 'rejected' ? (form.rejection_reason.trim() || null) : null,
-      notes:            form.notes.trim() || null,
-    }
-
-    const { error: err } = editing
-      ? await supabase.from('cola_submissions').update(payload).eq('id', editing.id)
-      : await supabase.from('cola_submissions').insert(payload)
-
-    setSaving(false)
-    if (err) { setError('Could not save COLA record. Please try again.'); return }
-    onSuccess()
-  }
-
-  return (
-    <ModalShell isOpen={isOpen} onClose={onClose} isDirty={!editing && isDirty}
-      draftRestored={draftRestored} onDismissDraft={onDismissDraft}
-      title={editing ? 'Edit COLA Record' : 'Add COLA Submission'} maxWidth="max-w-2xl">
-      <div className="space-y-4 pt-1">
-        {error && <div className="bg-red-50 border border-danger text-danger rounded-lg px-4 py-3 text-sm">{error}</div>}
-        <form onSubmit={handleSubmit} className="space-y-4">
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="Beer Name" required>
-              <input type="text" required value={form.beer_name}
-                onChange={e => setField('beer_name', e.target.value)}
-                placeholder="e.g. Hazy Summer IPA" className={inputCls} />
-            </Field>
-            <Field label="Brand Name (optional)">
-              <input type="text" value={form.brand_name}
-                onChange={e => setField('brand_name', e.target.value)}
-                placeholder="As shown on label" className={inputCls} />
-            </Field>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="Container Size" required>
-              <select required value={form.container_size}
-                onChange={e => setField('container_size', e.target.value)} className={inputCls}>
-                {CONTAINER_SIZES.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </Field>
-            <Field label="Submission Date" required>
-              <input type="date" required value={form.submission_date}
-                onChange={e => setField('submission_date', e.target.value)} className={inputCls} />
-            </Field>
-          </div>
-
-          <Field label="Status" required>
-            <select required value={form.status}
-              onChange={e => setField('status', e.target.value)} className={inputCls}>
-              <option value="pending">Pending</option>
-              <option value="approved">Approved</option>
-              <option value="rejected">Rejected</option>
-              <option value="withdrawn">Withdrawn</option>
-            </select>
-          </Field>
-
-          {/* Approval fields — only shown when status is 'approved' */}
-          {form.status === 'approved' && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Field label="Approval Number (optional)">
-                <input type="text" value={form.approval_number}
-                  onChange={e => setField('approval_number', e.target.value)}
-                  placeholder="TTB approval number" className={inputCls} />
-              </Field>
-              <Field label="Approval Date (optional)">
-                <input type="date" value={form.approval_date}
-                  onChange={e => setField('approval_date', e.target.value)} className={inputCls} />
-              </Field>
-            </div>
-          )}
-
-          {/* Rejection reason — only shown when status is 'rejected' */}
-          {form.status === 'rejected' && (
-            <Field label="Rejection Reason (optional)" extra={`${form.rejection_reason.length} / 500`}>
-              <textarea maxLength={500} rows={2} value={form.rejection_reason}
-                onChange={e => setField('rejection_reason', e.target.value)}
-                placeholder="Reason provided by the TTB" className={inputCls} />
-            </Field>
-          )}
-
-          <Field label="Notes (optional)" extra={`${form.notes.length} / 300`}>
-            <textarea maxLength={300} rows={2} value={form.notes}
-              onChange={e => setField('notes', e.target.value)} className={inputCls} />
-          </Field>
-
-          <button type="submit" disabled={saving}
-            className="w-full bg-amber hover:bg-amber-dark text-white font-semibold py-2.5 rounded-lg text-sm transition-colors disabled:opacity-60">
-            {saving ? 'Saving…' : editing ? 'Save Changes' : 'Add COLA'}
-          </button>
-        </form>
-      </div>
-    </ModalShell>
-  )
-}
-
-// ── AddReportModal ────────────────────────────────────────────────────────────
-
-const EMPTY_REPORT = {
-  report_month: '', barrels_brewed: '', barrels_packaged: '',
-  barrels_on_hand: '', barrels_removed: '', submission_date: '',
-  status: 'draft', notes: '',
-}
-
-function AddReportModal({ isOpen, onClose, onSuccess, breweryId,
-  initialDraft, draftRestored, onDismissDraft, onSaveDraft, editing }) {
-  const [form, setForm]     = useState(EMPTY_REPORT)
-  const [saving, setSaving] = useState(false)
-  const [error, setError]   = useState('')
-
-  const isDirty = Object.entries(form).some(([k, v]) => v !== (EMPTY_REPORT[k] ?? ''))
-
-  useEffect(() => {
-    if (isOpen) {
-      if (editing) {
-        setForm({
-          report_month:     editing.report_month ? editing.report_month.slice(0, 7) : '',
-          barrels_brewed:   editing.barrels_brewed   != null ? String(editing.barrels_brewed)   : '',
-          barrels_packaged: editing.barrels_packaged != null ? String(editing.barrels_packaged) : '',
-          barrels_on_hand:  editing.barrels_on_hand  != null ? String(editing.barrels_on_hand)  : '',
-          barrels_removed:  editing.barrels_removed  != null ? String(editing.barrels_removed)  : '',
-          submission_date:  editing.submission_date ?? '',
-          status:           editing.status ?? 'draft',
-          notes:            editing.notes ?? '',
-        })
-      } else {
-        setForm(initialDraft ?? EMPTY_REPORT)
-      }
-      setError('')
-    }
-  }, [isOpen, editing, initialDraft])
-
-  useEffect(() => {
-    if (!isOpen || editing) return
-    onSaveDraft(form)
-  }, [form, isOpen, editing])
-
-  function setField(k, v) { setForm(p => ({ ...p, [k]: v })) }
-
-  async function handleSubmit(e) {
-    e.preventDefault()
-    setSaving(true)
-    setError('')
-
-    // Convert YYYY-MM month picker value to YYYY-MM-01 for the date column
-    const reportMonthDate = form.report_month ? `${form.report_month}-01` : null
-
-    const payload = {
-      brewery_id:       breweryId,
-      report_month:     reportMonthDate,
-      barrels_brewed:   form.barrels_brewed   ? parseFloat(form.barrels_brewed)   : null,
-      barrels_packaged: form.barrels_packaged ? parseFloat(form.barrels_packaged) : null,
-      barrels_on_hand:  form.barrels_on_hand  ? parseFloat(form.barrels_on_hand)  : null,
-      barrels_removed:  form.barrels_removed  ? parseFloat(form.barrels_removed)  : null,
-      submission_date:  form.submission_date || null,
-      status:           form.status,
-      notes:            form.notes.trim() || null,
-    }
-
-    const { error: err } = editing
-      ? await supabase.from('brewers_report_logs').update(payload).eq('id', editing.id)
-      : await supabase.from('brewers_report_logs').insert(payload)
-
-    setSaving(false)
-    if (err) { setError('Could not save report. Please try again.'); return }
-    onSuccess()
-  }
-
-  return (
-    <ModalShell isOpen={isOpen} onClose={onClose} isDirty={!editing && isDirty}
-      draftRestored={draftRestored} onDismissDraft={onDismissDraft}
-      title={editing ? 'Edit Production Report' : 'Add Monthly Production Report'} maxWidth="max-w-2xl">
-      <div className="space-y-4 pt-1">
-        {error && <div className="bg-red-50 border border-danger text-danger rounded-lg px-4 py-3 text-sm">{error}</div>}
-        <form onSubmit={handleSubmit} className="space-y-4">
-
-          <Field label="Report Month" required>
-            <input type="month" required value={form.report_month}
-              onChange={e => setField('report_month', e.target.value)} className={inputCls} />
-          </Field>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="Barrels Brewed" required>
-              <input type="number" min="0" step="0.01" required value={form.barrels_brewed}
-                onChange={e => setField('barrels_brewed', e.target.value)}
-                placeholder="0.00" className={inputCls} />
-            </Field>
-            <Field label="Barrels Packaged" required>
-              <input type="number" min="0" step="0.01" required value={form.barrels_packaged}
-                onChange={e => setField('barrels_packaged', e.target.value)}
-                placeholder="0.00" className={inputCls} />
-            </Field>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="Barrels On Hand (end of month)" required>
-              <input type="number" min="0" step="0.01" required value={form.barrels_on_hand}
-                onChange={e => setField('barrels_on_hand', e.target.value)}
-                placeholder="0.00" className={inputCls} />
-            </Field>
-            <Field label="Barrels Removed for Consumption" required>
-              <input type="number" min="0" step="0.01" required value={form.barrels_removed}
-                onChange={e => setField('barrels_removed', e.target.value)}
-                placeholder="0.00" className={inputCls} />
-            </Field>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="Submission Date (optional)">
-              <input type="date" value={form.submission_date}
-                onChange={e => setField('submission_date', e.target.value)} className={inputCls} />
-            </Field>
-            <Field label="Status" required>
-              <select required value={form.status}
-                onChange={e => setField('status', e.target.value)} className={inputCls}>
-                <option value="draft">Draft</option>
-                <option value="submitted">Submitted</option>
-              </select>
-            </Field>
-          </div>
-
-          <Field label="Notes (optional)" extra={`${form.notes.length} / 300`}>
-            <textarea maxLength={300} rows={2} value={form.notes}
-              onChange={e => setField('notes', e.target.value)} className={inputCls} />
-          </Field>
-
-          <button type="submit" disabled={saving}
-            className="w-full bg-amber hover:bg-amber-dark text-white font-semibold py-2.5 rounded-lg text-sm transition-colors disabled:opacity-60">
-            {saving ? 'Saving…' : editing ? 'Save Changes' : 'Save Report'}
-          </button>
-        </form>
-      </div>
-    </ModalShell>
-  )
-}
 
 // ── FrequencySetupPrompt ──────────────────────────────────────────────────────
 
@@ -888,11 +596,11 @@ function FrequencySetupPrompt({ breweryId, onSaved }) {
 export default function TtbPage() {
   const { brewery } = useAuth()
   const { isReadOnly, ReadOnlyTooltip } = useReadOnly()
+  const navigate = useNavigate()
 
   // Data
   const [filings,       setFilings]       = useState([])
-  const [colaList,      setColaList]      = useState([])
-  const [reportLogs,    setReportLogs]    = useState([])
+  const [colaDocsCount, setColaDocsCount] = useState(0)
   const [filedPeriods,  setFiledPeriods]  = useState([])
   const [loading,       setLoading]       = useState(true)
   const [loadError,     setLoadError]     = useState('')
@@ -900,23 +608,16 @@ export default function TtbPage() {
   // UI
   const [activeTab,     setActiveTab]     = usePersistedTab('ttb_active_tab', 'dashboard')
   const [frequency,     setFrequency]     = useState(brewery?.ttb_filing_frequency ?? null)
-  const [colaFilter,    setColaFilter]    = useState('all')
   const [calcBarrels,   setCalcBarrels]   = useState('')
   const [calcTier,      setCalcTier]      = useState('3.50')
   const [markingFiled,  setMarkingFiled]  = useState(false)
 
   // Modal visibility + editing targets
   const [showPayment,   setShowPayment]   = useState(false)
-  const [showCola,      setShowCola]      = useState(false)
-  const [showReport,    setShowReport]    = useState(false)
   const [editPayment,   setEditPayment]   = useState(null)
-  const [editCola,      setEditCola]      = useState(null)
-  const [editReport,    setEditReport]    = useState(null)
 
   // Draft hooks — one per modal
   const paymentDraft = useModalDraft('modal_draft_ttb_payment')
-  const colaDraft    = useModalDraft('modal_draft_ttb_cola')
-  const reportDraft  = useModalDraft('modal_draft_ttb_report')
 
   // ── Excise Tax Calculator state ─────────────────────────────────────────────
   const [excisePeriods,      setExcisePeriods]      = useState([])
@@ -953,35 +654,33 @@ export default function TtbPage() {
     loadAll()
   }, [brewery?.id])
 
-  // Fetch all four data sets in parallel
+  // Fetch all data sets in parallel
   async function loadAll() {
     setLoading(true)
     setLoadError('')
 
-    const [filingsRes, colaRes, reportsRes, periodsRes, exciseRes] = await Promise.all([
+    const [filingsRes, periodsRes, exciseRes, colaCountRes] = await Promise.all([
       supabase.from('ttb_filings').select('*')
         .eq('brewery_id', brewery.id).order('created_at', { ascending: false }),
-      supabase.from('cola_submissions').select('*')
-        .eq('brewery_id', brewery.id).order('submission_date', { ascending: false }),
-      supabase.from('brewers_report_logs').select('*')
-        .eq('brewery_id', brewery.id).order('report_month', { ascending: false }),
       supabase.from('ttb_filing_periods').select('*')
         .eq('brewery_id', brewery.id).order('period_start', { ascending: false }),
       supabase.from('excise_tax_periods').select('*')
         .eq('brewery_id', brewery.id)
         .order('period_year', { ascending: false })
         .order('period_number', { ascending: false }),
+      supabase.from('brewery_documents').select('id', { count: 'exact', head: true })
+        .eq('brewery_id', brewery.id)
+        .eq('document_type', 'COLA & Label Approval'),
     ])
 
-    if (filingsRes.error || colaRes.error || reportsRes.error || periodsRes.error) {
+    if (filingsRes.error || periodsRes.error) {
       setLoadError('Some data failed to load. Try refreshing the page.')
     }
 
     setFilings(filingsRes.data ?? [])
-    setColaList(colaRes.data ?? [])
-    setReportLogs(reportsRes.data ?? [])
     setFiledPeriods(periodsRes.data ?? [])
     setExcisePeriods(exciseRes.data ?? [])
+    setColaDocsCount(colaCountRes.count ?? 0)
     setLoading(false)
   }
 
@@ -1179,18 +878,6 @@ export default function TtbPage() {
     setFilings(prev => prev.filter(r => r.id !== id))
   }
 
-  async function deleteCola(id) {
-    if (!window.confirm('Delete this COLA record? This cannot be undone.')) return
-    await supabase.from('cola_submissions').delete().eq('id', id)
-    setColaList(prev => prev.filter(r => r.id !== id))
-  }
-
-  async function deleteReport(id) {
-    if (!window.confirm('Delete this report? This cannot be undone.')) return
-    await supabase.from('brewers_report_logs').delete().eq('id', id)
-    setReportLogs(prev => prev.filter(r => r.id !== id))
-  }
-
   // Export the payment log as a CSV file
   function exportPaymentsCsv() {
     const header = [
@@ -1223,7 +910,6 @@ export default function TtbPage() {
   const currentYear    = new Date().getFullYear()
   const yearFilings    = filings.filter(f => f.payment_date?.startsWith(String(currentYear)))
   const totalPaidYear  = yearFilings.reduce((sum, f) => sum + (parseFloat(f.payment_amount) || 0), 0)
-  const pendingColas   = colaList.filter(c => c.status === 'pending').length
   const upcomingPeriods = getUpcomingPeriods(frequency, 3)
 
   const calcEstimate = useMemo(() => {
@@ -1275,46 +961,6 @@ export default function TtbPage() {
     paymentDraft.clearDraft()
     setShowPayment(false)
     setEditPayment(null)
-    loadAll()
-  }
-
-  function openAddCola() {
-    setEditCola(null)
-    setShowCola(true)
-  }
-  function openEditCola(row) {
-    setEditCola(row)
-    setShowCola(true)
-  }
-  function closeCola() {
-    if (!editCola) colaDraft.clearDraft()
-    setShowCola(false)
-    setEditCola(null)
-  }
-  function onColaSuccess() {
-    colaDraft.clearDraft()
-    setShowCola(false)
-    setEditCola(null)
-    loadAll()
-  }
-
-  function openAddReport() {
-    setEditReport(null)
-    setShowReport(true)
-  }
-  function openEditReport(row) {
-    setEditReport(row)
-    setShowReport(true)
-  }
-  function closeReport() {
-    if (!editReport) reportDraft.clearDraft()
-    setShowReport(false)
-    setEditReport(null)
-  }
-  function onReportSuccess() {
-    reportDraft.clearDraft()
-    setShowReport(false)
-    setEditReport(null)
     loadAll()
   }
 
@@ -1801,7 +1447,7 @@ export default function TtbPage() {
           {[
             { label: 'Payments This Year', value: yearFilings.length },
             { label: 'Tax Paid This Year',  value: fmtCurrency(totalPaidYear) },
-            { label: 'Pending COLAs',        value: pendingColas },
+            { label: 'COLA Records',         value: colaDocsCount },
             { label: 'Open Periods',          value: upcomingPeriods.filter(p => getPeriodStatus(p, filedKeys) !== 'filed').length },
           ].map(s => (
             <div key={s.label} className="bg-white rounded-xl border border-gray-200 p-4">
@@ -1975,151 +1621,39 @@ export default function TtbPage() {
   }
 
   function renderCola() {
-    const filtered = colaFilter === 'all'
-      ? colaList
-      : colaList.filter(c => c.status === colaFilter)
-
     return (
       <div className="space-y-4">
-        {colaDraft.hasDraft && !showCola && (
-          <DraftNoticeBar
-            onContinue={() => { setEditCola(null); setShowCola(true) }}
-            onDiscard={() => colaDraft.clearDraft()}
-          />
-        )}
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <select value={colaFilter} onChange={e => setColaFilter(e.target.value)}
-            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber">
-            <option value="all">All Statuses</option>
-            {['pending', 'approved', 'rejected', 'withdrawn'].map(s => (
-              <option key={s} value={s} className="capitalize">{s.charAt(0).toUpperCase() + s.slice(1)}</option>
-            ))}
-          </select>
-          <ReadOnlyTooltip isReadOnly={isReadOnly}>
-            <button onClick={openAddCola}
-              className="bg-amber hover:bg-amber-dark text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
-              + Add COLA
-            </button>
-          </ReadOnlyTooltip>
-        </div>
-
-        {filtered.length === 0 ? (
-          <EmptyState icon="🏷️" title="No COLA submissions yet"
-            message={colaFilter === 'all' ? 'Use the Add COLA button to start tracking label approvals.' : `No ${colaFilter} COLAs found.`}
-            action={colaFilter === 'all' && (
-              <button onClick={openAddCola}
-                className="bg-amber text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-amber-dark transition-colors">
-                + Add COLA
-              </button>
-            )} />
-        ) : (
-          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[800px]">
-                <thead className="bg-gray-50 border-b border-gray-200">
-                  <tr>
-                    {['Beer Name', 'Brand Name', 'Container', 'Submitted', 'Status', 'Approval #', 'Approved', 'Notes', ''].map(h => (
-                      <th key={h} className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {filtered.map(c => (
-                    <tr key={c.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-3 py-3 font-medium text-navy">{c.beer_name}</td>
-                      <td className="px-3 py-3 text-gray-600">{c.brand_name ?? '—'}</td>
-                      <td className="px-3 py-3 text-gray-600 whitespace-nowrap">{c.container_size ?? '—'}</td>
-                      <td className="px-3 py-3 text-gray-600 whitespace-nowrap">{fmtDate(c.submission_date)}</td>
-                      <td className="px-3 py-3"><RowBadge status={c.status} /></td>
-                      <td className="px-3 py-3 text-gray-500 font-mono text-xs">{c.approval_number ?? '—'}</td>
-                      <td className="px-3 py-3 text-gray-600 whitespace-nowrap">{fmtDate(c.approval_date)}</td>
-                      <td className="px-3 py-3 text-gray-500 text-xs max-w-[150px] truncate">{c.notes ?? '—'}</td>
-                      <td className="px-3 py-3">
-                        <div className="flex gap-2">
-                          <button onClick={() => openEditCola(c)}
-                            className="text-xs text-amber hover:underline">Edit</button>
-                          <button onClick={() => deleteCola(c.id)}
-                            className="text-xs text-danger hover:underline">Delete</button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          <div className="flex items-start gap-4">
+            <span className="text-3xl">🏷️</span>
+            <div className="flex-1">
+              <h3 className="text-lg font-bold text-navy mb-1">COLA & Label Approvals</h3>
+              <p className="text-sm text-gray-600 leading-relaxed mb-4">
+                Certificate of Label Approval records are managed in Brewery Records alongside your other compliance documents.
+              </p>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  onClick={() => navigate('/records', { state: { category: 'COLA & Labels' } })}
+                  className="bg-amber hover:bg-amber-dark text-white text-sm font-semibold px-4 py-2.5 rounded-lg transition-colors">
+                  View COLA Records →
+                </button>
+                <button
+                  onClick={() => navigate('/records', { state: { openAdd: true, type: 'COLA & Label Approval' } })}
+                  className="border border-amber text-amber text-sm font-semibold px-4 py-2.5 rounded-lg hover:bg-amber/5 transition-colors">
+                  + Add New COLA
+                </button>
+              </div>
             </div>
           </div>
-        )}
-      </div>
-    )
-  }
-
-  function renderReports() {
-    return (
-      <div className="space-y-4">
-        {reportDraft.hasDraft && !showReport && (
-          <DraftNoticeBar
-            onContinue={() => { setEditReport(null); setShowReport(true) }}
-            onDiscard={() => reportDraft.clearDraft()}
-          />
-        )}
-        <div className="flex justify-end">
-          <ReadOnlyTooltip isReadOnly={isReadOnly}>
-            <button onClick={openAddReport}
-              className="bg-amber hover:bg-amber-dark text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
-              + Add Report
-            </button>
-          </ReadOnlyTooltip>
-        </div>
-
-        {reportLogs.length === 0 ? (
-          <EmptyState icon="📋" title="No monthly reports logged"
-            message="Use the Add Report button to start tracking your monthly TTB production reports."
-            action={<button onClick={openAddReport}
-              className="bg-amber text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-amber-dark transition-colors">
-              + Add Report
-            </button>} />
-        ) : (
-          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[800px]">
-                <thead className="bg-gray-50 border-b border-gray-200">
-                  <tr>
-                    {['Report Month', 'Bbl Brewed', 'Bbl Packaged', 'Bbl On Hand', 'Bbl Removed', 'Submitted', 'Status', 'Notes', ''].map(h => (
-                      <th key={h} className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {reportLogs.map(r => {
-                    const monthLabel = r.report_month
-                      ? new Date(r.report_month + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-                      : '—'
-                    return (
-                      <tr key={r.id} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-3 py-3 font-medium text-navy whitespace-nowrap">{monthLabel}</td>
-                        <td className="px-3 py-3 text-gray-600">{fmtBarrels(r.barrels_brewed)}</td>
-                        <td className="px-3 py-3 text-gray-600">{fmtBarrels(r.barrels_packaged)}</td>
-                        <td className="px-3 py-3 text-gray-600">{fmtBarrels(r.barrels_on_hand)}</td>
-                        <td className="px-3 py-3 text-gray-600">{fmtBarrels(r.barrels_removed)}</td>
-                        <td className="px-3 py-3 text-gray-600 whitespace-nowrap">{fmtDate(r.submission_date)}</td>
-                        <td className="px-3 py-3"><RowBadge status={r.status} /></td>
-                        <td className="px-3 py-3 text-gray-500 text-xs max-w-[150px] truncate">{r.notes ?? '—'}</td>
-                        <td className="px-3 py-3">
-                          <div className="flex gap-2">
-                            <button onClick={() => openEditReport(r)}
-                              className="text-xs text-amber hover:underline">Edit</button>
-                            <button onClick={() => deleteReport(r.id)}
-                              className="text-xs text-danger hover:underline">Delete</button>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+          {colaDocsCount > 0 && (
+            <div className="mt-4 pt-4 border-t border-gray-100">
+              <p className="text-sm text-gray-600">
+                <span className="font-semibold text-navy">{colaDocsCount}</span>{' '}
+                COLA {colaDocsCount === 1 ? 'record' : 'records'} in Brewery Records
+              </p>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     )
   }
@@ -2132,8 +1666,7 @@ export default function TtbPage() {
     { id: 'dashboard',          label: 'Filing Dashboard' },
     { id: 'excise_calculator',  label: 'Excise Tax Calculator' },
     { id: 'payments',           label: 'Excise Tax Log' },
-    { id: 'cola',               label: 'COLA Tracker' },
-    { id: 'reports',            label: "Brewer's Report Log" },
+    { id: 'cola',               label: 'COLA & Labels' },
   ]
 
   return (
@@ -2178,7 +1711,6 @@ export default function TtbPage() {
         {activeTab === 'excise_calculator' && renderExciseCalculator()}
         {activeTab === 'payments'          && renderPayments()}
         {activeTab === 'cola'              && renderCola()}
-        {activeTab === 'reports'           && renderReports()}
       </div>
 
       {/* Modals */}
@@ -2195,29 +1727,6 @@ export default function TtbPage() {
         onSaveDraft={paymentDraft.saveDraft}
       />
 
-      <AddColaModal
-        isOpen={showCola}
-        onClose={closeCola}
-        onSuccess={onColaSuccess}
-        breweryId={brewery?.id}
-        editing={editCola}
-        initialDraft={colaDraft.loadDraft(false)}
-        draftRestored={colaDraft.draftRestored}
-        onDismissDraft={colaDraft.dismissDraftBanner}
-        onSaveDraft={colaDraft.saveDraft}
-      />
-
-      <AddReportModal
-        isOpen={showReport}
-        onClose={closeReport}
-        onSuccess={onReportSuccess}
-        breweryId={brewery?.id}
-        editing={editReport}
-        initialDraft={reportDraft.loadDraft(false)}
-        draftRestored={reportDraft.draftRestored}
-        onDismissDraft={reportDraft.dismissDraftBanner}
-        onSaveDraft={reportDraft.saveDraft}
-      />
     </div>
   )
 }
