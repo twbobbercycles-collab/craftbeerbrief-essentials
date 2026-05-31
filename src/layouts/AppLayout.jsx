@@ -61,6 +61,7 @@ const WARNING_KEYS = {
   '/packaging':    'packaging',
   '/distribution': 'distribution',
   '/staff':        'staff',
+  '/ttb':          'ttb',
 }
 
 export default function AppLayout() {
@@ -205,8 +206,57 @@ export default function AppLayout() {
     if (hasExpiredCert) warnings.staff = 'red'
     else if (hasExpiringCert) warnings.staff = 'amber'
 
+    // TTB: show dot when current period is within 30 days of due and not yet filed/paid
+    const ttbFreq = brewery?.ttb_filing_frequency
+    if (ttbFreq) {
+      const now = new Date()
+      const y = now.getFullYear()
+      const m = now.getMonth()
+      let periodStart, periodEnd, dueDate
+      if (ttbFreq === 'quarterly') {
+        const qs = Math.floor(m / 3) * 3
+        periodStart = new Date(y, qs, 1)
+        periodEnd   = new Date(y, qs + 3, 0)
+        dueDate     = new Date(y, qs + 3, 14)
+      } else if (ttbFreq === 'monthly') {
+        periodStart = new Date(y, m, 1)
+        periodEnd   = new Date(y, m + 1, 0)
+        dueDate     = new Date(y, m + 1, 14)
+      } else if (ttbFreq === 'annual') {
+        periodStart = new Date(y, 0, 1)
+        periodEnd   = new Date(y, 11, 31)
+        dueDate     = new Date(y + 1, 1, 14)
+      }
+      if (periodStart && dueDate) {
+        const daysUntilDue = Math.ceil((dueDate - now) / 86400000)
+        if (daysUntilDue <= 30) {
+          const isoStart = periodStart.toISOString().slice(0, 10)
+          const isoEnd   = periodEnd.toISOString().slice(0, 10)
+          const [ttbPeriodRes, ttbFilingRes] = await Promise.all([
+            supabase.from('ttb_filing_periods')
+              .select('id, status')
+              .eq('brewery_id', brewery.id)
+              .eq('period_start', isoStart)
+              .eq('period_end', isoEnd)
+              .maybeSingle(),
+            supabase.from('ttb_filings')
+              .select('id')
+              .eq('brewery_id', brewery.id)
+              .eq('period_start', isoStart)
+              .not('payment_date', 'is', null)
+              .limit(1),
+          ])
+          const isFiled = ttbPeriodRes.data?.status === 'filed'
+            || (ttbFilingRes.data ?? []).length > 0
+          if (!isFiled) {
+            warnings.ttb = daysUntilDue <= 0 ? 'red' : 'amber'
+          }
+        }
+      }
+    }
+
     setSidebarWarnings(warnings)
-  }, [brewery?.id])
+  }, [brewery?.id, brewery?.ttb_filing_frequency])
 
   useEffect(() => {
     loadSidebarWarnings()

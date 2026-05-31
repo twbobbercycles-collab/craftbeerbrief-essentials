@@ -50,9 +50,13 @@ const COLA_STATUS_OPTIONS = [
 ]
 
 const PAYMENT_METHODS = [
-  { value: 'eft_ach', label: 'EFT/ACH' },
-  { value: 'check',   label: 'Check' },
-  { value: 'other',   label: 'Other' },
+  { value: 'credit_card', label: 'Credit Card' },
+  { value: 'debit_card',  label: 'Debit Card' },
+  { value: 'ach',         label: 'ACH / Electronic Transfer' },
+  { value: 'check',       label: 'Check' },
+  { value: 'money_order', label: 'Money Order' },
+  { value: 'cash',        label: 'Cash' },
+  { value: 'other',       label: 'Other' },
 ]
 
 const MONTH_NAMES = [
@@ -200,6 +204,18 @@ function getPastPeriods(frequency, count = 8) {
   return periods
 }
 
+// Converts a period_start ISO date string to the canonical key format used by
+// getCurrentPeriod / getUpcomingPeriods, so DB-derived keys always match computed keys.
+function keyFromPeriodStart(periodStart, frequency) {
+  if (!periodStart) return ''
+  const d = new Date(periodStart + 'T00:00:00')
+  const y = d.getFullYear()
+  const m = d.getMonth()
+  if (frequency === 'monthly') return `${y}-${String(m + 1).padStart(2, '0')}`
+  if (frequency === 'annual')  return `annual-${y}`
+  return `Q${Math.floor(m / 3) + 1}-${y}`
+}
+
 // Returns 'open', 'due_soon', 'overdue', or 'filed'
 function getPeriodStatus(period, filedKeys) {
   if (filedKeys.has(period.key)) return 'filed'
@@ -225,6 +241,15 @@ const fmtDate = (d) =>
   d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
 
 const toISO = (d) => d instanceof Date ? d.toISOString().split('T')[0] : d
+
+// Returns 'current' (<1yr since verification), 'aging' (1–2yr), 'overdue' (>2yr), or 'never' (null)
+function colaVerifiedStatus(lastVerifiedDate) {
+  if (!lastVerifiedDate) return 'never'
+  const ageYears = (new Date() - new Date(lastVerifiedDate + 'T00:00:00')) / (365.25 * 86400000)
+  if (ageYears < 1) return 'current'
+  if (ageYears < 2) return 'aging'
+  return 'overdue'
+}
 
 // ── Excise tax rate constants and calculation ─────────────────────────────────
 
@@ -349,7 +374,7 @@ function RowBadge({ status }) {
 const EMPTY_PAYMENT = {
   period_label: '', period_start: '', period_end: '',
   barrels_produced: '', barrels_removed: '', tax_rate: '3.50',
-  amount_paid: '', payment_date: '', payment_method: 'eft_ach',
+  amount_paid: '', payment_date: '', payment_method: 'ach',
   confirmation_number: '', status: 'paid', notes: '',
 }
 
@@ -381,7 +406,7 @@ function AddPaymentModal({ isOpen, onClose, onSuccess, breweryId, frequency,
           tax_rate:            editing.tax_rate          != null ? String(editing.tax_rate)          : '3.50',
           amount_paid:         editing.payment_amount    != null ? String(editing.payment_amount)    : '',
           payment_date:        editing.payment_date ?? '',
-          payment_method:      editing.payment_method ?? 'eft_ach',
+          payment_method:      editing.payment_method ?? 'ach',
           confirmation_number: editing.confirmation_number ?? '',
           status:              editing.status ?? 'paid',
           notes:               editing.notes ?? '',
@@ -859,15 +884,27 @@ export default function TtbPage() {
   const [periodSaved,        setPeriodSaved]         = useState(false)
   const [periodError,        setPeriodError]         = useState('')
 
-  // Precompute the set of filed period keys for fast lookup
-  const filedKeys = useMemo(
-    () => new Set(filedPeriods.filter(p => p.status === 'filed').map(p => {
-      // Reconstruct the key from period_start and period_end
-      // Key format matches what getCurrentPeriod / getPastPeriods produces
-      return p.period_label ? p.period_label.split(' (')[0] : ''
-    })),
-    [filedPeriods]
-  )
+  // Precompute the set of filed period keys for fast lookup.
+  // Keys are derived from period_start dates (not label strings) to guarantee
+  // format consistency with getCurrentPeriod / getUpcomingPeriods.
+  // Also includes ttb_filings rows with a payment_date set, so paying via the
+  // payment modal removes the period from upcoming deadlines automatically.
+  const filedKeys = useMemo(() => {
+    const keys = new Set()
+    for (const p of filedPeriods) {
+      if (p.status === 'filed') {
+        const k = keyFromPeriodStart(p.period_start, frequency)
+        if (k) keys.add(k)
+      }
+    }
+    for (const f of filings) {
+      if (f.payment_date || f.status === 'paid' || f.status === 'filed') {
+        const k = keyFromPeriodStart(f.period_start, frequency)
+        if (k) keys.add(k)
+      }
+    }
+    return keys
+  }, [filedPeriods, filings, frequency])
 
   // Load all data when the brewery is known
   useEffect(() => {
@@ -1138,6 +1175,16 @@ export default function TtbPage() {
     const r = parseFloat(calcTier) || 0
     return b * r
   }, [calcBarrels, calcTier])
+
+  const colasNeedingReview = useMemo(
+    () => colaList.filter(c => {
+      if (c.status !== 'active') return false
+      const meta = c.metadata && typeof c.metadata === 'object' ? c.metadata : {}
+      const st = colaVerifiedStatus(meta.last_verified_date ?? null)
+      return st === 'overdue' || st === 'never'
+    }),
+    [colaList]
+  )
 
   // Sum of taxable barrels from all periods in the same year that come BEFORE
   // the currently selected period — used as the starting YTD position for the calculator
@@ -1697,6 +1744,22 @@ export default function TtbPage() {
           ))}
         </div>
 
+        {/* ── COLA Verification Alert ── */}
+        {colasNeedingReview.length > 0 && (
+          <div className="rounded-xl border border-danger bg-red-50 px-4 py-3 flex items-center justify-between gap-4 flex-wrap text-sm">
+            <div>
+              <p className="font-semibold text-danger">⚠️ COLA Labels Need Verification</p>
+              <p className="text-xs text-gray-600 mt-0.5">
+                {colasNeedingReview.length} active COLA {colasNeedingReview.length !== 1 ? 'labels have' : 'label has'} not been verified in over 2 years or were never verified.
+              </p>
+            </div>
+            <button onClick={() => setActiveTab('cola')}
+              className="text-xs font-semibold text-danger hover:underline shrink-0">
+              Review COLAs →
+            </button>
+          </div>
+        )}
+
         {/* ── Rate Reference ── */}
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <h3 className="font-semibold text-navy mb-3">Federal Excise Tax Rate Reference</h3>
@@ -1876,6 +1939,16 @@ export default function TtbPage() {
           />
         )}
 
+        {colasNeedingReview.length > 0 && (
+          <div className="rounded-xl border border-danger bg-red-50 px-4 py-3 text-sm">
+            <p className="font-semibold text-danger">⚠️ Verification Required</p>
+            <p className="text-xs text-gray-600 mt-0.5">
+              {colasNeedingReview.length} active label{colasNeedingReview.length !== 1 ? 's have' : ' has'} not been verified in over 2 years or was never verified.
+              Review each to confirm it is still accurate and compliant.
+            </p>
+          </div>
+        )}
+
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex gap-2 flex-wrap">
             <ReadOnlyTooltip isReadOnly={isReadOnly}>
@@ -1938,8 +2011,35 @@ export default function TtbPage() {
                         <td className="px-3 py-3 text-gray-500 font-mono text-xs">{meta.cola_number ?? '—'}</td>
                         <td className="px-3 py-3 text-gray-600">{meta.abv != null ? `${meta.abv}%` : '—'}</td>
                         <td className="px-3 py-3"><RowBadge status={c.status} /></td>
-                        <td className="px-3 py-3 text-gray-500 whitespace-nowrap">
-                          {meta.last_verified_date ? fmtDate(meta.last_verified_date) : '—'}
+                        <td className="px-3 py-3 whitespace-nowrap">
+                          {(() => {
+                            const lvd = meta.last_verified_date ?? null
+                            const st = colaVerifiedStatus(lvd)
+                            const isActive = c.status === 'active'
+                            if (!lvd) return (
+                              <span className={isActive ? 'text-danger font-medium' : 'text-gray-400'}>
+                                {isActive ? 'Never' : '—'}
+                                {isActive && (
+                                  <span className="ml-1.5 text-[10px] bg-red-100 text-danger px-1.5 py-0.5 rounded-full font-semibold">Needs Review</span>
+                                )}
+                              </span>
+                            )
+                            const colorCls = !isActive ? 'text-gray-500'
+                              : st === 'current' ? 'text-green-700'
+                              : st === 'aging'   ? 'text-amber'
+                              : 'text-danger'
+                            return (
+                              <span className={colorCls}>
+                                {fmtDate(lvd)}
+                                {isActive && st === 'overdue' && (
+                                  <span className="ml-1.5 text-[10px] bg-red-100 text-danger px-1.5 py-0.5 rounded-full font-semibold">Needs Review</span>
+                                )}
+                                {isActive && st === 'aging' && (
+                                  <span className="ml-1.5 text-[10px] bg-amber/20 text-amber px-1.5 py-0.5 rounded-full font-semibold">Aging</span>
+                                )}
+                              </span>
+                            )
+                          })()}
                         </td>
                         <td className="px-3 py-3">
                           <div className="flex gap-2">
