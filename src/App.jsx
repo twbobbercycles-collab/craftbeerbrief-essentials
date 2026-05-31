@@ -21,12 +21,10 @@ import DisclaimerPage from './pages/legal/DisclaimerPage'
 import TermsOfServicePage from './pages/legal/TermsOfServicePage'
 
 // App pages — lazy loaded so the bundle stays small
-const DashboardPage    = lazy(() => import('./pages/dashboard/DashboardPage'))
-const CompliancePage   = lazy(() => import('./pages/compliance/CompliancePage'))
-const DocumentsPage    = lazy(() => import('./pages/documents/DocumentsPage'))
-const StaffPage        = lazy(() => import('./pages/staff/StaffPage'))
-const InsurancePage    = lazy(() => import('./pages/insurance/InsurancePage'))
-const LocalPermitsPage = lazy(() => import('./pages/permits/LocalPermitsPage'))
+const DashboardPage        = lazy(() => import('./pages/dashboard/DashboardPage'))
+const CompliancePage       = lazy(() => import('./pages/compliance/CompliancePage'))
+const BreweryRecordsPage   = lazy(() => import('./pages/records/BreweryRecordsPage'))
+const StaffPage            = lazy(() => import('./pages/staff/StaffPage'))
 const TtbPage          = lazy(() => import('./pages/ttb/TtbPage'))
 const GrantsPage       = lazy(() => import('./pages/grants/GrantsPage'))
 const AccountPage      = lazy(() => import('./pages/account/AccountPage'))
@@ -105,10 +103,12 @@ export default function App() {
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard"  element={<DashboardPage />} />
           <Route path="compliance" element={<CompliancePage />} />
-          <Route path="documents"  element={<DocumentsPage />} />
+          <Route path="records"    element={<BreweryRecordsPage />} />
+          {/* Legacy redirects — keep old bookmarks working */}
+          <Route path="documents"  element={<Navigate to="/records" replace />} />
+          <Route path="insurance"  element={<Navigate to="/records" replace />} />
+          <Route path="permits"    element={<Navigate to="/records" replace />} />
           <Route path="staff"      element={<StaffPage />} />
-          <Route path="insurance"  element={<InsurancePage />} />
-          <Route path="permits"    element={<LocalPermitsPage />} />
           <Route path="ttb"        element={<TtbPage />} />
           <Route path="grants"   element={<GrantsPage />} />
           <Route path="account"  element={<AccountPage />} />

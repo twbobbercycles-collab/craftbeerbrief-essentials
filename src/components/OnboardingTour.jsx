@@ -136,28 +136,16 @@ export default function OnboardingTour({ onComplete }) {
         body: "Never miss a compliance deadline. All 50 states plus DC are pre-populated with color-coded deadlines by category.",
       },
       {
-        target: 'a[href="/documents"]',
+        target: 'a[href="/records"]',
         placement: 'right',
-        title: 'Documents',
-        body: "Store and organize all your compliance documents with expiration alerts so nothing slips through the cracks.",
+        title: 'Brewery Records',
+        body: "Store and track all your compliance documents, insurance policies, and local permits in one place — with expiration alerts so nothing slips through the cracks.",
       },
       {
         target: 'a[href="/staff"]',
         placement: 'right',
         title: 'Staff & Certs',
         body: "Track staff certifications, alcohol service training, food handler cards, and renewal dates for your entire team.",
-      },
-      {
-        target: 'a[href="/insurance"]',
-        placement: 'right',
-        title: 'Insurance',
-        body: "Track all your insurance policies, coverage amounts, agent contacts, and renewal dates in one place.",
-      },
-      {
-        target: 'a[href="/permits"]',
-        placement: 'right',
-        title: 'Local Permits',
-        body: "Track municipal permits, entertainment licenses, and zoning compliance for your taproom and brewery.",
       },
       {
         target: 'a[href="/ttb"]',
@@ -393,9 +381,9 @@ export default function OnboardingTour({ onComplete }) {
     if (stepIdx === 0) {
       window.dispatchEvent(new CustomEvent('tour-expand-essentials'))
     }
-    // Step 9 = Operations section intro — expand Operations so nav items are in the
-    // DOM and scrollable for steps 10-16
-    if (stepIdx === 9) {
+    // Step 7 = Operations section intro — expand Operations so nav items are in the
+    // DOM and scrollable for subsequent steps
+    if (stepIdx === 7) {
       window.dispatchEvent(new CustomEvent('tour-expand-ops'))
     }
     // First Full Suite step — expand the Full Suite sidebar section

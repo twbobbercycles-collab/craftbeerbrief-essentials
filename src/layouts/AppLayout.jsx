@@ -17,10 +17,8 @@ import AssistantChat from '../components/AssistantChat'
 const MAIN_NAV = [
   { path: '/dashboard',  label: 'Dashboard',           icon: '🏠' },
   { path: '/compliance', label: 'Compliance Calendar', icon: '📅' },
-  { path: '/documents',  label: 'Documents',           icon: '📁' },
+  { path: '/records',    label: 'Brewery Records',     icon: '🗂️' },
   { path: '/staff',      label: 'Staff & Certs',       icon: '👥' },
-  { path: '/insurance',  label: 'Insurance',           icon: '🛡️' },
-  { path: '/permits',    label: 'Local Permits',       icon: '📍' },
   { path: '/ttb',        label: 'TTB Tracker',         icon: '📊' },
   { path: '/grants',     label: 'Grant Finder',        icon: '💰' },
 ]
