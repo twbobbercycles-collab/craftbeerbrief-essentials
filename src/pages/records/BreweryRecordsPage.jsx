@@ -1,10 +1,10 @@
 /**
  * BreweryRecordsPage — unified compliance document vault.
- * All records live in brewery_documents. Category filters replace the old
- * Documents / Insurance / Permits tabs. Contacts are stored as jsonb on each record.
+ * All records live in brewery_documents. Category filters and dynamic metadata
+ * fields adapt to the selected document type.
  */
 import { useEffect, useState, useRef } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation } from 'react-router-dom'
 import { usePersistedTab } from '../../hooks/usePersistedTab'
 import { supabase } from '../../services/supabase'
 import { useAuth } from '../../context/AuthContext'
@@ -15,16 +15,68 @@ import { useModalDraft } from '../../hooks/useModalDraft'
 import DraftNoticeBar from '../../components/DraftNoticeBar'
 import { useReadOnly } from '../../hooks/useReadOnly'
 
-// ─── Document types (grouped for optgroup rendering) ─────────────────────────
+// ─── Document type groups (for dropdown optgroups) ────────────────────────────
 
 const DOC_TYPE_GROUPS = [
-  { group: 'Federal', types: ['Federal License', "Brewer's Notice", 'TTB Permit'] },
-  { group: 'State',   types: ['State License', 'State Brewery License', 'State Permit'] },
-  { group: 'Local & Municipal', types: ['Local & Municipal Permit', 'Municipal License', 'Zoning Permit', 'Health Permit', 'Taproom Permit'] },
-  { group: 'Insurance',   types: ['Insurance Policy'] },
-  { group: 'COLA & Labels', types: ['COLA & Label Approval'] },
-  { group: 'Agreements',   types: ['Distribution Agreement', 'Contract / Agreement'] },
-  { group: 'Other',        types: ['Staff Certification', 'Other'] },
+  { group: 'Federal', types: [
+    "Brewer's Notice (TTB)",
+    'Beer Bond / Surety Bond',
+    'TTB Formula Approval',
+    'Alternating Proprietorship Agreement',
+    'Other Federal',
+  ]},
+  { group: 'State', types: [
+    'State Brewery License',
+    'State ABC / Liquor Authority License',
+    'State Retailer License',
+    'State Brand Registration',
+    "State Sales Tax Permit / Seller's Permit",
+    'Other State License',
+  ]},
+  { group: 'Local & Municipal', types: [
+    'Business License',
+    'Zoning Approval / Conditional Use Permit',
+    'Certificate of Occupancy',
+    'Health Department Permit',
+    'Fire Safety Inspection Certificate',
+    'Outdoor Seating / Patio Permit',
+    'Entertainment / Music License',
+    'Sign Permit',
+    'Building Permit',
+    'Wastewater / Environmental Permit',
+    'Event Permit',
+    'Other Local Permit',
+  ]},
+  { group: 'Insurance', types: [
+    'General Liability',
+    'Liquor Liability',
+    'Property Insurance',
+    'Workers Compensation',
+    'Product Liability',
+    'Umbrella / Excess Liability',
+    'Equipment Breakdown',
+    'Commercial Auto',
+    'Cyber Liability',
+    'Directors & Officers (D&O)',
+    'Other Insurance',
+  ]},
+  { group: 'Agreements & Contracts', types: [
+    'Distribution Agreement',
+    'Alternating Proprietorship Agreement',
+    'Lease Agreement',
+    'Equipment Lease',
+    'Vendor Contract',
+    'Brewing Services Agreement',
+    'Co-packing Agreement',
+    'Other Agreement',
+  ]},
+  { group: 'Other', types: [
+    'ADA Compliance Documentation',
+    'Environmental Impact Assessment',
+    'Water Rights Permit',
+    'Wastewater Discharge Permit',
+    'Other',
+  ]},
 ]
 
 // ─── Category filter definitions ──────────────────────────────────────────────
@@ -35,21 +87,47 @@ const CATEGORIES = [
   { id: 'state',      label: 'State' },
   { id: 'local',      label: 'Local & Municipal' },
   { id: 'insurance',  label: 'Insurance' },
-  { id: 'cola',       label: 'COLA & Labels' },
-  { id: 'agreements', label: 'Agreements' },
+  { id: 'agreements', label: 'Agreements & Contracts' },
   { id: 'other',      label: 'Other' },
 ]
 
-const FEDERAL_TYPES    = ['federal_license', 'Federal License', "Brewer's Notice", 'TTB Permit', 'Federal Permit']
-const STATE_TYPES      = ['state_license', 'State License', 'State Brewery License', 'State Permit']
-const LOCAL_TYPES      = ['local_permit', 'taproom_permit', 'health_permit', 'Local & Municipal Permit', 'Local Permit', 'Municipal License', 'Zoning Permit', 'Health Permit', 'Taproom Permit']
-const INSURANCE_TYPES  = ['insurance', 'Insurance', 'Insurance Policy']
-const COLA_TYPES       = ['COLA & Label Approval', 'COLA']
-const AGREEMENT_TYPES  = ['Distribution Agreement', 'Contract / Agreement', 'Agreement', 'Contract']
-const ALL_KNOWN        = [...FEDERAL_TYPES, ...STATE_TYPES, ...LOCAL_TYPES, ...INSURANCE_TYPES, ...COLA_TYPES, ...AGREEMENT_TYPES]
+// Include both new human-readable values and legacy snake_case values so old
+// records are correctly categorized without a data migration.
+const FEDERAL_TYPES = [
+  'federal_license', 'Federal License', "Brewer's Notice", 'TTB Permit', 'Federal Permit',
+  "Brewer's Notice (TTB)", 'Beer Bond / Surety Bond', 'TTB Formula Approval',
+  'Alternating Proprietorship Agreement', 'Other Federal',
+]
+const STATE_TYPES = [
+  'state_license', 'State License', 'State Brewery License', 'State Permit',
+  'State ABC / Liquor Authority License', 'State Retailer License',
+  'State Brand Registration', "State Sales Tax Permit / Seller's Permit", 'Other State License',
+]
+const LOCAL_TYPES = [
+  'local_permit', 'taproom_permit', 'health_permit',
+  'Local & Municipal Permit', 'Local Permit', 'Municipal License',
+  'Zoning Permit', 'Health Permit', 'Taproom Permit',
+  'Business License', 'Zoning Approval / Conditional Use Permit', 'Certificate of Occupancy',
+  'Health Department Permit', 'Fire Safety Inspection Certificate',
+  'Outdoor Seating / Patio Permit', 'Entertainment / Music License', 'Sign Permit',
+  'Building Permit', 'Wastewater / Environmental Permit', 'Event Permit', 'Other Local Permit',
+]
+const INSURANCE_TYPES = [
+  'insurance', 'Insurance', 'Insurance Policy',
+  'General Liability', 'Liquor Liability', 'Property Insurance', 'Workers Compensation',
+  'Product Liability', 'Umbrella / Excess Liability', 'Equipment Breakdown', 'Commercial Auto',
+  'Cyber Liability', 'Directors & Officers (D&O)', 'Other Insurance',
+]
+const AGREEMENT_TYPES = [
+  'Distribution Agreement', 'Contract / Agreement', 'Agreement', 'Contract',
+  'Alternating Proprietorship Agreement', 'Lease Agreement', 'Equipment Lease',
+  'Vendor Contract', 'Brewing Services Agreement', 'Co-packing Agreement', 'Other Agreement',
+]
 
-// Maps a CATEGORIES.id → legacy slug for usePersistedTab routing from TtbPage
-const SLUG_MAP = { 'COLA & Labels': 'cola', Federal: 'federal', State: 'state' }
+const ALL_KNOWN = [...FEDERAL_TYPES, ...STATE_TYPES, ...LOCAL_TYPES, ...INSURANCE_TYPES, ...AGREEMENT_TYPES]
+
+// Used to resolve navigation state category names from TtbPage to filter ids
+const SLUG_MAP = { Federal: 'federal', State: 'state' }
 
 function matchesCategory(doc, cat) {
   if (cat === 'all')        return true
@@ -57,10 +135,43 @@ function matchesCategory(doc, cat) {
   if (cat === 'state')      return STATE_TYPES.includes(doc.document_type)
   if (cat === 'local')      return LOCAL_TYPES.includes(doc.document_type)
   if (cat === 'insurance')  return INSURANCE_TYPES.includes(doc.document_type)
-  if (cat === 'cola')       return COLA_TYPES.includes(doc.document_type)
   if (cat === 'agreements') return AGREEMENT_TYPES.includes(doc.document_type)
   if (cat === 'other')      return !ALL_KNOWN.includes(doc.document_type)
   return false
+}
+
+// ─── Document category for metadata field rendering ───────────────────────────
+
+function getDocumentCategory(docType) {
+  const federal = [
+    "Brewer's Notice (TTB)", 'Beer Bond / Surety Bond', 'TTB Formula Approval', 'Other Federal',
+  ]
+  const state = [
+    'State Brewery License', 'State ABC / Liquor Authority License', 'State Retailer License',
+    'State Brand Registration', "State Sales Tax Permit / Seller's Permit", 'Other State License',
+  ]
+  const local = [
+    'Business License', 'Zoning Approval / Conditional Use Permit', 'Certificate of Occupancy',
+    'Health Department Permit', 'Fire Safety Inspection Certificate', 'Outdoor Seating / Patio Permit',
+    'Entertainment / Music License', 'Sign Permit', 'Building Permit',
+    'Wastewater / Environmental Permit', 'Event Permit', 'Other Local Permit',
+  ]
+  const insurance = [
+    'General Liability', 'Liquor Liability', 'Property Insurance', 'Workers Compensation',
+    'Product Liability', 'Umbrella / Excess Liability', 'Equipment Breakdown', 'Commercial Auto',
+    'Cyber Liability', 'Directors & Officers (D&O)', 'Other Insurance',
+  ]
+  const agreements = [
+    'Distribution Agreement', 'Alternating Proprietorship Agreement', 'Lease Agreement',
+    'Equipment Lease', 'Vendor Contract', 'Brewing Services Agreement',
+    'Co-packing Agreement', 'Other Agreement',
+  ]
+  if (federal.includes(docType))    return 'federal'
+  if (state.includes(docType))      return 'state'
+  if (local.includes(docType))      return 'local'
+  if (insurance.includes(docType))  return 'insurance'
+  if (agreements.includes(docType)) return 'agreements'
+  return 'other'
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -72,7 +183,7 @@ const ALLOWED_MIME_TYPES = [
 ]
 const MAX_FILE_SIZE = 25 * 1024 * 1024 // 25 MB
 
-const EMPTY_FORM = { name: '', type: '', expiration_date: '', notes: '' }
+const EMPTY_FORM    = { name: '', type: '', expiration_date: '', notes: '' }
 const EMPTY_CONTACT = { name: '', title: '', phone: '', email: '' }
 
 // ─── Utility functions ────────────────────────────────────────────────────────
@@ -80,7 +191,7 @@ const EMPTY_CONTACT = { name: '', title: '', phone: '', email: '' }
 function getExpirationStatus(dateStr) {
   if (!dateStr) return null
   const today = new Date(); today.setHours(0, 0, 0, 0)
-  const exp = new Date(dateStr + 'T00:00:00')
+  const exp  = new Date(dateStr + 'T00:00:00')
   const diff = Math.floor((exp - today) / 86400000)
   if (diff < 0)   return 'expired'
   if (diff <= 30) return 'urgent'
@@ -102,6 +213,8 @@ function formatFileSize(bytes) {
 
 // ─── Shared small components ──────────────────────────────────────────────────
 
+const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber bg-white'
+
 function FormField({ label, required, optional, hint, children }) {
   return (
     <div>
@@ -120,7 +233,8 @@ function ErrorBar({ message, onDismiss }) {
     <div className="bg-red-50 border border-danger text-danger rounded-lg px-4 py-3 text-sm flex items-start justify-between gap-2">
       <span>{message}</span>
       {onDismiss && (
-        <button type="button" onClick={onDismiss} className="shrink-0 text-danger/60 hover:text-danger font-medium underline text-xs mt-0.5">Dismiss</button>
+        <button type="button" onClick={onDismiss}
+          className="shrink-0 text-danger/60 hover:text-danger font-medium underline text-xs mt-0.5">Dismiss</button>
       )}
     </div>
   )
@@ -137,8 +251,7 @@ function Spinner({ label }) {
 
 function DocTypeSelect({ value, onChange, required }) {
   return (
-    <select required={required} value={value} onChange={onChange}
-      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber bg-white">
+    <select required={required} value={value} onChange={onChange} className={inputCls}>
       <option value="">Select type...</option>
       {DOC_TYPE_GROUPS.map(g => (
         <optgroup key={g.group} label={g.group}>
@@ -152,15 +265,9 @@ function DocTypeSelect({ value, onChange, required }) {
 // ─── Contacts section (shared by Add and Edit modals) ─────────────────────────
 
 function ContactsSection({ contacts, onChange }) {
-  function addContact() {
-    onChange([...contacts, { ...EMPTY_CONTACT }])
-  }
-  function update(index, field, value) {
-    onChange(contacts.map((c, i) => i === index ? { ...c, [field]: value } : c))
-  }
-  function remove(index) {
-    onChange(contacts.filter((_, i) => i !== index))
-  }
+  function addContact()              { onChange([...contacts, { ...EMPTY_CONTACT }]) }
+  function update(i, field, value)   { onChange(contacts.map((c, j) => j === i ? { ...c, [field]: value } : c)) }
+  function remove(i)                 { onChange(contacts.filter((_, j) => j !== i)) }
 
   return (
     <div>
@@ -171,31 +278,23 @@ function ContactsSection({ contacts, onChange }) {
           + Add Contact
         </button>
       </div>
-
       {contacts.length === 0 ? (
-        <p className="text-xs text-gray-400 py-2">No contacts added yet. Click "Add Contact" to add agents, renewal coordinators, or inspectors.</p>
+        <p className="text-xs text-gray-400 py-2">No contacts added. Click "Add Contact" to add agents, renewal coordinators, or inspectors.</p>
       ) : (
         <div className="space-y-3">
           {contacts.map((c, i) => (
             <div key={i} className="border border-gray-200 rounded-lg p-3 relative">
-              {i === 0 && (
-                <span className="absolute top-2 left-3 text-xs text-amber font-semibold">Primary Contact</span>
-              )}
+              {i === 0 && <span className="absolute top-2 left-3 text-xs text-amber font-semibold">Primary Contact</span>}
               <button type="button" onClick={() => remove(i)}
-                className="absolute top-2 right-2 text-gray-400 hover:text-danger text-base leading-none"
-                title="Remove contact">✕</button>
-              <div className={`grid grid-cols-1 sm:grid-cols-2 gap-2 ${i === 0 ? 'mt-5' : 'mt-0'}`}>
-                <input type="text" placeholder="Contact name" value={c.name}
-                  onChange={e => update(i, 'name', e.target.value)}
+                className="absolute top-2 right-2 text-gray-400 hover:text-danger text-base leading-none" title="Remove">✕</button>
+              <div className={`grid grid-cols-1 sm:grid-cols-2 gap-2 ${i === 0 ? 'mt-5' : ''}`}>
+                <input type="text"  placeholder="Contact name"   value={c.name}  onChange={e => update(i, 'name', e.target.value)}
                   className="w-full border border-gray-200 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-amber" />
-                <input type="text" placeholder="e.g. Agent, Inspector, Renewal Coordinator" value={c.title}
-                  onChange={e => update(i, 'title', e.target.value)}
+                <input type="text"  placeholder="Title / role"   value={c.title} onChange={e => update(i, 'title', e.target.value)}
                   className="w-full border border-gray-200 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-amber" />
-                <input type="tel" placeholder="Phone number" value={c.phone}
-                  onChange={e => update(i, 'phone', e.target.value)}
+                <input type="tel"   placeholder="Phone number"   value={c.phone} onChange={e => update(i, 'phone', e.target.value)}
                   className="w-full border border-gray-200 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-amber" />
-                <input type="email" placeholder="Email address" value={c.email}
-                  onChange={e => update(i, 'email', e.target.value)}
+                <input type="email" placeholder="Email address"  value={c.email} onChange={e => update(i, 'email', e.target.value)}
                   className="w-full border border-gray-200 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-amber" />
               </div>
             </div>
@@ -206,32 +305,369 @@ function ContactsSection({ contacts, onChange }) {
   )
 }
 
+// ─── MetadataSection — dynamic fields based on document type ──────────────────
+
+function MetadataSection({ docType, meta, onChange }) {
+  const category = getDocumentCategory(docType)
+  if (!docType) return null
+
+  function set(key, value) { onChange({ ...meta, [key]: value }) }
+
+  const STATE_ACTIVITIES = ['On-premise sales', 'To-go sales', 'Self-distribution', 'Special events']
+
+  if (category === 'federal') {
+    return (
+      <div className="space-y-4 border-t border-gray-100 pt-4">
+        <p className="text-sm font-bold text-navy">Federal Details</p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Permit / Notice Number" optional>
+            <input type="text" value={meta.permit_number ?? ''} onChange={e => set('permit_number', e.target.value)}
+              placeholder="e.g. BR-12345678" className={inputCls} />
+          </FormField>
+          <FormField label="TTB Permit Online Ref #" optional>
+            <input type="text" value={meta.ttb_ref ?? ''} onChange={e => set('ttb_ref', e.target.value)}
+              placeholder="TPOL reference number" className={inputCls} />
+          </FormField>
+        </div>
+
+        <FormField label="Last Amended Date" optional>
+          <input type="date" value={meta.last_amended_date ?? ''} onChange={e => set('last_amended_date', e.target.value)}
+            className={inputCls} />
+        </FormField>
+
+        <FormField label="Authorized Activities" optional>
+          <textarea rows={2} value={meta.authorized_activities ?? ''}
+            onChange={e => set('authorized_activities', e.target.value)}
+            placeholder="e.g. Produce beer, Self-distribute within state..."
+            className={inputCls + ' resize-none'} />
+        </FormField>
+
+        <div className="space-y-3">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" checked={!!meta.bond_required}
+              onChange={e => set('bond_required', e.target.checked)}
+              className="w-4 h-4 accent-amber rounded" />
+            <span className="text-sm font-semibold text-navy">Bond Required</span>
+          </label>
+          {meta.bond_required && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-6">
+              <FormField label="Bond Amount ($)" optional>
+                <input type="number" min="0" step="0.01" value={meta.bond_amount ?? ''}
+                  onChange={e => set('bond_amount', e.target.value)} placeholder="0.00" className={inputCls} />
+              </FormField>
+              <FormField label="Bond Expiration Date" optional>
+                <input type="date" value={meta.bond_expiration_date ?? ''}
+                  onChange={e => set('bond_expiration_date', e.target.value)} className={inputCls} />
+              </FormField>
+              <FormField label="Surety Company" optional>
+                <input type="text" value={meta.surety_company ?? ''}
+                  onChange={e => set('surety_company', e.target.value)} placeholder="Company name" className={inputCls} />
+              </FormField>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  if (category === 'state') {
+    const activities = Array.isArray(meta.authorized_activities) ? meta.authorized_activities : []
+    return (
+      <div className="space-y-4 border-t border-gray-100 pt-4">
+        <p className="text-sm font-bold text-navy">State License Details</p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="License Number" optional>
+            <input type="text" value={meta.license_number ?? ''} onChange={e => set('license_number', e.target.value)}
+              placeholder="License / permit number" className={inputCls} />
+          </FormField>
+          <FormField label="Issuing State Agency" optional>
+            <input type="text" value={meta.issuing_agency ?? ''} onChange={e => set('issuing_agency', e.target.value)}
+              placeholder="e.g. PA Liquor Control Board" className={inputCls} />
+          </FormField>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="License Sub-type" optional>
+            <input type="text" value={meta.license_subtype ?? ''} onChange={e => set('license_subtype', e.target.value)}
+              placeholder="e.g. Microbrewery, Brewpub, Farm Brewery" className={inputCls} />
+          </FormField>
+          <FormField label="Annual Production Limit (barrels)" optional>
+            <input type="number" min="0" step="1" value={meta.annual_production_limit ?? ''}
+              onChange={e => set('annual_production_limit', e.target.value)}
+              placeholder="Leave blank if no limit" className={inputCls} />
+          </FormField>
+        </div>
+
+        <div>
+          <p className="text-sm font-semibold text-navy mb-2">Authorized Activities</p>
+          <div className="grid grid-cols-2 gap-y-2 gap-x-4">
+            {STATE_ACTIVITIES.map(act => (
+              <label key={act} className="flex items-center gap-2 cursor-pointer select-none text-sm text-gray-700">
+                <input type="checkbox"
+                  checked={activities.includes(act)}
+                  onChange={e => set('authorized_activities',
+                    e.target.checked ? [...activities, act] : activities.filter(a => a !== act)
+                  )}
+                  className="w-4 h-4 accent-amber rounded" />
+                {act}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" checked={!!meta.bond_required}
+              onChange={e => set('bond_required', e.target.checked)}
+              className="w-4 h-4 accent-amber rounded" />
+            <span className="text-sm font-semibold text-navy">Bond Required</span>
+          </label>
+          {meta.bond_required && (
+            <div className="pl-6">
+              <FormField label="Bond Amount ($)" optional>
+                <input type="number" min="0" step="0.01" value={meta.bond_amount ?? ''}
+                  onChange={e => set('bond_amount', e.target.value)} placeholder="0.00" className={inputCls} />
+              </FormField>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  if (category === 'local') {
+    return (
+      <div className="space-y-4 border-t border-gray-100 pt-4">
+        <p className="text-sm font-bold text-navy">Local / Municipal Details</p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Permit Number" optional>
+            <input type="text" value={meta.permit_number ?? ''} onChange={e => set('permit_number', e.target.value)}
+              placeholder="Permit / license number" className={inputCls} />
+          </FormField>
+          <FormField label="Issuing Authority" optional>
+            <input type="text" value={meta.issuing_authority ?? ''} onChange={e => set('issuing_authority', e.target.value)}
+              placeholder="City / County / Township name" className={inputCls} />
+          </FormField>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Issuing Authority Type" optional>
+            <select value={meta.authority_type ?? ''} onChange={e => set('authority_type', e.target.value)} className={inputCls}>
+              <option value="">Select...</option>
+              {['City', 'County', 'Township', 'Other'].map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </FormField>
+          <FormField label="Zoning Classification" optional>
+            <input type="text" value={meta.zoning_classification ?? ''} onChange={e => set('zoning_classification', e.target.value)}
+              placeholder="e.g. I-1, B-2, Commercial" className={inputCls} />
+          </FormField>
+        </div>
+
+        <FormField label="Maximum Occupancy" optional>
+          <input type="number" min="0" step="1" value={meta.max_occupancy ?? ''}
+            onChange={e => set('max_occupancy', e.target.value)}
+            placeholder="Leave blank if not applicable" className={inputCls} />
+        </FormField>
+
+        <FormField label="Conditions or Restrictions" optional>
+          <textarea rows={2} value={meta.conditions ?? ''} onChange={e => set('conditions', e.target.value)}
+            placeholder="Any conditions placed on this permit..." className={inputCls + ' resize-none'} />
+        </FormField>
+
+        <div className="space-y-3">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" checked={!!meta.inspection_required}
+              onChange={e => set('inspection_required', e.target.checked)}
+              className="w-4 h-4 accent-amber rounded" />
+            <span className="text-sm font-semibold text-navy">Inspection Required</span>
+          </label>
+          {meta.inspection_required && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pl-6">
+              <FormField label="Last Inspection Date" optional>
+                <input type="date" value={meta.last_inspection_date ?? ''}
+                  onChange={e => set('last_inspection_date', e.target.value)} className={inputCls} />
+              </FormField>
+              <FormField label="Next Inspection Date" optional>
+                <input type="date" value={meta.next_inspection_date ?? ''}
+                  onChange={e => set('next_inspection_date', e.target.value)} className={inputCls} />
+              </FormField>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  if (category === 'insurance') {
+    return (
+      <div className="space-y-4 border-t border-gray-100 pt-4">
+        <p className="text-sm font-bold text-navy">Insurance Details</p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Policy Number" optional>
+            <input type="text" value={meta.policy_number ?? ''} onChange={e => set('policy_number', e.target.value)}
+              placeholder="Policy / certificate number" className={inputCls} />
+          </FormField>
+          <FormField label="Insurer / Insurance Company" optional>
+            <input type="text" value={meta.insurer ?? ''} onChange={e => set('insurer', e.target.value)}
+              placeholder="Company name" className={inputCls} />
+          </FormField>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <FormField label="Coverage Amount ($)" optional>
+            <input type="number" min="0" step="1000" value={meta.coverage_amount ?? ''}
+              onChange={e => set('coverage_amount', e.target.value)} placeholder="0" className={inputCls} />
+          </FormField>
+          <FormField label="Deductible ($)" optional>
+            <input type="number" min="0" step="100" value={meta.deductible ?? ''}
+              onChange={e => set('deductible', e.target.value)} placeholder="0" className={inputCls} />
+          </FormField>
+          <FormField label="Premium Amount ($)" optional>
+            <input type="number" min="0" step="0.01" value={meta.premium_amount ?? ''}
+              onChange={e => set('premium_amount', e.target.value)} placeholder="0.00" className={inputCls} />
+          </FormField>
+        </div>
+
+        <FormField label="Premium Frequency" optional>
+          <select value={meta.premium_frequency ?? ''} onChange={e => set('premium_frequency', e.target.value)} className={inputCls}>
+            <option value="">Select...</option>
+            {['Monthly', 'Quarterly', 'Annual'].map(f => <option key={f} value={f}>{f}</option>)}
+          </select>
+        </FormField>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <FormField label="Claims Contact Name" optional>
+            <input type="text" value={meta.claims_contact ?? ''} onChange={e => set('claims_contact', e.target.value)}
+              placeholder="Contact name" className={inputCls} />
+          </FormField>
+          <FormField label="Claims Phone" optional>
+            <input type="tel" value={meta.claims_phone ?? ''} onChange={e => set('claims_phone', e.target.value)}
+              placeholder="Phone number" className={inputCls} />
+          </FormField>
+          <FormField label="Claims Email" optional>
+            <input type="email" value={meta.claims_email ?? ''} onChange={e => set('claims_email', e.target.value)}
+              placeholder="Email address" className={inputCls} />
+          </FormField>
+        </div>
+      </div>
+    )
+  }
+
+  if (category === 'agreements') {
+    return (
+      <div className="space-y-4 border-t border-gray-100 pt-4">
+        <p className="text-sm font-bold text-navy">Agreement Details</p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Other Party Name" optional>
+            <input type="text" value={meta.other_party ?? ''} onChange={e => set('other_party', e.target.value)}
+              placeholder="Distributor, landlord, vendor..." className={inputCls} />
+          </FormField>
+          <FormField label="State Covered" optional>
+            <input type="text" value={meta.state_covered ?? ''} onChange={e => set('state_covered', e.target.value)}
+              placeholder="e.g. Pennsylvania" className={inputCls} />
+          </FormField>
+        </div>
+
+        <div className="space-y-3">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" checked={!!meta.exclusive_territory}
+              onChange={e => set('exclusive_territory', e.target.checked)}
+              className="w-4 h-4 accent-amber rounded" />
+            <span className="text-sm font-semibold text-navy">Exclusive Territory</span>
+          </label>
+          {meta.exclusive_territory && (
+            <div className="pl-6">
+              <FormField label="Territory Description" optional>
+                <input type="text" value={meta.territory_description ?? ''}
+                  onChange={e => set('territory_description', e.target.value)}
+                  placeholder="Describe the exclusive territory..." className={inputCls} />
+              </FormField>
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-3">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" checked={!!meta.attorney_reviewed}
+              onChange={e => set('attorney_reviewed', e.target.checked)}
+              className="w-4 h-4 accent-amber rounded" />
+            <span className="text-sm font-semibold text-navy">Attorney Reviewed</span>
+          </label>
+          {meta.attorney_reviewed && (
+            <div className="pl-6">
+              <FormField label="Attorney Review Date" optional>
+                <input type="date" value={meta.attorney_review_date ?? ''}
+                  onChange={e => set('attorney_review_date', e.target.value)} className={inputCls} />
+              </FormField>
+            </div>
+          )}
+        </div>
+
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input type="checkbox" checked={!!meta.automatic_renewal}
+            onChange={e => set('automatic_renewal', e.target.checked)}
+            className="w-4 h-4 accent-amber rounded" />
+          <span className="text-sm font-semibold text-navy">Automatic Renewal</span>
+        </label>
+
+        <FormField label="Key Termination Conditions" optional>
+          <textarea rows={2} value={meta.termination_conditions ?? ''}
+            onChange={e => set('termination_conditions', e.target.value)}
+            placeholder="e.g. 90-day written notice required..." className={inputCls + ' resize-none'} />
+        </FormField>
+      </div>
+    )
+  }
+
+  // category === 'other'
+  return (
+    <div className="space-y-4 border-t border-gray-100 pt-4">
+      <p className="text-sm font-bold text-navy">Additional Details</p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <FormField label="Reference Number" optional>
+          <input type="text" value={meta.reference_number ?? ''} onChange={e => set('reference_number', e.target.value)}
+            placeholder="Reference / ID number" className={inputCls} />
+        </FormField>
+        <FormField label="Issuing Organization" optional>
+          <input type="text" value={meta.issuing_organization ?? ''} onChange={e => set('issuing_organization', e.target.value)}
+            placeholder="Organization name" className={inputCls} />
+        </FormField>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main page component ──────────────────────────────────────────────────────
 
 export default function BreweryRecordsPage() {
   const { brewery } = useAuth()
   const { isReadOnly, ReadOnlyTooltip } = useReadOnly()
   const location = useLocation()
-  const navigate = useNavigate()
-  const fileInputRef  = useRef(null)
-  const editFileRef   = useRef(null)
-  const addDraft = useModalDraft('modal_draft_document')
+  const fileInputRef = useRef(null)
+  const editFileRef  = useRef(null)
+  const addDraft     = useModalDraft('modal_draft_document')
 
   // ── Filter state ──
   const [activeCategory, setActiveCategory] = usePersistedTab('records_active_tab', 'all')
 
   // ── Data ──
-  const [documents,  setDocuments]  = useState([])
-  const [loading,    setLoading]    = useState(true)
-  const [pageError,  setPageError]  = useState('')
+  const [documents, setDocuments] = useState([])
+  const [loading,   setLoading]   = useState(true)
+  const [pageError, setPageError] = useState('')
 
   // ── Download ──
-  const [downloadingId,      setDownloadingId]      = useState(null)
+  const [downloadingId,       setDownloadingId]       = useState(null)
   const [downloadAllProgress, setDownloadAllProgress] = useState({ active: false, current: 0, total: 0 })
 
   // ── Add modal ──
   const [addModalOpen,  setAddModalOpen]  = useState(false)
   const [addForm,       setAddForm]       = useState(EMPTY_FORM)
+  const [addMeta,       setAddMeta]       = useState({})
   const [addContacts,   setAddContacts]   = useState([])
   const [addFile,       setAddFile]       = useState(null)
   const [isDragOver,    setIsDragOver]    = useState(false)
@@ -243,6 +679,7 @@ export default function BreweryRecordsPage() {
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [editRecord,    setEditRecord]    = useState(null)
   const [editForm,      setEditForm]      = useState(EMPTY_FORM)
+  const [editMeta,      setEditMeta]      = useState({})
   const [editContacts,  setEditContacts]  = useState([])
   const [editFile,      setEditFile]      = useState(null)
   const [editSaving,    setEditSaving]    = useState(false)
@@ -255,11 +692,11 @@ export default function BreweryRecordsPage() {
   // ── Load data ──
   useEffect(() => { if (brewery?.id) loadDocuments() }, [brewery?.id])
 
-  // Handle navigation state from TtbPage (Fix 6 integration)
+  // Handle navigation state from TtbPage (COLA redirect card integration)
   useEffect(() => {
     if (!location.state) return
     if (location.state.category) {
-      const slug = SLUG_MAP[location.state.category] ?? location.state.category.toLowerCase().replace(/\s+/g, '_')
+      const slug  = SLUG_MAP[location.state.category] ?? location.state.category.toLowerCase().replace(/\s+/g, '_')
       const match = CATEGORIES.find(c => c.id === slug || c.label === location.state.category)
       if (match) setActiveCategory(match.id)
     }
@@ -267,15 +704,14 @@ export default function BreweryRecordsPage() {
       setAddForm(prev => ({ ...prev, type: location.state.type || '' }))
       setAddModalOpen(true)
     }
-    // Clear state so Back→Forward doesn't re-trigger
     window.history.replaceState({}, '')
   }, [])
 
-  // Auto-save add draft while modal is open
+  // Auto-save add draft while modal is open (includes metadata so it survives refresh)
   useEffect(() => {
     if (!addModalOpen) return
-    addDraft.saveDraft({ ...addForm })
-  }, [addForm, addModalOpen])
+    addDraft.saveDraft({ ...addForm, _meta: addMeta })
+  }, [addForm, addMeta, addModalOpen])
 
   async function loadDocuments() {
     setLoading(true)
@@ -305,11 +741,11 @@ export default function BreweryRecordsPage() {
         .createSignedUrl(record.file_path, 60)
       if (error) throw error
       const response = await fetch(signedUrlData.signedUrl)
-      const blob = await response.blob()
-      const blobUrl = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = blobUrl
-      link.download = record.document_name
+      const blob     = await response.blob()
+      const blobUrl  = URL.createObjectURL(blob)
+      const link     = document.createElement('a')
+      link.href      = blobUrl
+      link.download  = record.document_name
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
@@ -330,7 +766,7 @@ export default function BreweryRecordsPage() {
     for (let i = 0; i < recordsWithFiles.length; i++) {
       setDownloadAllProgress({ active: true, current: i + 1, total: recordsWithFiles.length })
       await handleDownload(recordsWithFiles[i])
-      await new Promise(resolve => setTimeout(resolve, 800))
+      if (i < recordsWithFiles.length - 1) await new Promise(r => setTimeout(r, 800))
     }
     setDownloadAllProgress({ active: false, current: 0, total: 0 })
   }
@@ -355,19 +791,20 @@ export default function BreweryRecordsPage() {
 
   function openAddModal(showBanner = true) {
     const draft = addDraft.loadDraft(showBanner)
-    if (draft) setAddForm(prev => ({ ...prev, ...draft }))
+    if (draft) {
+      const { _meta, ...formData } = draft
+      setAddForm(prev => ({ ...prev, ...formData }))
+      if (_meta && typeof _meta === 'object') setAddMeta(_meta)
+    }
     setAddModalOpen(true)
   }
 
   function closeAddModal() {
     addDraft.clearDraft()
-    setAddForm(EMPTY_FORM)
-    setAddContacts([])
-    setAddFile(null)
-    setUploadError('')
-    setUploadSuccess(false)
-    setIsDragOver(false)
-    setAddModalOpen(false)
+    setAddForm(EMPTY_FORM); setAddMeta({})
+    setAddContacts([]); setAddFile(null)
+    setUploadError(''); setUploadSuccess(false)
+    setIsDragOver(false); setAddModalOpen(false)
   }
 
   async function handleAddSubmit(e) {
@@ -391,6 +828,7 @@ export default function BreweryRecordsPage() {
         expiration_date: addForm.expiration_date || null,
         notes:           addForm.notes.trim() || null,
         contacts:        addContacts.filter(c => c.name.trim() || c.phone.trim() || c.email.trim()),
+        metadata:        Object.keys(addMeta).length > 0 ? addMeta : null,
       })
       if (dbErr) {
         await supabase.storage.from('brewery-documents').remove([filePath])
@@ -399,9 +837,9 @@ export default function BreweryRecordsPage() {
 
       addDraft.clearDraft()
       setUploadSuccess(true)
-      setAddForm(EMPTY_FORM); setAddContacts([]); setAddFile(null)
+      setAddForm(EMPTY_FORM); setAddMeta({}); setAddContacts([]); setAddFile(null)
       await loadDocuments()
-      setTimeout(() => { closeAddModal() }, 1500)
+      setTimeout(() => closeAddModal(), 1500)
     } catch (err) {
       setUploadError(err.message || 'Upload failed. Please try again.')
     } finally {
@@ -419,15 +857,14 @@ export default function BreweryRecordsPage() {
       expiration_date: doc.expiration_date ?? '',
       notes:           doc.notes ?? '',
     })
+    setEditMeta(doc.metadata && typeof doc.metadata === 'object' ? { ...doc.metadata } : {})
     setEditContacts(Array.isArray(doc.contacts) ? doc.contacts : [])
-    setEditFile(null)
-    setEditError('')
-    setEditModalOpen(true)
+    setEditFile(null); setEditError(''); setEditModalOpen(true)
   }
 
   function closeEditModal() {
     setEditRecord(null)
-    setEditForm(EMPTY_FORM); setEditContacts([]); setEditFile(null)
+    setEditForm(EMPTY_FORM); setEditMeta({}); setEditContacts([]); setEditFile(null)
     setEditError(''); setEditModalOpen(false)
   }
 
@@ -442,17 +879,16 @@ export default function BreweryRecordsPage() {
         expiration_date: editForm.expiration_date || null,
         notes:           editForm.notes.trim() || null,
         contacts:        editContacts.filter(c => c.name.trim() || c.phone.trim() || c.email.trim()),
+        metadata:        Object.keys(editMeta).length > 0 ? editMeta : null,
       }
 
-      // If a replacement file was provided, upload it and delete the old one
       if (editFile) {
         const safeName = editFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')
-        const newPath = `${brewery.id}/${Date.now()}_${safeName}`
+        const newPath  = `${brewery.id}/${Date.now()}_${safeName}`
         const { error: upErr } = await supabase.storage
           .from('brewery-documents')
           .upload(newPath, editFile, { contentType: editFile.type, upsert: false })
         if (upErr) throw upErr
-        // Delete old file (best-effort)
         if (editRecord.file_path) {
           await supabase.storage.from('brewery-documents').remove([editRecord.file_path])
         }
@@ -499,7 +935,7 @@ export default function BreweryRecordsPage() {
   }).length
 
   const isAddFormDirty = !!(addForm.name.trim() || addForm.type || addForm.expiration_date || addForm.notes || addFile)
-  const canAdd = addForm.name.trim() && addForm.type && addFile
+  const canAdd         = addForm.name.trim() && addForm.type && addFile
 
   if (loading) return <LoadingSpinner message="Loading brewery records..." />
 
@@ -550,7 +986,8 @@ export default function BreweryRecordsPage() {
       <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 flex items-start gap-3">
         <span className="text-lg shrink-0">🔒</span>
         <p className="text-sm text-blue-800 leading-relaxed">
-          <strong>Your records are yours.</strong> Everything stored here is private to your brewery account. We never share your documents with third parties. Export or delete your data anytime in Account Settings.
+          <strong>Your records are yours.</strong> Everything stored here is private to your brewery account.
+          We never share your documents with third parties. Export or delete your data anytime in Account Settings.
         </p>
       </div>
 
@@ -569,9 +1006,7 @@ export default function BreweryRecordsPage() {
       <div className="overflow-x-auto -mx-4 px-4">
         <div className="flex gap-1.5 min-w-max pb-1">
           {CATEGORIES.map(cat => {
-            const count = cat.id === 'all'
-              ? documents.length
-              : documents.filter(d => matchesCategory(d, cat.id)).length
+            const count  = cat.id === 'all' ? documents.length : documents.filter(d => matchesCategory(d, cat.id)).length
             const active = activeCategory === cat.id
             return (
               <button key={cat.id} onClick={() => setActiveCategory(cat.id)}
@@ -596,7 +1031,7 @@ export default function BreweryRecordsPage() {
             {activeCategory === 'all' ? 'No records added yet' : `No ${CATEGORIES.find(c => c.id === activeCategory)?.label} records`}
           </p>
           <p className="text-xs text-gray-500 max-w-sm mx-auto">
-            Upload your compliance documents, permits, insurance certificates, and COLA records here.
+            Upload your compliance documents, permits, insurance certificates, and agreements here.
           </p>
           <button onClick={() => openAddModal()} className="mt-4 text-sm text-amber hover:underline font-medium">
             Add a record →
@@ -644,7 +1079,7 @@ export default function BreweryRecordsPage() {
                 <FormField label="Record Name" required>
                   <input type="text" required placeholder="e.g. Brewer's Notice 2026" value={addForm.name}
                     onChange={e => setAddForm(p => ({ ...p, name: e.target.value }))}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber" />
+                    className={inputCls} />
                 </FormField>
               </div>
 
@@ -656,16 +1091,21 @@ export default function BreweryRecordsPage() {
               <FormField label="Expiration Date" optional>
                 <input type="date" value={addForm.expiration_date}
                   onChange={e => setAddForm(p => ({ ...p, expiration_date: e.target.value }))}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber" />
+                  className={inputCls} />
               </FormField>
             </div>
 
             <FormField label="Notes" optional hint="max 500 characters">
               <textarea placeholder="Any notes about this record..." value={addForm.notes} maxLength={500} rows={2}
                 onChange={e => setAddForm(p => ({ ...p, notes: e.target.value }))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber resize-none" />
+                className={inputCls + ' resize-none'} />
               <p className="text-xs text-gray-400 text-right mt-0.5">{addForm.notes.length}/500</p>
             </FormField>
+
+            {/* Dynamic metadata fields */}
+            {addForm.type && (
+              <MetadataSection docType={addForm.type} meta={addMeta} onChange={setAddMeta} />
+            )}
 
             {/* Contacts */}
             <div className="border-t border-gray-100 pt-4">
@@ -714,7 +1154,8 @@ export default function BreweryRecordsPage() {
             {uploadError && <ErrorBar message={uploadError} onDismiss={() => setUploadError('')} />}
 
             <div className="flex gap-3 pt-1">
-              <button type="button" onClick={closeAddModal} className="flex-1 border border-gray-300 text-gray-600 font-medium py-2.5 rounded-lg text-sm hover:bg-gray-50 transition-colors">Cancel</button>
+              <button type="button" onClick={closeAddModal}
+                className="flex-1 border border-gray-300 text-gray-600 font-medium py-2.5 rounded-lg text-sm hover:bg-gray-50 transition-colors">Cancel</button>
               <button type="submit" disabled={!canAdd || uploading}
                 className="flex-1 bg-amber hover:bg-amber-dark text-white font-semibold py-2.5 rounded-lg text-sm transition-colors disabled:opacity-60">
                 {uploading ? <Spinner label="Uploading..." /> : 'Add Record'}
@@ -738,7 +1179,7 @@ export default function BreweryRecordsPage() {
               <FormField label="Record Name" required>
                 <input type="text" required value={editForm.name}
                   onChange={e => setEditForm(p => ({ ...p, name: e.target.value }))}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber" />
+                  className={inputCls} />
               </FormField>
             </div>
 
@@ -750,16 +1191,21 @@ export default function BreweryRecordsPage() {
             <FormField label="Expiration Date" optional>
               <input type="date" value={editForm.expiration_date}
                 onChange={e => setEditForm(p => ({ ...p, expiration_date: e.target.value }))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber" />
+                className={inputCls} />
             </FormField>
           </div>
 
           <FormField label="Notes" optional hint="max 500 characters">
             <textarea placeholder="Any notes about this record..." value={editForm.notes} maxLength={500} rows={2}
               onChange={e => setEditForm(p => ({ ...p, notes: e.target.value }))}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber resize-none" />
+              className={inputCls + ' resize-none'} />
             <p className="text-xs text-gray-400 text-right mt-0.5">{editForm.notes.length}/500</p>
           </FormField>
+
+          {/* Dynamic metadata fields */}
+          {editForm.type && (
+            <MetadataSection docType={editForm.type} meta={editMeta} onChange={setEditMeta} />
+          )}
 
           {/* Contacts */}
           <div className="border-t border-gray-100 pt-4">
@@ -773,7 +1219,7 @@ export default function BreweryRecordsPage() {
                 <p className="text-xs text-gray-500 mb-2">Current file: {editRecord.document_name}</p>
               )}
               <div
-                onDragOver={e => { e.preventDefault() }}
+                onDragOver={e => e.preventDefault()}
                 onDrop={e => {
                   e.preventDefault()
                   const f = e.dataTransfer.files[0]
@@ -800,7 +1246,8 @@ export default function BreweryRecordsPage() {
           {editError && <ErrorBar message={editError} onDismiss={() => setEditError('')} />}
 
           <div className="flex gap-3 pt-1">
-            <button type="button" onClick={closeEditModal} className="flex-1 border border-gray-300 text-gray-600 font-medium py-2.5 rounded-lg text-sm hover:bg-gray-50 transition-colors">Cancel</button>
+            <button type="button" onClick={closeEditModal}
+              className="flex-1 border border-gray-300 text-gray-600 font-medium py-2.5 rounded-lg text-sm hover:bg-gray-50 transition-colors">Cancel</button>
             <button type="submit" disabled={editSaving}
               className="flex-1 bg-amber hover:bg-amber-dark text-white font-semibold py-2.5 rounded-lg text-sm transition-colors disabled:opacity-60">
               {editSaving ? <Spinner label="Saving..." /> : 'Save Changes'}
@@ -816,15 +1263,13 @@ export default function BreweryRecordsPage() {
 // ─── RecordCard ───────────────────────────────────────────────────────────────
 
 function RecordCard({ doc, downloadingId, deleteConfirmId, deleting, onDownload, onEdit, onDeleteRequest, onDeleteConfirm, onDeleteCancel }) {
-  const expStatus = getExpirationStatus(doc.expiration_date)
-  const isConfirming = deleteConfirmId === doc.id
-  const isDownloading = downloadingId === doc.id
+  const expStatus     = getExpirationStatus(doc.expiration_date)
+  const isConfirming  = deleteConfirmId === doc.id
+  const isDownloading = downloadingId   === doc.id
 
   const expCls = { expired: 'text-danger font-semibold', urgent: 'text-danger', warning: 'text-warning', ok: 'text-success' }
 
-  const primaryContact = Array.isArray(doc.contacts) && doc.contacts.length > 0
-    ? doc.contacts[0]
-    : null
+  const primaryContact = Array.isArray(doc.contacts) && doc.contacts.length > 0 ? doc.contacts[0] : null
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-col gap-2.5">
