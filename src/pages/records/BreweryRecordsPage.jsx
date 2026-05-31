@@ -5,6 +5,7 @@
  */
 import { useEffect, useState, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
+import JSZip from 'jszip'
 import { usePersistedTab } from '../../hooks/usePersistedTab'
 import { supabase } from '../../services/supabase'
 import { useAuth } from '../../context/AuthContext'
@@ -71,6 +72,7 @@ const DOC_TYPE_GROUPS = [
     'Other Agreement',
   ]},
   { group: 'Other', types: [
+    'Label Artwork File',
     'ADA Compliance Documentation',
     'Environmental Impact Assessment',
     'Water Rights Permit',
@@ -166,11 +168,12 @@ function getDocumentCategory(docType) {
     'Equipment Lease', 'Vendor Contract', 'Brewing Services Agreement',
     'Co-packing Agreement', 'Other Agreement',
   ]
-  if (federal.includes(docType))    return 'federal'
-  if (state.includes(docType))      return 'state'
-  if (local.includes(docType))      return 'local'
-  if (insurance.includes(docType))  return 'insurance'
-  if (agreements.includes(docType)) return 'agreements'
+  if (federal.includes(docType))         return 'federal'
+  if (state.includes(docType))           return 'state'
+  if (local.includes(docType))           return 'local'
+  if (insurance.includes(docType))       return 'insurance'
+  if (agreements.includes(docType))      return 'agreements'
+  if (docType === 'Label Artwork File')  return 'label_artwork'
   return 'other'
 }
 
@@ -181,10 +184,18 @@ const ALLOWED_MIME_TYPES = [
   'application/msword',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 ]
+// Label artwork accepts additional formats; MIME types for AI/EPS vary by OS so
+// we fall back to extension checking for those formats.
+const LABEL_ARTWORK_EXTS = ['pdf', 'jpg', 'jpeg', 'png', 'svg', 'ai', 'eps']
 const MAX_FILE_SIZE = 25 * 1024 * 1024 // 25 MB
 
 const EMPTY_FORM    = { name: '', type: '', expiration_date: '', notes: '' }
 const EMPTY_CONTACT = { name: '', title: '', phone: '', email: '' }
+
+function getAcceptString(docType) {
+  if (docType === 'Label Artwork File') return '.pdf,.jpg,.jpeg,.png,.svg,.ai,.eps'
+  return '.pdf,.jpg,.jpeg,.png,.doc,.docx'
+}
 
 // ─── Utility functions ────────────────────────────────────────────────────────
 
@@ -624,6 +635,78 @@ function MetadataSection({ docType, meta, onChange }) {
     )
   }
 
+  if (category === 'label_artwork') {
+    const LABEL_TYPES = ['Front Label', 'Back Label', 'Neck Label', 'Keg Collar', 'Can Wrap', 'Crowler Label', 'Other']
+    return (
+      <div className="space-y-4 border-t border-gray-100 pt-4">
+        <p className="text-sm font-bold text-navy">Label Artwork Details</p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Brand Name" optional>
+            <input type="text" value={meta.brand_name ?? ''} onChange={e => set('brand_name', e.target.value)}
+              placeholder="Brand name on label" className={inputCls} />
+          </FormField>
+          <FormField label="Product Name / Beer" optional>
+            <input type="text" value={meta.product_name ?? ''} onChange={e => set('product_name', e.target.value)}
+              placeholder="Beer or product name" className={inputCls} />
+          </FormField>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Label Type" optional>
+            <select value={meta.label_type ?? ''} onChange={e => set('label_type', e.target.value)} className={inputCls}>
+              <option value="">Select...</option>
+              {LABEL_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </FormField>
+          <FormField label="Version Number" optional>
+            <input type="text" value={meta.version_number ?? ''} onChange={e => set('version_number', e.target.value)}
+              placeholder="e.g. v3 or 2026 design" className={inputCls} />
+          </FormField>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="File Format" optional>
+            <input type="text" value={meta.file_format ?? ''} onChange={e => set('file_format', e.target.value)}
+              placeholder="e.g. PDF, AI, EPS, PNG" className={inputCls} />
+          </FormField>
+          <FormField label="Last Print Date" optional>
+            <input type="date" value={meta.last_print_date ?? ''} onChange={e => set('last_print_date', e.target.value)}
+              className={inputCls} />
+          </FormField>
+        </div>
+
+        <FormField label="Last Print Quantity" optional>
+          <input type="number" min="0" step="1" value={meta.last_print_quantity ?? ''}
+            onChange={e => set('last_print_quantity', e.target.value)}
+            placeholder="Number of labels in last print run" className={inputCls} />
+        </FormField>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Print Vendor Name" optional>
+            <input type="text" value={meta.print_vendor_name ?? ''} onChange={e => set('print_vendor_name', e.target.value)}
+              placeholder="Printing company name" className={inputCls} />
+          </FormField>
+          <FormField label="Print Vendor Contact" optional>
+            <input type="text" value={meta.print_vendor_contact ?? ''} onChange={e => set('print_vendor_contact', e.target.value)}
+              placeholder="Contact person name" className={inputCls} />
+          </FormField>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Print Vendor Phone" optional>
+            <input type="tel" value={meta.print_vendor_phone ?? ''} onChange={e => set('print_vendor_phone', e.target.value)}
+              placeholder="Phone number" className={inputCls} />
+          </FormField>
+          <FormField label="Print Vendor Email" optional>
+            <input type="email" value={meta.print_vendor_email ?? ''} onChange={e => set('print_vendor_email', e.target.value)}
+              placeholder="Email address" className={inputCls} />
+          </FormField>
+        </div>
+      </div>
+    )
+  }
+
   // category === 'other'
   return (
     <div className="space-y-4 border-t border-gray-100 pt-4">
@@ -662,7 +745,7 @@ export default function BreweryRecordsPage() {
 
   // ── Download ──
   const [downloadingId,       setDownloadingId]       = useState(null)
-  const [downloadAllProgress, setDownloadAllProgress] = useState({ active: false, current: 0, total: 0 })
+  const [downloadAllProgress, setDownloadAllProgress] = useState({ active: false, current: 0, total: 0, zipping: false })
 
   // ── Add modal ──
   const [addModalOpen,  setAddModalOpen]  = useState(false)
@@ -757,24 +840,59 @@ export default function BreweryRecordsPage() {
     }
   }
 
-  // ── Bulk download ─────────────────────────────────────────────────────────────
+  // ── Bulk download as ZIP ──────────────────────────────────────────────────────
 
   async function handleDownloadAll() {
     const recordsWithFiles = filteredDocs.filter(r => r.file_path)
-    if (recordsWithFiles.length === 0) return
-    setDownloadAllProgress({ active: true, current: 0, total: recordsWithFiles.length })
-    for (let i = 0; i < recordsWithFiles.length; i++) {
-      setDownloadAllProgress({ active: true, current: i + 1, total: recordsWithFiles.length })
-      await handleDownload(recordsWithFiles[i])
-      if (i < recordsWithFiles.length - 1) await new Promise(r => setTimeout(r, 800))
+    if (recordsWithFiles.length === 0) {
+      setPageError('No files to download in the current view.')
+      return
     }
-    setDownloadAllProgress({ active: false, current: 0, total: 0 })
+
+    setDownloadAllProgress({ active: true, current: 0, total: recordsWithFiles.length, zipping: false })
+    const zip = new JSZip()
+
+    for (let i = 0; i < recordsWithFiles.length; i++) {
+      const record = recordsWithFiles[i]
+      setDownloadAllProgress({ active: true, current: i + 1, total: recordsWithFiles.length, zipping: false })
+      try {
+        const { data: signedUrlData } = await supabase.storage
+          .from('brewery-documents')
+          .createSignedUrl(record.file_path, 60)
+        const response = await fetch(signedUrlData.signedUrl)
+        const blob     = await response.blob()
+        const ext      = record.file_path.split('.').pop() ?? 'pdf'
+        const safeName = record.document_name.replace(/[^a-z0-9._-]/gi, '_')
+        zip.file(`${safeName}.${ext}`, blob)
+      } catch {
+        // Skip files that fail to fetch; continue building the ZIP
+      }
+    }
+
+    setDownloadAllProgress({ active: true, current: recordsWithFiles.length, total: recordsWithFiles.length, zipping: true })
+    const zipBlob = await zip.generateAsync({ type: 'blob' })
+    const blobUrl = URL.createObjectURL(zipBlob)
+    const link    = document.createElement('a')
+    link.href     = blobUrl
+    link.download = `brewery-records-${new Date().toISOString().split('T')[0]}.zip`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(blobUrl)
+
+    setDownloadAllProgress({ active: false, current: 0, total: 0, zipping: false })
   }
 
   // ── File validation ───────────────────────────────────────────────────────────
 
-  function validateAndSetFile(file, setter, errorSetter) {
-    if (!ALLOWED_MIME_TYPES.includes(file.type)) {
+  function validateAndSetFile(file, setter, errorSetter, docType = '') {
+    if (docType === 'Label Artwork File') {
+      const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
+      if (!LABEL_ARTWORK_EXTS.includes(ext)) {
+        errorSetter('File type not allowed. Please upload PDF, AI, EPS, PNG, JPG, or SVG.')
+        return false
+      }
+    } else if (!ALLOWED_MIME_TYPES.includes(file.type)) {
       errorSetter('File type not allowed. Please upload a PDF, JPG, PNG, DOC, or DOCX.')
       return false
     }
@@ -952,9 +1070,11 @@ export default function BreweryRecordsPage() {
               disabled={downloadAllProgress.active || !!downloadingId}
               className="border border-gray-300 text-gray-600 text-sm font-medium px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-60"
             >
-              {downloadAllProgress.active
-                ? `Downloading ${downloadAllProgress.current} of ${downloadAllProgress.total}…`
-                : '⬇ Download All'}
+              {downloadAllProgress.active && downloadAllProgress.zipping
+                ? 'Creating ZIP file…'
+                : downloadAllProgress.active
+                  ? `Adding file ${downloadAllProgress.current} of ${downloadAllProgress.total}…`
+                  : '⬇ Download All'}
             </button>
           )}
           <ReadOnlyTooltip isReadOnly={isReadOnly}>
@@ -1121,7 +1241,7 @@ export default function BreweryRecordsPage() {
                   onDrop={e => {
                     e.preventDefault(); setIsDragOver(false)
                     const f = e.dataTransfer.files[0]
-                    if (f) validateAndSetFile(f, setAddFile, setUploadError)
+                    if (f) validateAndSetFile(f, setAddFile, setUploadError, addForm.type)
                   }}
                   onClick={() => fileInputRef.current?.click()}
                   className={`border-2 border-dashed rounded-lg px-4 py-6 text-center cursor-pointer transition-colors select-none ${
@@ -1142,9 +1262,9 @@ export default function BreweryRecordsPage() {
                     </div>
                   )}
                 </div>
-                <input ref={fileInputRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                <input ref={fileInputRef} type="file" accept={getAcceptString(addForm.type)}
                   onChange={e => {
-                    if (e.target.files[0]) validateAndSetFile(e.target.files[0], setAddFile, setUploadError)
+                    if (e.target.files[0]) validateAndSetFile(e.target.files[0], setAddFile, setUploadError, addForm.type)
                     e.target.value = ''
                   }}
                   className="hidden" />
@@ -1223,7 +1343,7 @@ export default function BreweryRecordsPage() {
                 onDrop={e => {
                   e.preventDefault()
                   const f = e.dataTransfer.files[0]
-                  if (f) validateAndSetFile(f, setEditFile, setEditError)
+                  if (f) validateAndSetFile(f, setEditFile, setEditError, editForm.type)
                 }}
                 onClick={() => editFileRef.current?.click()}
                 className="border-2 border-dashed border-gray-300 rounded-lg px-4 py-4 text-center cursor-pointer hover:border-amber hover:bg-gray-50 transition-colors select-none"
@@ -1234,9 +1354,9 @@ export default function BreweryRecordsPage() {
                   <p className="text-sm text-gray-500">Drop a replacement file here or <span className="text-amber">browse</span></p>
                 )}
               </div>
-              <input ref={editFileRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+              <input ref={editFileRef} type="file" accept={getAcceptString(editForm.type)}
                 onChange={e => {
-                  if (e.target.files[0]) validateAndSetFile(e.target.files[0], setEditFile, setEditError)
+                  if (e.target.files[0]) validateAndSetFile(e.target.files[0], setEditFile, setEditError, editForm.type)
                   e.target.value = ''
                 }}
                 className="hidden" />

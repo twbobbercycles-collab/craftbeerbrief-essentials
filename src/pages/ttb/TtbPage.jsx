@@ -10,7 +10,6 @@
  * This is a tracking tool only. It does not file or communicate with the TTB.
  */
 import { useEffect, useState, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { usePersistedTab } from '../../hooks/usePersistedTab'
 import { supabase } from '../../services/supabase'
 import { useAuth } from '../../context/AuthContext'
@@ -34,6 +33,20 @@ const TTB_RATES = [
 const CONTAINER_SIZES = [
   'Draft/Keg', '12oz Can', '16oz Can', '12oz Bottle',
   '22oz Bottle', '750ml Bottle', 'Other',
+]
+
+const COLA_RECORD_TYPES = [
+  'Certificate of Label Approval (COLA)',
+  'Certificate of Exemption from Label Approval',
+  'Formula Approval (TTB)',
+  'State Brand Registration',
+]
+
+const COLA_STATUS_OPTIONS = [
+  { value: 'active',       label: 'Active' },
+  { value: 'superseded',   label: 'Superseded' },
+  { value: 'withdrawn',    label: 'Withdrawn' },
+  { value: 'under_review', label: 'Under Review' },
 ]
 
 const PAYMENT_METHODS = [
@@ -310,19 +323,23 @@ function StatusBadge({ status }) {
 // Badge for payment / cola / report status
 function RowBadge({ status }) {
   const map = {
-    paid:      'bg-green-100 text-green-700',
-    pending:   'bg-orange-100 text-orange-700',
-    overdue:   'bg-red-100 text-danger',
-    amended:   'bg-purple-100 text-purple-700',
-    approved:  'bg-green-100 text-green-700',
-    rejected:  'bg-red-100 text-danger',
-    withdrawn: 'bg-gray-100 text-gray-500',
-    submitted: 'bg-blue-100 text-blue-700',
-    draft:     'bg-gray-100 text-gray-500',
+    paid:         'bg-green-100 text-green-700',
+    pending:      'bg-orange-100 text-orange-700',
+    overdue:      'bg-red-100 text-danger',
+    amended:      'bg-purple-100 text-purple-700',
+    approved:     'bg-green-100 text-green-700',
+    rejected:     'bg-red-100 text-danger',
+    withdrawn:    'bg-gray-100 text-gray-500',
+    submitted:    'bg-blue-100 text-blue-700',
+    draft:        'bg-gray-100 text-gray-500',
+    active:       'bg-green-100 text-green-700',
+    superseded:   'bg-gray-100 text-gray-500',
+    under_review: 'bg-blue-100 text-blue-700',
   }
+  const labels = { under_review: 'Under Review' }
   return (
     <span className={`text-xs font-semibold px-2 py-0.5 rounded-full capitalize ${map[status] ?? 'bg-gray-100 text-gray-500'}`}>
-      {status}
+      {labels[status] ?? status}
     </span>
   )
 }
@@ -591,33 +608,238 @@ function FrequencySetupPrompt({ breweryId, onSaved }) {
   )
 }
 
+// ── AddColaModal ──────────────────────────────────────────────────────────────
+
+const EMPTY_COLA = {
+  record_type:               '',
+  brand_name:                '',
+  beer_name:                 '',
+  container_size:            '',
+  status:                    'active',
+  cola_number:               '',
+  beer_style:                '',
+  abv:                       '',
+  formula_approval_required: false,
+  formula_number:            '',
+  last_verified_date:        '',
+  superseded_by:             '',
+}
+
+function AddColaModal({ isOpen, onClose, onSuccess, breweryId,
+  initialDraft, draftRestored, onDismissDraft, onSaveDraft, editing }) {
+  const [form, setForm]     = useState(EMPTY_COLA)
+  const [saving, setSaving] = useState(false)
+  const [error, setError]   = useState('')
+
+  const isDirty = Object.entries(form).some(([k, v]) => v !== (EMPTY_COLA[k] ?? ''))
+
+  useEffect(() => {
+    if (isOpen) {
+      if (editing) {
+        const meta = editing.metadata && typeof editing.metadata === 'object' ? editing.metadata : {}
+        setForm({
+          record_type:               editing.record_type ?? '',
+          brand_name:                editing.brand_name ?? '',
+          beer_name:                 editing.beer_name ?? '',
+          container_size:            editing.container_size ?? '',
+          status:                    editing.status ?? 'active',
+          cola_number:               meta.cola_number ?? '',
+          beer_style:                meta.beer_style ?? '',
+          abv:                       meta.abv != null ? String(meta.abv) : '',
+          formula_approval_required: meta.formula_approval_required ?? false,
+          formula_number:            meta.formula_number ?? '',
+          last_verified_date:        meta.last_verified_date ?? '',
+          superseded_by:             meta.superseded_by ?? '',
+        })
+      } else {
+        setForm(initialDraft ?? EMPTY_COLA)
+      }
+      setError('')
+    }
+  }, [isOpen, editing, initialDraft])
+
+  useEffect(() => {
+    if (!isOpen || editing) return
+    onSaveDraft(form)
+  }, [form, isOpen, editing])
+
+  function setField(k, v) { setForm(p => ({ ...p, [k]: v })) }
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    setSaving(true)
+    setError('')
+
+    const meta = {}
+    if (form.cola_number)    meta.cola_number = form.cola_number
+    if (form.beer_style)     meta.beer_style  = form.beer_style
+    if (form.abv)            meta.abv          = parseFloat(form.abv) || form.abv
+    meta.formula_approval_required = form.formula_approval_required
+    if (form.formula_approval_required && form.formula_number)
+      meta.formula_number = form.formula_number
+    if (form.last_verified_date) meta.last_verified_date = form.last_verified_date
+    if (form.superseded_by)      meta.superseded_by      = form.superseded_by
+
+    const payload = {
+      brewery_id:     breweryId,
+      record_type:    form.record_type    || null,
+      brand_name:     form.brand_name     || null,
+      beer_name:      form.beer_name,
+      container_size: form.container_size || null,
+      status:         form.status,
+      metadata:       Object.keys(meta).length > 0 ? meta : null,
+    }
+
+    const { error: err } = editing
+      ? await supabase.from('cola_submissions').update(payload).eq('id', editing.id)
+      : await supabase.from('cola_submissions').insert(payload)
+
+    setSaving(false)
+    if (err) { setError('Could not save record. Please try again.'); return }
+    onSuccess()
+  }
+
+  return (
+    <ModalShell isOpen={isOpen} onClose={onClose} isDirty={!editing && isDirty}
+      draftRestored={draftRestored} onDismissDraft={onDismissDraft}
+      title={editing ? 'Edit COLA Record' : 'Add COLA Record'} maxWidth="max-w-2xl">
+      <div className="space-y-4 pt-1">
+        {error && <div className="bg-red-50 border border-danger text-danger rounded-lg px-4 py-3 text-sm">{error}</div>}
+        <form onSubmit={handleSubmit} className="space-y-4">
+
+          <Field label="Record Type" required>
+            <select required value={form.record_type}
+              onChange={e => setField('record_type', e.target.value)}
+              className={inputCls}>
+              <option value="">Select a type…</option>
+              {COLA_RECORD_TYPES.map(t => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </Field>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Brand Name">
+              <input type="text" value={form.brand_name}
+                onChange={e => setField('brand_name', e.target.value)}
+                placeholder="e.g. Mountain Brewing Co." className={inputCls} />
+            </Field>
+            <Field label="Product Name / Beer" required>
+              <input type="text" required value={form.beer_name}
+                onChange={e => setField('beer_name', e.target.value)}
+                placeholder="e.g. Hazy IPA 16oz Can" className={inputCls} />
+            </Field>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="COLA Number">
+              <input type="text" value={form.cola_number}
+                onChange={e => setField('cola_number', e.target.value)}
+                placeholder="TTB-assigned reference #" className={inputCls} />
+            </Field>
+            <Field label="Beer Style">
+              <input type="text" value={form.beer_style}
+                onChange={e => setField('beer_style', e.target.value)}
+                placeholder="e.g. American IPA" className={inputCls} />
+            </Field>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <Field label="Container Size">
+              <input type="text" value={form.container_size}
+                onChange={e => setField('container_size', e.target.value)}
+                placeholder="e.g. 16oz, 750ml" className={inputCls} />
+            </Field>
+            <Field label="ABV (%)">
+              <input type="number" min="0" max="100" step="0.1" value={form.abv}
+                onChange={e => setField('abv', e.target.value)}
+                placeholder="e.g. 6.5" className={inputCls} />
+            </Field>
+            <Field label="Status" required>
+              <select required value={form.status}
+                onChange={e => setField('status', e.target.value)}
+                className={inputCls}>
+                {COLA_STATUS_OPTIONS.map(o => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </Field>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button type="button"
+              onClick={() => setField('formula_approval_required', !form.formula_approval_required)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                form.formula_approval_required ? 'bg-amber' : 'bg-gray-200'
+              }`}>
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                form.formula_approval_required ? 'translate-x-6' : 'translate-x-1'
+              }`} />
+            </button>
+            <label className="text-sm font-medium text-navy">Formula Approval Required</label>
+          </div>
+
+          {form.formula_approval_required && (
+            <Field label="Formula Number">
+              <input type="text" value={form.formula_number}
+                onChange={e => setField('formula_number', e.target.value)}
+                placeholder="TTB formula approval number" className={inputCls} />
+            </Field>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Last Verified Date">
+              <input type="date" value={form.last_verified_date}
+                onChange={e => setField('last_verified_date', e.target.value)}
+                className={inputCls} />
+            </Field>
+            <Field label="Superseded By (COLA #)">
+              <input type="text" value={form.superseded_by}
+                onChange={e => setField('superseded_by', e.target.value)}
+                placeholder="If replaced, enter new COLA #" className={inputCls} />
+            </Field>
+          </div>
+
+          <button type="submit" disabled={saving}
+            className="w-full bg-amber hover:bg-amber-dark text-white font-semibold py-2.5 rounded-lg text-sm transition-colors disabled:opacity-60">
+            {saving ? 'Saving…' : editing ? 'Save Changes' : 'Add COLA Record'}
+          </button>
+        </form>
+      </div>
+    </ModalShell>
+  )
+}
+
 // ── Main TtbPage component ────────────────────────────────────────────────────
 
 export default function TtbPage() {
   const { brewery } = useAuth()
   const { isReadOnly, ReadOnlyTooltip } = useReadOnly()
-  const navigate = useNavigate()
 
   // Data
-  const [filings,       setFilings]       = useState([])
-  const [colaDocsCount, setColaDocsCount] = useState(0)
-  const [filedPeriods,  setFiledPeriods]  = useState([])
-  const [loading,       setLoading]       = useState(true)
-  const [loadError,     setLoadError]     = useState('')
+  const [filings,      setFilings]      = useState([])
+  const [colaList,     setColaList]     = useState([])
+  const [filedPeriods, setFiledPeriods] = useState([])
+  const [loading,      setLoading]      = useState(true)
+  const [loadError,    setLoadError]    = useState('')
 
   // UI
-  const [activeTab,     setActiveTab]     = usePersistedTab('ttb_active_tab', 'dashboard')
-  const [frequency,     setFrequency]     = useState(brewery?.ttb_filing_frequency ?? null)
-  const [calcBarrels,   setCalcBarrels]   = useState('')
-  const [calcTier,      setCalcTier]      = useState('3.50')
-  const [markingFiled,  setMarkingFiled]  = useState(false)
+  const [activeTab,    setActiveTab]    = usePersistedTab('ttb_active_tab', 'dashboard')
+  const [frequency,    setFrequency]    = useState(brewery?.ttb_filing_frequency ?? null)
+  const [calcBarrels,  setCalcBarrels]  = useState('')
+  const [calcTier,     setCalcTier]     = useState('3.50')
+  const [markingFiled, setMarkingFiled] = useState(false)
 
   // Modal visibility + editing targets
-  const [showPayment,   setShowPayment]   = useState(false)
-  const [editPayment,   setEditPayment]   = useState(null)
+  const [showPayment,  setShowPayment]  = useState(false)
+  const [editPayment,  setEditPayment]  = useState(null)
+  const [showCola,     setShowCola]     = useState(false)
+  const [editCola,     setEditCola]     = useState(null)
+  const [colaFilter,   setColaFilter]   = useState('all')
 
   // Draft hooks — one per modal
   const paymentDraft = useModalDraft('modal_draft_ttb_payment')
+  const colaDraft    = useModalDraft('modal_draft_ttb_cola')
 
   // ── Excise Tax Calculator state ─────────────────────────────────────────────
   const [excisePeriods,      setExcisePeriods]      = useState([])
@@ -659,7 +881,7 @@ export default function TtbPage() {
     setLoading(true)
     setLoadError('')
 
-    const [filingsRes, periodsRes, exciseRes, colaCountRes] = await Promise.all([
+    const [filingsRes, periodsRes, exciseRes, colaRes] = await Promise.all([
       supabase.from('ttb_filings').select('*')
         .eq('brewery_id', brewery.id).order('created_at', { ascending: false }),
       supabase.from('ttb_filing_periods').select('*')
@@ -668,9 +890,8 @@ export default function TtbPage() {
         .eq('brewery_id', brewery.id)
         .order('period_year', { ascending: false })
         .order('period_number', { ascending: false }),
-      supabase.from('brewery_documents').select('id', { count: 'exact', head: true })
-        .eq('brewery_id', brewery.id)
-        .eq('document_type', 'COLA & Label Approval'),
+      supabase.from('cola_submissions').select('*')
+        .eq('brewery_id', brewery.id).order('created_at', { ascending: false }),
     ])
 
     if (filingsRes.error || periodsRes.error) {
@@ -680,7 +901,7 @@ export default function TtbPage() {
     setFilings(filingsRes.data ?? [])
     setFiledPeriods(periodsRes.data ?? [])
     setExcisePeriods(exciseRes.data ?? [])
-    setColaDocsCount(colaCountRes.count ?? 0)
+    setColaList(colaRes.data ?? [])
     setLoading(false)
   }
 
@@ -962,6 +1183,25 @@ export default function TtbPage() {
     setShowPayment(false)
     setEditPayment(null)
     loadAll()
+  }
+
+  function openAddCola() { setEditCola(null); setShowCola(true) }
+  function openEditCola(row) { setEditCola(row); setShowCola(true) }
+  function closeCola() {
+    if (!editCola) colaDraft.clearDraft()
+    setShowCola(false)
+    setEditCola(null)
+  }
+  function onColaSuccess() {
+    colaDraft.clearDraft()
+    setShowCola(false)
+    setEditCola(null)
+    loadAll()
+  }
+  async function deleteCola(id) {
+    if (!window.confirm('Delete this COLA record? This cannot be undone.')) return
+    await supabase.from('cola_submissions').delete().eq('id', id)
+    setColaList(prev => prev.filter(r => r.id !== id))
   }
 
   // ── Tab content renderers ──────────────────────────────────────────────────
@@ -1447,7 +1687,7 @@ export default function TtbPage() {
           {[
             { label: 'Payments This Year', value: yearFilings.length },
             { label: 'Tax Paid This Year',  value: fmtCurrency(totalPaidYear) },
-            { label: 'COLA Records',         value: colaDocsCount },
+            { label: 'Active COLAs',         value: colaList.filter(c => c.status === 'active').length },
             { label: 'Open Periods',          value: upcomingPeriods.filter(p => getPeriodStatus(p, filedKeys) !== 'filed').length },
           ].map(s => (
             <div key={s.label} className="bg-white rounded-xl border border-gray-200 p-4">
@@ -1621,39 +1861,102 @@ export default function TtbPage() {
   }
 
   function renderCola() {
+    const filteredCola = colaFilter === 'all'
+      ? colaList
+      : colaList.filter(c => c.status === colaFilter)
+
+    const activeCount = colaList.filter(c => c.status === 'active').length
+
     return (
-      <div className="space-y-4">
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <div className="flex items-start gap-4">
-            <span className="text-3xl">🏷️</span>
-            <div className="flex-1">
-              <h3 className="text-lg font-bold text-navy mb-1">COLA & Label Approvals</h3>
-              <p className="text-sm text-gray-600 leading-relaxed mb-4">
-                Certificate of Label Approval records are managed in Brewery Records alongside your other compliance documents.
-              </p>
-              <div className="flex flex-wrap gap-3">
-                <button
-                  onClick={() => navigate('/records', { state: { category: 'COLA & Labels' } })}
-                  className="bg-amber hover:bg-amber-dark text-white text-sm font-semibold px-4 py-2.5 rounded-lg transition-colors">
-                  View COLA Records →
-                </button>
-                <button
-                  onClick={() => navigate('/records', { state: { openAdd: true, type: 'COLA & Label Approval' } })}
-                  className="border border-amber text-amber text-sm font-semibold px-4 py-2.5 rounded-lg hover:bg-amber/5 transition-colors">
-                  + Add New COLA
-                </button>
-              </div>
-            </div>
+      <div className="space-y-5">
+        {colaDraft.hasDraft && !showCola && (
+          <DraftNoticeBar
+            onContinue={() => { setEditCola(null); setShowCola(true) }}
+            onDiscard={() => colaDraft.clearDraft()}
+          />
+        )}
+
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="flex gap-2 flex-wrap">
+            <ReadOnlyTooltip isReadOnly={isReadOnly}>
+              <button onClick={openAddCola}
+                className="bg-amber hover:bg-amber-dark text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
+                + Add COLA Record
+              </button>
+            </ReadOnlyTooltip>
+            {['all', 'active', 'under_review', 'superseded', 'withdrawn'].map(f => (
+              <button key={f} onClick={() => setColaFilter(f)}
+                className={`text-sm px-3 py-1.5 rounded-lg border transition-colors ${
+                  colaFilter === f
+                    ? 'bg-navy text-white border-navy'
+                    : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                }`}>
+                {f === 'all' ? 'All' : f === 'under_review' ? 'Under Review' : f.charAt(0).toUpperCase() + f.slice(1)}
+              </button>
+            ))}
           </div>
-          {colaDocsCount > 0 && (
-            <div className="mt-4 pt-4 border-t border-gray-100">
-              <p className="text-sm text-gray-600">
-                <span className="font-semibold text-navy">{colaDocsCount}</span>{' '}
-                COLA {colaDocsCount === 1 ? 'record' : 'records'} in Brewery Records
-              </p>
-            </div>
+          {colaList.length > 0 && (
+            <span className="text-xs text-gray-400">
+              {activeCount} active · {colaList.length} total
+            </span>
           )}
         </div>
+
+        {filteredCola.length === 0 ? (
+          <EmptyState icon="🏷️" title={colaFilter === 'all' ? 'No COLA records yet' : `No ${colaFilter === 'under_review' ? 'under review' : colaFilter} records`}
+            message="Track Certificate of Label Approvals, exemptions, formula approvals, and state brand registrations here."
+            action={colaFilter === 'all'
+              ? <button onClick={openAddCola}
+                  className="bg-amber text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-amber-dark transition-colors">
+                  + Add COLA Record
+                </button>
+              : null
+            }
+          />
+        ) : (
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[860px]">
+                <thead className="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    {['Record Type', 'Brand Name', 'Product / Beer', 'Container', 'COLA #', 'ABV', 'Status', 'Last Verified', ''].map(h => (
+                      <th key={h} className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {filteredCola.map(c => {
+                    const meta = c.metadata && typeof c.metadata === 'object' ? c.metadata : {}
+                    return (
+                      <tr key={c.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-3 py-3 text-gray-700 max-w-[180px]">
+                          <span className="block truncate" title={c.record_type ?? ''}>{c.record_type ?? '—'}</span>
+                        </td>
+                        <td className="px-3 py-3 text-gray-700">{c.brand_name ?? '—'}</td>
+                        <td className="px-3 py-3 font-medium text-navy">{c.beer_name}</td>
+                        <td className="px-3 py-3 text-gray-600 whitespace-nowrap">{c.container_size ?? '—'}</td>
+                        <td className="px-3 py-3 text-gray-500 font-mono text-xs">{meta.cola_number ?? '—'}</td>
+                        <td className="px-3 py-3 text-gray-600">{meta.abv != null ? `${meta.abv}%` : '—'}</td>
+                        <td className="px-3 py-3"><RowBadge status={c.status} /></td>
+                        <td className="px-3 py-3 text-gray-500 whitespace-nowrap">
+                          {meta.last_verified_date ? fmtDate(meta.last_verified_date) : '—'}
+                        </td>
+                        <td className="px-3 py-3">
+                          <div className="flex gap-2">
+                            <button onClick={() => openEditCola(c)}
+                              className="text-xs text-amber hover:underline">Edit</button>
+                            <button onClick={() => deleteCola(c.id)}
+                              className="text-xs text-danger hover:underline">Delete</button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     )
   }
@@ -1725,6 +2028,18 @@ export default function TtbPage() {
         draftRestored={paymentDraft.draftRestored}
         onDismissDraft={paymentDraft.dismissDraftBanner}
         onSaveDraft={paymentDraft.saveDraft}
+      />
+
+      <AddColaModal
+        isOpen={showCola}
+        onClose={closeCola}
+        onSuccess={onColaSuccess}
+        breweryId={brewery?.id}
+        editing={editCola}
+        initialDraft={colaDraft.loadDraft(false)}
+        draftRestored={colaDraft.draftRestored}
+        onDismissDraft={colaDraft.dismissDraftBanner}
+        onSaveDraft={colaDraft.saveDraft}
       />
 
     </div>
