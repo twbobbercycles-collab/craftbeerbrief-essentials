@@ -223,9 +223,11 @@ Deno.serve(async (req) => {
     bpkgHazy:      crypto.randomUUID(),
     distRetailer:  crypto.randomUUID(),
     distTaproom:   crypto.randomUUID(),
-    staffMarcus:   crypto.randomUUID(),
-    staffSarah:    crypto.randomUUID(),
-    staffJamie:    crypto.randomUUID(),
+    staffAlex:     crypto.randomUUID(),
+    staffJordan:   crypto.randomUUID(),
+    staffSam:      crypto.randomUUID(),
+    staffCasey:    crypto.randomUUID(),
+    staffRiley:    crypto.randomUUID(),
     progRas:       crypto.randomUUID(),
     progFh:        crypto.randomUUID(),
     billSb412:     crypto.randomUUID(),
@@ -233,6 +235,15 @@ Deno.serve(async (req) => {
   }
 
   const b = breweryId  // shorthand for readability below
+
+  // Dynamic cert dates — always accurate regardless of when the reset is run
+  const _today = new Date()
+  const _expiringSoon45 = new Date(_today); _expiringSoon45.setDate(_today.getDate() + 45)
+  const expiringSoon45Str = _expiringSoon45.toISOString().split('T')[0]   // Sam OSHA: amber
+  const _expiringSoon40 = new Date(_today); _expiringSoon40.setDate(_today.getDate() + 40)
+  const expiringSoon40Str = _expiringSoon40.toISOString().split('T')[0]   // Riley ServSafe: amber
+  const _expired30 = new Date(_today); _expired30.setDate(_today.getDate() - 30)
+  const expiredStr = _expired30.toISOString().split('T')[0]               // all expired certs: red
   console.log('Demo brewery ID:', breweryId)
 
   try {
@@ -274,8 +285,8 @@ Deno.serve(async (req) => {
 
     // ── Brew Days ─────────────────────────────────────────────────────────────
     const { error: bdErr } = await svc.from('brew_days').insert([
-      { id: ids.brewHazy,  brewery_id: b, batch_number: 'ADP-2026-001', recipe_id: ids.recipeHazy,  recipe_name: 'Adaptive Hazy IPA', beer_style: 'New England IPA',     status: 'completed', brew_date: '2026-03-10', planned_batch_size: 5, planned_batch_unit: 'barrels', target_og: 1.068, target_brewhouse_efficiency: 75, actual_og: 1.067, actual_brewhouse_efficiency: 74, volume_into_fermenter: 4.8, yeast_strain: 'US-05', brewer_name: 'Marcus Reed' },
-      { id: ids.brewAmber, brewery_id: b, batch_number: 'ADP-2026-002', recipe_id: ids.recipeAmber, recipe_name: 'Front Range Amber',  beer_style: 'American Amber Ale', status: 'completed', brew_date: '2026-04-07', planned_batch_size: 5, planned_batch_unit: 'barrels', target_og: 1.055, target_brewhouse_efficiency: 75, actual_og: 1.056, actual_brewhouse_efficiency: 76, volume_into_fermenter: 4.9, yeast_strain: 'US-05', brewer_name: 'Marcus Reed' },
+      { id: ids.brewHazy,  brewery_id: b, batch_number: 'ADP-2026-001', recipe_id: ids.recipeHazy,  recipe_name: 'Adaptive Hazy IPA', beer_style: 'New England IPA',     status: 'completed', brew_date: '2026-03-10', planned_batch_size: 5, planned_batch_unit: 'barrels', target_og: 1.068, target_brewhouse_efficiency: 75, actual_og: 1.067, actual_brewhouse_efficiency: 74, volume_into_fermenter: 4.8, yeast_strain: 'US-05', brewer_name: 'Alex Rivera' },
+      { id: ids.brewAmber, brewery_id: b, batch_number: 'ADP-2026-002', recipe_id: ids.recipeAmber, recipe_name: 'Front Range Amber',  beer_style: 'American Amber Ale', status: 'completed', brew_date: '2026-04-07', planned_batch_size: 5, planned_batch_unit: 'barrels', target_og: 1.055, target_brewhouse_efficiency: 75, actual_og: 1.056, actual_brewhouse_efficiency: 76, volume_into_fermenter: 4.9, yeast_strain: 'US-05', brewer_name: 'Alex Rivera' },
     ])
     check(bdErr, 'insert brew_days')
 
@@ -354,16 +365,37 @@ Deno.serve(async (req) => {
 
     // ── Staff Members ─────────────────────────────────────────────────────────
     const { error: smErr } = await svc.from('staff_members').insert([
-      { id: ids.staffMarcus, brewery_id: b, first_name: 'Marcus', last_name: 'Reed',   role: 'head_brewer',    email: 'marcus@adaptivebrewing.example', is_active: true },
-      { id: ids.staffSarah,  brewery_id: b, first_name: 'Sarah',  last_name: 'Kim',    role: 'taproom_manager', email: 'sarah@adaptivebrewing.example',  is_active: true },
-      { id: ids.staffJamie,  brewery_id: b, first_name: 'Jamie',  last_name: 'Torres', role: 'taproom_staff',   is_active: true },
+      { id: ids.staffAlex,   brewery_id: b, first_name: 'Alex',   last_name: 'Rivera', role: 'Head Brewer / Brewmaster',  employment_type: 'full_time', status: 'active', is_active: true, start_date: '2019-03-15', phone: '555-0101', email: 'alex@adaptivebrewing.com' },
+      { id: ids.staffJordan, brewery_id: b, first_name: 'Jordan', last_name: 'Lee',    role: 'Taproom Manager',           employment_type: 'full_time', status: 'active', is_active: true, start_date: '2020-06-01', phone: '555-0102', email: 'jordan@adaptivebrewing.com' },
+      { id: ids.staffSam,    brewery_id: b, first_name: 'Sam',    last_name: 'Patel',  role: 'Brewer',                   employment_type: 'full_time', status: 'active', is_active: true, start_date: '2021-09-01', phone: '555-0103', email: 'sam@adaptivebrewing.com' },
+      { id: ids.staffCasey,  brewery_id: b, first_name: 'Casey',  last_name: 'Morgan', role: 'Bartender / Taproom Staff', employment_type: 'part_time', status: 'active', is_active: true, start_date: '2023-02-15', phone: '555-0104', email: 'casey@adaptivebrewing.com' },
+      { id: ids.staffRiley,  brewery_id: b, first_name: 'Riley',  last_name: 'Kim',    role: 'Bartender / Taproom Staff', employment_type: 'part_time', status: 'active', is_active: true, start_date: '2024-01-10', phone: '555-0105', email: 'riley@adaptivebrewing.com' },
     ])
     check(smErr, 'insert staff_members')
 
     // ── Staff Certifications ──────────────────────────────────────────────────
+    // Alex Rivera — all current
+    // Jordan Lee — all current
+    // Sam Patel — OSHA expiring soon (amber), CPR already expired (red)
+    // Casey Morgan — both certs already expired (red)
+    // Riley Kim — ServSafe expiring soon (amber)
     const { error: scErr } = await svc.from('staff_certifications').insert([
-      { brewery_id: b, staff_member_id: ids.staffMarcus, certification_type: 'cicerone',                     certification_name: 'Certified Cicerone',  issuing_organization: 'Cicerone Certification Program', issue_date: '2024-09-15', expiration_date: '2027-09-15' },
-      { brewery_id: b, staff_member_id: ids.staffSarah,  certification_type: 'responsible_alcohol_service', certification_name: 'TIPS Certification',  issuing_organization: 'TIPS',                           issue_date: '2025-03-01', expiration_date: '2027-03-01' },
+      // Alex Rivera
+      { brewery_id: b, staff_member_id: ids.staffAlex,   certification_type: 'other', certification_name: 'OSHA 10-Hour General Industry',          certification_provider: 'OSHA',                           issuing_organization: 'OSHA',                           completion_date: '2024-01-15', issue_date: '2024-01-15', expiration_date: '2027-01-15', has_expiration: true, status: 'active' },
+      { brewery_id: b, staff_member_id: ids.staffAlex,   certification_type: 'other', certification_name: 'Cicerone — Certified Beer Server (CBS)',   certification_provider: 'Cicerone Certification Program', issuing_organization: 'Cicerone Certification Program', completion_date: '2022-06-01', issue_date: '2022-06-01', expiration_date: null,         has_expiration: false, status: 'active' },
+      { brewery_id: b, staff_member_id: ids.staffAlex,   certification_type: 'other', certification_name: 'CPR / First Aid / AED',                   certification_provider: 'American Red Cross',             issuing_organization: 'American Red Cross',             completion_date: '2025-03-01', issue_date: '2025-03-01', expiration_date: '2027-03-01', has_expiration: true, status: 'active' },
+      // Jordan Lee
+      { brewery_id: b, staff_member_id: ids.staffJordan, certification_type: 'other', certification_name: 'TIPS (Training for Intervention Procedures)', certification_provider: 'TIPS',                        issuing_organization: 'TIPS',                           completion_date: '2024-05-10', issue_date: '2024-05-10', expiration_date: '2027-05-10', has_expiration: true, status: 'active' },
+      { brewery_id: b, staff_member_id: ids.staffJordan, certification_type: 'other', certification_name: 'ServSafe Food Manager',                    certification_provider: 'National Restaurant Association', issuing_organization: 'National Restaurant Association', completion_date: '2022-08-20', issue_date: '2022-08-20', expiration_date: '2027-08-20', has_expiration: true, status: 'active' },
+      { brewery_id: b, staff_member_id: ids.staffJordan, certification_type: 'other', certification_name: 'Cicerone — Certified Beer Server (CBS)',   certification_provider: 'Cicerone Certification Program', issuing_organization: 'Cicerone Certification Program', completion_date: '2021-11-15', issue_date: '2021-11-15', expiration_date: null,         has_expiration: false, status: 'active' },
+      // Sam Patel — expiring soon + expired
+      { brewery_id: b, staff_member_id: ids.staffSam,    certification_type: 'other', certification_name: 'OSHA 10-Hour General Industry',            certification_provider: 'OSHA',                           issuing_organization: 'OSHA',                           completion_date: '2022-04-10', issue_date: '2022-04-10', expiration_date: expiringSoon45Str, has_expiration: true, status: 'active' },
+      { brewery_id: b, staff_member_id: ids.staffSam,    certification_type: 'other', certification_name: 'CPR / First Aid / AED',                   certification_provider: 'American Red Cross',             issuing_organization: 'American Red Cross',             completion_date: '2022-04-10', issue_date: '2022-04-10', expiration_date: expiredStr,        has_expiration: true, status: 'active' },
+      // Casey Morgan — both expired
+      { brewery_id: b, staff_member_id: ids.staffCasey,  certification_type: 'other', certification_name: 'ServSafe Alcohol',                        certification_provider: 'National Restaurant Association', issuing_organization: 'National Restaurant Association', completion_date: '2022-11-01', issue_date: '2022-11-01', expiration_date: expiredStr,        has_expiration: true, status: 'active' },
+      { brewery_id: b, staff_member_id: ids.staffCasey,  certification_type: 'other', certification_name: 'TIPS (Training for Intervention Procedures)', certification_provider: 'TIPS',                        issuing_organization: 'TIPS',                           completion_date: '2022-11-01', issue_date: '2022-11-01', expiration_date: expiredStr,        has_expiration: true, status: 'active' },
+      // Riley Kim — expiring soon
+      { brewery_id: b, staff_member_id: ids.staffRiley,  certification_type: 'other', certification_name: 'ServSafe Alcohol',                        certification_provider: 'National Restaurant Association', issuing_organization: 'National Restaurant Association', completion_date: '2024-01-15', issue_date: '2024-01-15', expiration_date: expiringSoon40Str, has_expiration: true, status: 'active' },
     ])
     check(scErr, 'insert staff_certifications')
 
@@ -376,9 +408,9 @@ Deno.serve(async (req) => {
 
     // ── Staff Training Records ────────────────────────────────────────────────
     const { error: strErr } = await svc.from('staff_training_records').insert([
-      { brewery_id: b, staff_member_id: ids.staffMarcus, staff_name: 'Marcus Reed',  staff_role: 'head_brewer',    program_id: ids.progRas, program_name: 'Responsible Alcohol Service', completion_date: '2025-01-15', expiration_date: '2027-01-15', passed: true },
-      { brewery_id: b, staff_member_id: ids.staffSarah,  staff_name: 'Sarah Kim',    staff_role: 'taproom_manager', program_id: ids.progRas, program_name: 'Responsible Alcohol Service', completion_date: '2025-03-01', expiration_date: '2027-03-01', passed: true },
-      { brewery_id: b, staff_member_id: ids.staffJamie,  staff_name: 'Jamie Torres', staff_role: 'taproom_staff',   program_id: ids.progRas, program_name: 'Responsible Alcohol Service', completion_date: '2025-06-10', expiration_date: '2027-06-10', passed: true },
+      { brewery_id: b, staff_member_id: ids.staffAlex,   staff_name: 'Alex Rivera',   staff_role: 'Head Brewer / Brewmaster',  program_id: ids.progRas, program_name: 'Responsible Alcohol Service', completion_date: '2025-01-15', expiration_date: '2027-01-15', passed: true },
+      { brewery_id: b, staff_member_id: ids.staffJordan, staff_name: 'Jordan Lee',    staff_role: 'Taproom Manager',           program_id: ids.progRas, program_name: 'Responsible Alcohol Service', completion_date: '2025-03-01', expiration_date: '2027-03-01', passed: true },
+      { brewery_id: b, staff_member_id: ids.staffCasey,  staff_name: 'Casey Morgan',  staff_role: 'Bartender / Taproom Staff', program_id: ids.progRas, program_name: 'Responsible Alcohol Service', completion_date: '2025-06-10', expiration_date: '2027-06-10', passed: true },
     ])
     check(strErr, 'insert staff_training_records')
 
