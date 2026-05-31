@@ -34,6 +34,7 @@ export default function DashboardPage() {
   const [trainingStats,    setTrainingStats]    = useState({ overdueCount: 0, expiringCount: 0, pendingCount: 0 })
   const [benchmarkStats,   setBenchmarkStats]   = useState({ currentRevenue: null, lastYearRevenue: null, laborPct: null })
   const [batchProfitStats, setBatchProfitStats] = useState({ recentBatch: null, avgCostDelta: null })
+  const [staffCertStats, setStaffCertStats] = useState({ expiring: 0, expired: 0 })
 
   useEffect(() => {
     if (!brewery?.id) return
@@ -216,7 +217,14 @@ export default function DashboardPage() {
           .limit(5)
       : Promise.resolve({ data: [] })
 
-    const [deadlinesResult, grantsResult, periodsResult, recipesResult, inventoryResult, brewDayResult, fermentationResult, packagingResult, taproomResult, eventsResult, wholesaleResult, trainingResults, benchmarkResult, batchProfitResult] = await Promise.all([
+    // Staff certifications — available to all tiers for compliance awareness
+    const staffCertPromise = supabase
+      .from('staff_certifications')
+      .select('staff_member_id, expiration_date')
+      .eq('brewery_id', brewery.id)
+      .not('expiration_date', 'is', null)
+
+    const [deadlinesResult, grantsResult, periodsResult, recipesResult, inventoryResult, brewDayResult, fermentationResult, packagingResult, taproomResult, eventsResult, wholesaleResult, trainingResults, benchmarkResult, batchProfitResult, staffCertResult] = await Promise.all([
       supabase
         .from('brewery_deadlines')
         .select('*, compliance_deadlines(*)')
@@ -253,6 +261,7 @@ export default function DashboardPage() {
       trainingPromise,
       benchmarkPromise,
       batchProfitPromise,
+      staffCertPromise,
     ])
 
     setUpcomingDeadlines(deadlinesResult.data ?? [])
@@ -392,6 +401,19 @@ export default function DashboardPage() {
       : null
     setBatchProfitStats({ recentBatch: batchRows[0] ?? null, avgCostDelta })
 
+    // Compute staff cert counts: unique staff members with expiring (≤60d) or expired certs
+    const certRows = staffCertResult.data ?? []
+    const now = new Date()
+    const sixtyDaysFromNow = new Date(Date.now() + 60 * 86400000)
+    const expiredStaff  = new Set()
+    const expiringStaff = new Set()
+    for (const row of certRows) {
+      const expDate = new Date(row.expiration_date + 'T00:00:00')
+      if (expDate < now) expiredStaff.add(row.staff_member_id)
+      else if (expDate <= sixtyDaysFromNow) expiringStaff.add(row.staff_member_id)
+    }
+    setStaffCertStats({ expiring: expiringStaff.size, expired: expiredStaff.size })
+
     setLoading(false)
   }
 
@@ -465,6 +487,29 @@ export default function DashboardPage() {
 
       {/* Combined document + certification expiration alert */}
       <ComplianceAlertBanner />
+
+      {/* Staff certification alert — shown to all tiers when any active staff member has issues */}
+      {(staffCertStats.expired > 0 || staffCertStats.expiring > 0) && (
+        <div className={`rounded-xl border px-4 py-3 flex items-center justify-between gap-4 flex-wrap text-sm
+          ${staffCertStats.expired > 0 ? 'bg-red-50 border-danger' : 'bg-amber/10 border-amber'}`}>
+          <div>
+            <p className={`font-semibold ${staffCertStats.expired > 0 ? 'text-danger' : 'text-amber-dark'}`}>
+              👥 Staff Certifications
+            </p>
+            <div className="flex flex-wrap gap-3 mt-0.5 text-xs text-gray-600">
+              {staffCertStats.expired > 0 && (
+                <span className="text-danger font-medium">{staffCertStats.expired} staff with expired certs</span>
+              )}
+              {staffCertStats.expiring > 0 && (
+                <span className="text-amber font-medium">{staffCertStats.expiring} staff with certs expiring within 60 days</span>
+              )}
+            </div>
+          </div>
+          <Link to="/staff" className="text-xs font-semibold text-amber hover:underline shrink-0">
+            View Staff →
+          </Link>
+        </div>
+      )}
 
       {/* Inventory alerts — only shown to operations/full_suite subscribers when there are issues */}
       {hasAccess('operations') && (inventoryAlerts.lowStock > 0 || inventoryAlerts.outOfStock > 0 || inventoryAlerts.expiring > 0) && (

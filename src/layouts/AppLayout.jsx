@@ -60,6 +60,7 @@ const WARNING_KEYS = {
   '/fermentation': 'fermentation',
   '/packaging':    'packaging',
   '/distribution': 'distribution',
+  '/staff':        'staff',
 }
 
 export default function AppLayout() {
@@ -128,6 +129,7 @@ export default function AppLayout() {
       readingsRes,
       packagingRes,
       distRes,
+      staffCertRes,
     ] = await Promise.all([
       // Inventory: items with zero or low stock
       supabase.from('ingredients').select('id, current_stock_quantity, reorder_threshold')
@@ -150,6 +152,10 @@ export default function AppLayout() {
         .eq('brewery_id', brewery.id)
         .not('keg_return_date', 'is', null)
         .eq('kegs_returned', false),
+      // Staff certifications: for sidebar dot on Staff & Certs nav item
+      supabase.from('staff_certifications').select('staff_member_id, expiration_date')
+        .eq('brewery_id', brewery.id)
+        .not('expiration_date', 'is', null),
     ])
 
     const warnings = {}
@@ -184,6 +190,20 @@ export default function AppLayout() {
       r.keg_return_date && r.keg_return_date < today
     )
     if (overdueKegs.length > 0) warnings.distribution = 'red'
+
+    // Staff certifications: red if any active staff member has an expired cert, amber if expiring ≤60 days
+    const staffCertRows = staffCertRes.data ?? []
+    const nowDate = new Date()
+    const sixtyDaysOut = new Date(Date.now() + 60 * 86400000)
+    let hasExpiredCert = false
+    let hasExpiringCert = false
+    for (const row of staffCertRows) {
+      const expDate = new Date(row.expiration_date + 'T00:00:00')
+      if (expDate < nowDate) hasExpiredCert = true
+      else if (expDate <= sixtyDaysOut) hasExpiringCert = true
+    }
+    if (hasExpiredCert) warnings.staff = 'red'
+    else if (hasExpiringCert) warnings.staff = 'amber'
 
     setSidebarWarnings(warnings)
   }, [brewery?.id])
@@ -319,17 +339,26 @@ export default function AppLayout() {
           </button>
           <div style={{ overflow: 'hidden', maxHeight: essentialsExpanded ? '800px' : '0', transition: 'max-height 0.25s ease-in-out' }}>
             <div className="space-y-1 pt-1">
-              {mainItems.map((item) => (
-                <NavLink
-                  key={item.path}
-                  to={item.path}
-                  className={navLinkClass}
-                  onClick={() => setSidebarOpen(false)}
-                >
-                  <span>{item.icon}</span>
-                  <span>{item.label}</span>
-                </NavLink>
-              ))}
+              {mainItems.map((item) => {
+                const warningKey = WARNING_KEYS[item.path]
+                const warnLevel  = warningKey ? sidebarWarnings[warningKey] : null
+                return (
+                  <NavLink
+                    key={item.path}
+                    to={item.path}
+                    className={navLinkClass}
+                    onClick={() => setSidebarOpen(false)}
+                  >
+                    <span>{item.icon}</span>
+                    <span>{item.label}</span>
+                    {warnLevel && (
+                      <span className={`ml-auto w-2 h-2 rounded-full shrink-0 ${
+                        warnLevel === 'red' ? 'bg-danger' : 'bg-amber'
+                      }`} />
+                    )}
+                  </NavLink>
+                )
+              })}
             </div>
           </div>
         </div>
