@@ -365,11 +365,11 @@ Deno.serve(async (req) => {
 
     // ── Staff Members ─────────────────────────────────────────────────────────
     const { error: smErr } = await svc.from('staff_members').insert([
-      { id: ids.staffAlex,   brewery_id: b, first_name: 'Alex',   last_name: 'Rivera', role: 'Head Brewer / Brewmaster',  employment_type: 'full_time', status: 'active', is_active: true, start_date: '2019-03-15', phone: '555-0101', email: 'alex@adaptivebrewing.com' },
-      { id: ids.staffJordan, brewery_id: b, first_name: 'Jordan', last_name: 'Lee',    role: 'Taproom Manager',           employment_type: 'full_time', status: 'active', is_active: true, start_date: '2020-06-01', phone: '555-0102', email: 'jordan@adaptivebrewing.com' },
-      { id: ids.staffSam,    brewery_id: b, first_name: 'Sam',    last_name: 'Patel',  role: 'Brewer',                   employment_type: 'full_time', status: 'active', is_active: true, start_date: '2021-09-01', phone: '555-0103', email: 'sam@adaptivebrewing.com' },
-      { id: ids.staffCasey,  brewery_id: b, first_name: 'Casey',  last_name: 'Morgan', role: 'Bartender / Taproom Staff', employment_type: 'part_time', status: 'active', is_active: true, start_date: '2023-02-15', phone: '555-0104', email: 'casey@adaptivebrewing.com' },
-      { id: ids.staffRiley,  brewery_id: b, first_name: 'Riley',  last_name: 'Kim',    role: 'Bartender / Taproom Staff', employment_type: 'part_time', status: 'active', is_active: true, start_date: '2024-01-10', phone: '555-0105', email: 'riley@adaptivebrewing.com' },
+      { id: ids.staffAlex,   brewery_id: b, first_name: 'Alex',   last_name: 'Rivera', role: 'head_brewer',    employment_type: 'full_time', status: 'active', is_active: true, start_date: '2019-03-15', phone: '555-0101', email: 'alex@adaptivebrewing.com' },
+      { id: ids.staffJordan, brewery_id: b, first_name: 'Jordan', last_name: 'Lee',    role: 'taproom_manager', employment_type: 'full_time', status: 'active', is_active: true, start_date: '2020-06-01', phone: '555-0102', email: 'jordan@adaptivebrewing.com' },
+      { id: ids.staffSam,    brewery_id: b, first_name: 'Sam',    last_name: 'Patel',  role: 'assistant_brewer', employment_type: 'full_time', status: 'active', is_active: true, start_date: '2021-09-01', phone: '555-0103', email: 'sam@adaptivebrewing.com' },
+      { id: ids.staffCasey,  brewery_id: b, first_name: 'Casey',  last_name: 'Morgan', role: 'taproom_staff',   employment_type: 'part_time', status: 'active', is_active: true, start_date: '2023-02-15', phone: '555-0104', email: 'casey@adaptivebrewing.com' },
+      { id: ids.staffRiley,  brewery_id: b, first_name: 'Riley',  last_name: 'Kim',    role: 'taproom_staff',   employment_type: 'part_time', status: 'active', is_active: true, start_date: '2024-01-10', phone: '555-0105', email: 'riley@adaptivebrewing.com' },
     ])
     check(smErr, 'insert staff_members')
 
