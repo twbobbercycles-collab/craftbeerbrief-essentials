@@ -88,49 +88,49 @@ const CATEGORIES = [
   },
   {
     id: 'ttb-filing',
-    label: 'TTB Filing Tracker',
+    label: 'TTB Tracker',
     items: [
       {
-        q: "What is a Brewer's Notice and do I need one?",
-        a: "A Brewer's Notice is a federal registration issued by the TTB (Alcohol and Tobacco Tax and Trade Bureau) that every commercial brewery must have before producing beer for sale. It is not technically a license but a notice of intent to operate as a brewery. If you are selling beer commercially you already have one. The app asks you to confirm this during onboarding for documentation purposes only — it does not verify or submit anything to the TTB on your behalf.",
+        q: 'What does the TTB Tracker cover?',
+        a: 'The TTB Tracker has three sections. The Filing Dashboard tracks your upcoming TTB filing deadlines and payment history — add filing periods, log payments, and mark periods as filed. The Excise Tax Calculator is a guided 3-step tool that calculates your federal excise tax liability based on your barrels removed. The COLA section tracks your Certificates of Label Approval with status monitoring.',
       },
       {
-        q: 'What TTB filing frequency should I select?',
-        a: 'Most small craft breweries file quarterly since they produce under 50,000 barrels annually. Monthly filing is only required for breweries producing over 50,000 barrels per year which is very uncommon for small operations. Annual filing is available for very small producers under specific TTB thresholds. If you are unsure check your existing TTB correspondence or verify at ttb.gov.',
+        q: 'How do I use the Excise Tax Calculator?',
+        a: 'The calculator has three steps. Step 1 — set up your Brewery Tax Profile by entering your annual production estimate and filing frequency (monthly or quarterly). This determines your rate tier. Step 2 — select your filing period and enter your barrels removed for sale. The calculator auto-populates from your distribution records and shows the full tax calculation in real time including the step-by-step math. Step 3 — view your tax summary showing this period\'s liability, year-to-date totals, and a full year projection based on your current pace.',
       },
       {
-        q: 'What is a COLA and how do I track one?',
-        a: 'COLA stands for Certificate of Label Approval. The TTB requires breweries to obtain a COLA for every beer label before selling the product in interstate commerce. The COLA Tracker in the TTB section lets you log each label submission with the beer name, submission date, and status — tracking it from pending through to approved or rejected. When a COLA is approved you can record the approval number for your records.',
+        q: 'What are the current federal excise tax rates?',
+        a: 'For small brewers producing under 2 million barrels annually the rate is $3.50 per barrel on the first 60,000 barrels removed for consumption or sale per calendar year and $16.00 per barrel above 60,000 barrels. The calculator tracks your cumulative year-to-date removals and shows your progress toward the 60,000 barrel threshold with a visual progress bar. Always verify your final liability with a CPA before filing TTB Form 5000.24.',
       },
       {
-        q: 'Does this app file my TTB returns for me?',
-        a: "No. This app is a tracking and record-keeping tool only. It does not file, submit, or communicate with the TTB or any government agency on your behalf. All actual filings and payments remain your sole responsibility. The app helps you organize your obligations and maintain records — always file directly through the TTB's pay.gov system or work with your accountant.",
-      },
-      {
-        q: 'What excise tax rate should I use?',
-        a: 'The current federal excise tax rate for domestic craft breweries producing under 60,000 barrels annually is $3.50 per barrel for the first 60,000 barrels removed for consumption. This rate is pre-filled in the excise tax calculator but you can edit it if rates change. Always verify the current rate at ttb.gov before filing as Congress periodically adjusts these rates.',
+        q: 'Where do I track my COLA records?',
+        a: 'The COLA tab in TTB Tracker shows all your Certificates of Label Approval. Each COLA record tracks the COLA number, brand name, product, container size, ABV, formula approval status, and last verified date. Status is color coded — green for Active, amber for Superseded, red for Under Review or Withdrawn. A warning banner appears when any COLA requires attention.',
       },
     ],
   },
   {
-    id: 'document-storage',
-    label: 'Document Storage',
+    id: 'brewery-records',
+    label: 'Brewery Records',
     items: [
       {
-        q: 'How secure are my uploaded documents?',
-        a: "Your documents are stored encrypted at rest using Supabase's secure cloud storage infrastructure which is SOC 2 Type II certified. All data transmission is encrypted via HTTPS. Each brewery account is completely isolated — no other brewery can access your documents. We never access, read, or share your uploaded documents for any purpose other than providing you access to them.",
+        q: 'What is Brewery Records and what can I store there?',
+        a: 'Brewery Records is your central hub for all brewery compliance documents. You can store Federal Permits (Brewer\'s Notice, TTB permits, beer bonds), State Brewery Licenses, Local and Municipal Permits (business license, zoning, health permit, certificate of occupancy), Insurance Policies (general liability, liquor liability, workers comp, and more), Distribution Agreements, Label Artwork Files, and other compliance documents. Each record type has tailored fields — insurance captures policy numbers, coverage amounts, and premium details while permits capture zoning classifications and occupancy limits.',
       },
       {
-        q: 'What file types and sizes are supported?',
-        a: 'The document storage supports PDF, JPG, JPEG, PNG, DOC, and DOCX files up to 25MB per file. Most brewery license documents, insurance certificates, and permits are well under this limit. If you have a very large scanned document try saving it as a compressed PDF to reduce the file size.',
+        q: 'How do I add contacts to a record?',
+        a: "When adding or editing any record click the Add Contact button in the Contacts section. Enter the contact's name, title or role, phone number, and email. You can add multiple contacts per record — for example an insurance policy might have both an agent contact and a claims contact. The first contact is labeled Primary Contact and appears on the record card for quick reference.",
       },
       {
-        q: 'Can I link a document to a compliance deadline or insurance policy?',
-        a: 'Yes. When adding or editing a compliance deadline, insurance policy, local permit, or staff certification you will see a Link to Document dropdown that shows your uploaded documents. Selecting a document links it to that record so you can quickly access the relevant file from within each module.',
+        q: 'How do I download my records?',
+        a: 'Click the Download button on any record card to save the file directly to your downloads folder. To download all records in the current view at once click the Download All button — this creates a single ZIP file containing all files. The ZIP file is named brewery-records-[date].zip for easy reference.',
       },
       {
-        q: 'How do I get my documents back if I cancel?',
-        a: 'Your documents remain accessible for 30 days after cancellation. During that time you can download any document by clicking the Download button on each file. After 30 days your account moves to read-only mode and document downloads are still available. We recommend downloading and backing up your important documents before cancelling.',
+        q: 'How do I replace a document when it renews?',
+        a: 'Click the Edit button on the record card to open the edit modal. Scroll to the Replace File section and upload the new file. The old file will be replaced and the record metadata (expiration date, renewal date, etc.) can be updated at the same time.',
+      },
+      {
+        q: 'How do expiration warnings work?',
+        a: 'The Brewery Records page shows a warning banner at the top if any records are expired (red) or expiring within 60 days (amber). Each record card also shows the expiration date in amber if within 60 days or red if past expiration. Make sure to enter expiration and renewal dates when uploading records so the system can alert you.',
       },
     ],
   },
@@ -139,34 +139,16 @@ const CATEGORIES = [
     label: 'Staff & Certifications',
     items: [
       {
-        q: 'What certifications should I be tracking for my taproom staff?',
-        a: "The most important certifications to track for taproom staff are responsible alcohol service certifications — such as TIPS, ServSafe Alcohol, or your state's specific program. Many states require these for anyone serving alcohol. You should also track food handler cards if your taproom serves food, and any manager-level food safety certifications like ServSafe Manager. Some breweries also track Cicerone certifications for staff development purposes.",
+        q: 'How does the unified staff view work?',
+        a: 'Each staff member appears as a card showing their name, role, employment type, contact information, and all their certifications with color-coded status badges. Green means current and valid, amber means expiring within 60 days, and red means expired. You can add and manage both staff details and certifications from the same card — no need to switch between separate views.',
       },
       {
-        q: 'How do I add a staff member?',
-        a: 'Go to Staff and Certifications in the sidebar and click the Staff Members tab. Click Add Staff Member and enter their name, role, and optional contact information. Once added you can add certifications to their profile from the Certifications tab. Staff members added here are separate from staff members who have login access to the app — to give someone login access use the invitation feature in Account Settings.',
+        q: 'What roles and certifications are available?',
+        a: 'The role list covers all common brewery positions organized by category — Production (Head Brewer, Brewer, Cellar Technician, Lab Technician), Taproom & Hospitality (Taproom Manager, Bartender, Server, Chef, Kitchen Staff), Sales & Distribution (Sales Representative, Delivery Driver), Administrative & Marketing (Marketing Manager, Social Media Manager, Accountant), and more. The certification list covers Alcohol Service (TIPS, ServSafe Alcohol, state-specific certifications), Food Safety (ServSafe Food Manager, FSMA), Beer Knowledge (Cicerone levels, BJCP), Safety (OSHA 10 and 30 hour, CPR, Forklift, Confined Space), and Driving (CDL Class A and B).',
       },
       {
-        q: 'What happens to staff certification records if a staff member leaves?',
-        a: 'Staff members can be deactivated rather than deleted which preserves their certification history for your records. Click the Deactivate button on their staff card. Deactivated staff members are hidden from the active list but their records are retained. You can view deactivated staff by toggling the Show Inactive Staff option.',
-      },
-    ],
-  },
-  {
-    id: 'insurance-permits',
-    label: 'Insurance & Local Permits',
-    items: [
-      {
-        q: 'What types of insurance should a brewery carry?',
-        a: 'Most craft breweries carry at minimum general liability insurance and liquor liability insurance. Liquor liability is particularly important as it covers incidents related to alcohol service. Other common policies include product liability (for packaged beer), commercial property, and workers compensation if you have employees. Taprooms that host events often add event liability coverage. Consult with a licensed insurance agent who specializes in alcohol beverage businesses for advice specific to your operation.',
-      },
-      {
-        q: 'My local permit is not in the pre-populated list — can I add it?',
-        a: 'Yes. The Local Permit Tracker is designed to be fully customizable since local permit requirements vary enormously by municipality. Click Add Permit and select the permit type that best matches or choose Other. Enter your permit name, issuing authority, and any relevant dates. There is no limit to how many local permits you can track.',
-      },
-      {
-        q: 'What is an outdoor seating permit and do I need one?',
-        a: 'An outdoor seating permit or patio permit allows your brewery to serve alcohol in an outdoor area. Requirements vary significantly by city and county — some municipalities require a separate permit for any outdoor seating, others include it in your existing license, and some require additional inspections or approvals for beer gardens. Check with your local ABC office or city planning department to confirm what your specific location requires.',
+        q: 'How do expiration warnings work for certifications?',
+        a: 'The Staff & Certifications page shows warning banners at the top for expired certifications (red) and certifications expiring within 60 days (amber). The sidebar also shows a colored dot next to Staff & Certs when action is needed. The dashboard shows a certification alert widget for all tiers so you never miss a renewal.',
       },
     ],
   },

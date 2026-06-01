@@ -139,19 +139,19 @@ export default function OnboardingTour({ onComplete }) {
         target: 'a[href="/records"]',
         placement: 'right',
         title: 'Brewery Records',
-        body: "Store and track all your compliance documents, insurance policies, and local permits in one place — with expiration alerts so nothing slips through the cracks.",
+        body: "Store and manage all your brewery licenses, permits, insurance policies, distribution agreements, and label artwork files in one place. Each record type has tailored fields — insurance captures policy numbers and coverage amounts, permits capture zoning and occupancy details. Upload files, add multiple contacts per record, download individually or bulk download all as a ZIP file. Expiration warnings keep you ahead of renewals.",
       },
       {
         target: 'a[href="/staff"]',
         placement: 'right',
-        title: 'Staff & Certs',
-        body: "Track staff certifications, alcohol service training, food handler cards, and renewal dates for your entire team.",
+        title: 'Staff & Certifications',
+        body: "Manage your entire team and their certifications in a single unified view. Each staff card shows the employee's role, contact info, and all their certifications with color-coded status — green for current, amber for expiring within 60 days, red for expired. Add staff from a comprehensive brewery role list and track certifications from alcohol service training to OSHA safety to Cicerone credentials.",
       },
       {
         target: 'a[href="/ttb"]',
         placement: 'right',
         title: 'TTB Tracker',
-        body: "Track TTB filing deadlines, excise tax payments, COLA approvals, and Brewer's Report submissions. Includes a built-in Excise Tax Calculator with verified federal rates — $3.50/bbl on your first 60,000 barrels.",
+        body: "Track TTB filing deadlines and excise tax payments. The guided Excise Tax Calculator walks you through your tax calculation step by step — enter your barrels removed, see the math in real time, and track your year-to-date liability against the 60,000 barrel rate threshold. COLA records and upcoming filing deadlines are tracked automatically.",
       },
       {
         target: 'a[href="/grants"]',

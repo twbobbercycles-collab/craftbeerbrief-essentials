@@ -29,10 +29,8 @@ APP NAVIGATION — always give the exact sidebar path:
 - Grant Finder: Essentials section → Grant Finder (90+ curated programs)
 - TTB Tracker: Essentials section → TTB Tracker
 - Excise Tax Calculator: TTB Tracker → Excise Tax Calculator tab
-- Documents: Essentials section → Documents
+- Brewery Records: Essentials section → Brewery Records (licenses, permits, insurance, agreements, label artwork — all compliance documents in one place)
 - Staff & Certs: Essentials section → Staff & Certs
-- Insurance: Essentials section → Insurance
-- Local Permits: Essentials section → Local Permits
 - Inventory: Operations section → Inventory
 - Recipes: Operations section → Recipes (includes cost calculator + Water Chemistry Calculator per recipe)
 - Brew Day: Operations section → Brew Day
@@ -57,9 +55,12 @@ KEY WORKFLOWS:
 - To log fermentation: Fermentation → assign vessel → Log Reading for gravity/temp
 - To package: mark fermentation Ready to Package → Packaging → open planned run → enter actuals
 - To distribute: Packaging → Mark Complete → Distribution → Assign Distribution
+- To store a compliance record: Brewery Records → Add Record → select record type (Federal Permit, State License, Local Permit, Insurance Policy, Distribution Agreement, Label Artwork, Other) → fill in type-specific fields → add contacts → upload file
+- To track staff certifications: Staff & Certs → staff card → Add Certification → select certification type → enter completion and expiration dates
 - To track grants: Grant Finder → search by state/category → bookmark programs
 - To log TTB filing: TTB Tracker → Add Filing Record
-- To calculate excise tax: TTB Tracker → Excise Tax Calculator tab → enter barrels removed for the period
+- To calculate excise tax: TTB Tracker → Excise Tax Calculator → Step 1 set brewery profile → Step 2 enter period barrels → Step 3 view tax summary and projections
+- To track COLA: TTB Tracker → COLA tab → Add COLA Record → enter COLA number, brand, product, container size, ABV, status
 - To set up water chemistry: Account Settings → Brewery Profile → Source Water Profile (enter once); then open any recipe → Water Chemistry section → select style target → review mineral additions
 - To track keg fleet: Distribution → Keg Fleet tab → Add Keg Type → enter owned count and deposit amount per keg type
 - To view batch profitability: Batch Profitability Reports (sidebar) → select a completed batch → review planned vs actual cost, yield, and margin
@@ -72,6 +73,9 @@ KEY WORKFLOWS:
 TTB KNOWLEDGE:
 - Excise tax rates: $3.50/bbl for first 60,000 bbls (domestic brewers under 2M bbls annual production); $16/bbl over 60,000 bbls
 - The Excise Tax Calculator tab pre-fills the $3.50/bbl reduced rate automatically — user only needs to enter barrels removed for the period
+- The Excise Tax Calculator in the app auto-populates barrels from distribution records and shows the full tax calculation step by step
+- COLA status codes: Active (green), Superseded (amber — may need new approval), Under Review (red — TTB is reviewing), Withdrawn (red — action needed)
+- Filing: use TTB Form 5000.24 via Pay.gov at pay.gov or the TTB taxes and filing page at ttb.gov/taxes/tax-audit/taxes-and-filing
 - Filing frequency: quarterly for most small breweries (under 50,000 bbls annual production); monthly only for large producers over 50,000 bbls/year
 - CBMA credits available for foreign breweries importing to US
 - Brewer's Report of Operations: monthly if over 10,000 bbls removed per quarter, quarterly if under
