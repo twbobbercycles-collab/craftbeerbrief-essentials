@@ -1329,7 +1329,7 @@ export default function TtbPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2 shrink-0">
-            <a href="https://www.ttb.gov/etax" target="_blank" rel="noopener noreferrer"
+            <a href="https://www.pay.gov" target="_blank" rel="noopener noreferrer"
               className="text-xs font-semibold text-amber hover:text-amber-dark underline whitespace-nowrap">
               File on Pay.gov →
             </a>
@@ -1393,15 +1393,14 @@ export default function TtbPage() {
                 <p className="text-sm font-medium text-navy mb-1">Filing Frequency</p>
                 <div className="flex gap-2">
                   {['monthly', 'quarterly'].map(opt => (
-                    <div key={opt}
-                      className={`px-4 py-2 rounded-lg border-2 text-sm font-semibold ${
+                    <button key={opt} type="button" onClick={() => setFrequency(opt)}
+                      className={`px-4 py-2 rounded-lg border-2 text-sm font-semibold transition-colors ${
                         currentFreq === opt
                           ? 'border-amber bg-amber/5 text-amber-dark'
-                          : 'border-gray-200 text-gray-400'
+                          : 'border-gray-200 text-gray-400 hover:border-gray-300 hover:text-gray-600'
                       }`}>
                       {opt.charAt(0).toUpperCase() + opt.slice(1)}
-                      {currentFreq === opt && <span className="ml-1.5 text-[10px] font-bold">← Current</span>}
-                    </div>
+                    </button>
                   ))}
                 </div>
                 <p className="text-xs text-gray-500 mt-1.5">
