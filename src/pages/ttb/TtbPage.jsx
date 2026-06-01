@@ -874,7 +874,6 @@ export default function TtbPage() {
   const [periodSaving,       setPeriodSaving]        = useState(false)
   const [periodSaved,        setPeriodSaved]         = useState(false)
   const [periodError,        setPeriodError]         = useState('')
-  const [profileCollapsed,   setProfileCollapsed]    = useState(false)
 
   // Precompute the set of filed period keys for fast lookup.
   // Keys are derived from period_start dates (not label strings) to guarantee
@@ -958,15 +957,19 @@ export default function TtbPage() {
     if (activeTab !== 'excise_calculator' || !brewery?.id) return
     const now = new Date()
     const currentFreq = frequency ?? 'quarterly'
-    setCalcYear(now.getFullYear())
-    setCalcPeriodNum(currentFreq === 'monthly' ? now.getMonth() + 1 : Math.floor(now.getMonth() / 3) + 1)
+    const year = now.getFullYear()
+    const periodNum = currentFreq === 'monthly' ? now.getMonth() + 1 : Math.floor(now.getMonth() / 3) + 1
+    setCalcYear(year)
+    setCalcPeriodNum(periodNum)
     loadExciseTaxProfile()
+    loadExcisePeriod(year, periodNum)
   }, [activeTab, brewery?.id])
 
-  // Auto-collapse Step 1 once a profile is loaded — returning users don't need to see it expanded
+  // Auto-reload period data when the year or period selector changes
   useEffect(() => {
-    if (parseFloat(calcProfile.annual_production_estimate) > 0) setProfileCollapsed(true)
-  }, [calcProfile.annual_production_estimate])
+    if (activeTab !== 'excise_calculator' || !brewery?.id) return
+    loadExcisePeriod(calcYear, calcPeriodNum)
+  }, [calcYear, calcPeriodNum, activeTab])
 
   // Reads annual_production_estimate and excise_tax_ytd_paid from the brewery row
   async function loadExciseTaxProfile() {
@@ -1292,11 +1295,8 @@ export default function TtbPage() {
     const thresholdPct    = isSmallBrewer ? Math.min(100, (calcResult.cumulativeAfter / 60_000) * 100) : 0
     const thresholdBarCls = thresholdPct >= 83 ? 'bg-danger' : thresholdPct >= 50 ? 'bg-amber' : 'bg-green-500'
 
-    // Whether there's enough barrel data to show the live calculation panel
-    const showLiveCalc   = parseFloat(periodForm.barrels_removed_sale) > 0
-    const periodFormReady = existingPeriodRow !== null
-      || periodForm.barrels_removed_sale !== ''
-      || periodForm.barrels_produced    !== ''
+    // Always show the live calculation panel so users see the format even with zero inputs
+    const showLiveCalc = true
 
     // Full year projection — only meaningful once at least one period is saved
     const totalPeriodsInYear  = currentFreq === 'quarterly' ? 4 : currentFreq === 'monthly' ? 12 : 1
@@ -1328,17 +1328,22 @@ export default function TtbPage() {
               <strong>TTB Form 5000.24</strong> via Pay.gov or by mail to TTB.
             </p>
           </div>
-          <a href="https://www.ttb.gov/beer/beer-excise-tax" target="_blank" rel="noopener noreferrer"
-            className="shrink-0 text-xs font-semibold text-amber hover:text-amber-dark underline whitespace-nowrap mt-0.5">
-            How to File →
-          </a>
+          <div className="flex flex-wrap gap-2 shrink-0">
+            <a href="https://www.ttb.gov/etax" target="_blank" rel="noopener noreferrer"
+              className="text-xs font-semibold text-amber hover:text-amber-dark underline whitespace-nowrap">
+              File on Pay.gov →
+            </a>
+            <a href="https://www.ttb.gov/system/files?file=images%2Fpdfs%2Fforms%2Ff500024sm.pdf" target="_blank" rel="noopener noreferrer"
+              className="text-xs font-semibold text-amber hover:text-amber-dark underline whitespace-nowrap">
+              Download Form 5000.24 →
+            </a>
+          </div>
         </div>
 
-        {/* ── STEP 1 — Brewery Tax Profile (collapsible after first save) ── */}
+        {/* ── STEP 1 — Brewery Tax Profile ── */}
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          {/* Header — always visible, click to expand/collapse */}
-          <button type="button" onClick={() => setProfileCollapsed(p => !p)}
-            className="w-full flex items-start justify-between px-5 py-4 hover:bg-gray-50 transition-colors text-left">
+          {/* Header */}
+          <div className="flex items-start justify-between px-5 py-4">
             <div>
               <p className="text-xs font-bold text-amber uppercase tracking-wide">Step 1</p>
               <h3 className="font-bold text-navy mt-0.5">Your Brewery Tax Profile</h3>
@@ -1348,16 +1353,11 @@ export default function TtbPage() {
             </div>
             <div className="flex items-center gap-3 flex-shrink-0 ml-4 mt-1">
               {calcProfileSaved && <span className="text-xs text-success font-semibold">Profile saved ✓</span>}
-              {profileCollapsed && annualEstimate > 0 && (
-                <span className="text-xs text-gray-400">{annualEstimate.toLocaleString()} bbl/yr</span>
-              )}
-              <span className="text-gray-400">{profileCollapsed ? '▸' : '▾'}</span>
             </div>
-          </button>
+          </div>
 
-          {/* Collapsible body */}
-          {!profileCollapsed && (
-            <div className="px-5 pb-5 space-y-5 border-t border-gray-100">
+          {/* Profile body */}
+          <div className="px-5 pb-5 space-y-5 border-t border-gray-100">
 
               {/* Annual Production Estimate */}
               <div className="mt-4">
@@ -1436,13 +1436,12 @@ export default function TtbPage() {
               </div>
 
               <button
-                onClick={async () => { await handleSaveCalcProfile(); setProfileCollapsed(true) }}
+                onClick={handleSaveCalcProfile}
                 disabled={calcProfileSaving}
                 className="bg-amber hover:bg-amber-dark text-white text-sm font-semibold px-6 py-2.5 rounded-lg transition-colors disabled:opacity-60">
                 {calcProfileSaving ? 'Saving…' : 'Save Brewery Profile'}
               </button>
             </div>
-          )}
         </div>
 
         {/* ── STEP 2 — Calculate This Filing Period ── */}
@@ -1473,15 +1472,13 @@ export default function TtbPage() {
                 {periodOptions.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
               </select>
             </div>
-            <button onClick={() => loadExcisePeriod(calcYear, calcPeriodNum)} disabled={periodLoading}
-              className="bg-navy hover:opacity-90 text-white text-sm font-semibold px-5 py-2 rounded-lg transition-colors disabled:opacity-60">
-              {periodLoading ? 'Loading…' : existingPeriodRow ? 'Reload Period' : 'Load Period'}
-            </button>
           </div>
 
-          {/* Barrel inputs — shown once a period is loaded or form is touched */}
-          {periodFormReady && (
-            <div className="border-t border-gray-100 pt-5 space-y-5">
+          {/* Barrel inputs — always visible */}
+          <div className="border-t border-gray-100 pt-5 space-y-5">
+            {periodLoading && (
+              <p className="text-sm text-gray-400 text-center py-2">Loading period data…</p>
+            )}
 
               {/* Primary: barrels removed for sale — the taxable base */}
               <div>
@@ -1685,14 +1682,6 @@ export default function TtbPage() {
                 {periodSaved && <span className="text-sm text-success font-medium">Period saved ✓</span>}
               </div>
             </div>
-          )}
-
-          {/* Prompt shown before a period is loaded */}
-          {!periodFormReady && !periodLoading && (
-            <p className="text-sm text-gray-400 text-center py-4">
-              Select a year and period above, then click <strong>Load Period</strong> to begin.
-            </p>
-          )}
         </div>
 
         {/* ── STEP 3 — Your Tax Summary Dashboard ── */}
