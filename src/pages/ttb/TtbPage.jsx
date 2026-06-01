@@ -1329,9 +1329,9 @@ export default function TtbPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2 shrink-0">
-            <a href="https://www.pay.gov" target="_blank" rel="noopener noreferrer"
+            <a href="https://www.ttb.gov/taxes/tax-audit/taxes-and-filing" target="_blank" rel="noopener noreferrer"
               className="text-xs font-semibold text-amber hover:text-amber-dark underline whitespace-nowrap">
-              File on Pay.gov →
+              How to File with TTB →
             </a>
             <a href="https://www.ttb.gov/system/files?file=images%2Fpdfs%2Fforms%2Ff500024sm.pdf" target="_blank" rel="noopener noreferrer"
               className="text-xs font-semibold text-amber hover:text-amber-dark underline whitespace-nowrap">
