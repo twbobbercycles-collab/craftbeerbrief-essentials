@@ -242,15 +242,6 @@ const fmtDate = (d) =>
 
 const toISO = (d) => d instanceof Date ? d.toISOString().split('T')[0] : d
 
-// Returns 'current' (<1yr since verification), 'aging' (1–2yr), 'overdue' (>2yr), or 'never' (null)
-function colaVerifiedStatus(lastVerifiedDate) {
-  if (!lastVerifiedDate) return 'never'
-  const ageYears = (new Date() - new Date(lastVerifiedDate + 'T00:00:00')) / (365.25 * 86400000)
-  if (ageYears < 1) return 'current'
-  if (ageYears < 2) return 'aging'
-  return 'overdue'
-}
-
 // ── Excise tax rate constants and calculation ─────────────────────────────────
 
 // The barrel threshold where the small-brewer rate rises from $3.50 to $16.00.
@@ -354,12 +345,12 @@ function RowBadge({ status }) {
     amended:      'bg-purple-100 text-purple-700',
     approved:     'bg-green-100 text-green-700',
     rejected:     'bg-red-100 text-danger',
-    withdrawn:    'bg-gray-100 text-gray-500',
+    withdrawn:    'bg-red-100 text-danger',
     submitted:    'bg-blue-100 text-blue-700',
     draft:        'bg-gray-100 text-gray-500',
     active:       'bg-green-100 text-green-700',
-    superseded:   'bg-gray-100 text-gray-500',
-    under_review: 'bg-blue-100 text-blue-700',
+    superseded:   'bg-amber/20 text-amber-dark',
+    under_review: 'bg-red-100 text-danger',
   }
   const labels = { under_review: 'Under Review' }
   return (
@@ -1177,12 +1168,7 @@ export default function TtbPage() {
   }, [calcBarrels, calcTier])
 
   const colasNeedingReview = useMemo(
-    () => colaList.filter(c => {
-      if (c.status !== 'active') return false
-      const meta = c.metadata && typeof c.metadata === 'object' ? c.metadata : {}
-      const st = colaVerifiedStatus(meta.last_verified_date ?? null)
-      return st === 'overdue' || st === 'never'
-    }),
+    () => colaList.filter(c => c.status === 'under_review' || c.status === 'withdrawn'),
     [colaList]
   )
 
@@ -1744,13 +1730,13 @@ export default function TtbPage() {
           ))}
         </div>
 
-        {/* ── COLA Verification Alert ── */}
+        {/* ── COLA Status Alert ── */}
         {colasNeedingReview.length > 0 && (
           <div className="rounded-xl border border-danger bg-red-50 px-4 py-3 flex items-center justify-between gap-4 flex-wrap text-sm">
             <div>
-              <p className="font-semibold text-danger">⚠️ COLA Labels Need Verification</p>
+              <p className="font-semibold text-danger">⚠️ COLAs Require Attention</p>
               <p className="text-xs text-gray-600 mt-0.5">
-                {colasNeedingReview.length} active COLA {colasNeedingReview.length !== 1 ? 'labels have' : 'label has'} not been verified in over 2 years or were never verified.
+                {colasNeedingReview.length} COLA {colasNeedingReview.length !== 1 ? 'labels have' : 'label has'} an Under Review or Withdrawn status.
               </p>
             </div>
             <button onClick={() => setActiveTab('cola')}
@@ -1788,32 +1774,34 @@ export default function TtbPage() {
           </p>
         </div>
 
-        {/* ── Upcoming Deadlines ── */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <h3 className="font-semibold text-navy mb-3">Upcoming Filing Deadlines</h3>
-          <div className="space-y-3">
-            {upcomingPeriods.map(p => {
-              const st   = getPeriodStatus(p, filedKeys)
-              const days = Math.ceil((p.dueDate - new Date()) / 86400000)
-              return (
-                <div key={p.key} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
-                  <div>
-                    <p className="text-sm font-medium text-navy">{p.label}</p>
-                    <p className="text-xs text-gray-500">{p.dates} · Due {fmtDate(toISO(p.dueDate))}</p>
+        {/* ── Upcoming Deadlines — only shows periods not yet filed or paid ── */}
+        {upcomingPeriods.filter(p => !filedKeys.has(p.key)).length > 0 && (
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <h3 className="font-semibold text-navy mb-3">Upcoming Filing Deadlines</h3>
+            <div className="space-y-3">
+              {upcomingPeriods.filter(p => !filedKeys.has(p.key)).map(p => {
+                const st   = getPeriodStatus(p, filedKeys)
+                const days = Math.ceil((p.dueDate - new Date()) / 86400000)
+                return (
+                  <div key={p.key} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+                    <div>
+                      <p className="text-sm font-medium text-navy">{p.label}</p>
+                      <p className="text-xs text-gray-500">{p.dates} · Due {fmtDate(toISO(p.dueDate))}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {days >= 0 && (
+                        <span className={`text-xs font-medium ${days <= 14 ? 'text-danger' : 'text-gray-500'}`}>
+                          {days}d
+                        </span>
+                      )}
+                      <StatusBadge status={st} />
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    {st !== 'filed' && days >= 0 && (
-                      <span className={`text-xs font-medium ${days <= 14 ? 'text-danger' : 'text-gray-500'}`}>
-                        {days}d
-                      </span>
-                    )}
-                    <StatusBadge status={st} />
-                  </div>
-                </div>
-              )
-            })}
+                )
+              })}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     )
   }
@@ -1941,10 +1929,9 @@ export default function TtbPage() {
 
         {colasNeedingReview.length > 0 && (
           <div className="rounded-xl border border-danger bg-red-50 px-4 py-3 text-sm">
-            <p className="font-semibold text-danger">⚠️ Verification Required</p>
+            <p className="font-semibold text-danger">⚠️ COLAs Require Attention</p>
             <p className="text-xs text-gray-600 mt-0.5">
-              {colasNeedingReview.length} active label{colasNeedingReview.length !== 1 ? 's have' : ' has'} not been verified in over 2 years or was never verified.
-              Review each to confirm it is still accurate and compliant.
+              {colasNeedingReview.length} COLA {colasNeedingReview.length !== 1 ? 'labels have' : 'label has'} an Under Review or Withdrawn status — action may be required.
             </p>
           </div>
         )}
@@ -2011,35 +1998,8 @@ export default function TtbPage() {
                         <td className="px-3 py-3 text-gray-500 font-mono text-xs">{meta.cola_number ?? '—'}</td>
                         <td className="px-3 py-3 text-gray-600">{meta.abv != null ? `${meta.abv}%` : '—'}</td>
                         <td className="px-3 py-3"><RowBadge status={c.status} /></td>
-                        <td className="px-3 py-3 whitespace-nowrap">
-                          {(() => {
-                            const lvd = meta.last_verified_date ?? null
-                            const st = colaVerifiedStatus(lvd)
-                            const isActive = c.status === 'active'
-                            if (!lvd) return (
-                              <span className={isActive ? 'text-danger font-medium' : 'text-gray-400'}>
-                                {isActive ? 'Never' : '—'}
-                                {isActive && (
-                                  <span className="ml-1.5 text-[10px] bg-red-100 text-danger px-1.5 py-0.5 rounded-full font-semibold">Needs Review</span>
-                                )}
-                              </span>
-                            )
-                            const colorCls = !isActive ? 'text-gray-500'
-                              : st === 'current' ? 'text-green-700'
-                              : st === 'aging'   ? 'text-amber'
-                              : 'text-danger'
-                            return (
-                              <span className={colorCls}>
-                                {fmtDate(lvd)}
-                                {isActive && st === 'overdue' && (
-                                  <span className="ml-1.5 text-[10px] bg-red-100 text-danger px-1.5 py-0.5 rounded-full font-semibold">Needs Review</span>
-                                )}
-                                {isActive && st === 'aging' && (
-                                  <span className="ml-1.5 text-[10px] bg-amber/20 text-amber px-1.5 py-0.5 rounded-full font-semibold">Aging</span>
-                                )}
-                              </span>
-                            )
-                          })()}
+                        <td className="px-3 py-3 text-gray-500 whitespace-nowrap">
+                          {meta.last_verified_date ? fmtDate(meta.last_verified_date) : '—'}
                         </td>
                         <td className="px-3 py-3">
                           <div className="flex gap-2">
