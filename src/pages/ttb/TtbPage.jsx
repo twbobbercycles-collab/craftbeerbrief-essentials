@@ -874,6 +874,7 @@ export default function TtbPage() {
   const [periodSaving,       setPeriodSaving]        = useState(false)
   const [periodSaved,        setPeriodSaved]         = useState(false)
   const [periodError,        setPeriodError]         = useState('')
+  const [profileCollapsed,   setProfileCollapsed]    = useState(false)
 
   // Precompute the set of filed period keys for fast lookup.
   // Keys are derived from period_start dates (not label strings) to guarantee
@@ -961,6 +962,11 @@ export default function TtbPage() {
     setCalcPeriodNum(currentFreq === 'monthly' ? now.getMonth() + 1 : Math.floor(now.getMonth() / 3) + 1)
     loadExciseTaxProfile()
   }, [activeTab, brewery?.id])
+
+  // Auto-collapse Step 1 once a profile is loaded — returning users don't need to see it expanded
+  useEffect(() => {
+    if (parseFloat(calcProfile.annual_production_estimate) > 0) setProfileCollapsed(true)
+  }, [calcProfile.annual_production_estimate])
 
   // Reads annual_production_estimate and excise_tax_ytd_paid from the brewery row
   async function loadExciseTaxProfile() {
@@ -1053,7 +1059,8 @@ export default function TtbPage() {
     setAutoFilledProduced(autoBarrels > 0)
     setPeriodForm({
       barrels_produced:            autoBarrels > 0 ? autoBarrels.toFixed(3) : '',
-      barrels_removed_sale:        '',
+      // Also seed barrels_removed_sale from brew days as a starting point — user should verify
+      barrels_removed_sale:        autoBarrels > 0 ? autoBarrels.toFixed(3) : '',
       barrels_removed_export:      '0',
       barrels_removed_destruction: '0',
       barrels_transferred:         '0',
@@ -1243,115 +1250,214 @@ export default function TtbPage() {
     const currentFreq = frequency ?? 'quarterly'
     const periodType  = currentFreq === 'monthly' ? 'monthly' : 'quarterly'
 
-    // Period selector options — months Jan–Dec or quarters Q1–Q4
+    // Period selector options — months Jan–Dec for monthly, Q1–Q4 for quarterly/annual
     const periodOptions = currentFreq === 'monthly'
       ? MONTH_NAMES.map((name, i) => ({ value: i + 1, label: name }))
       : [1, 2, 3, 4].map(q => ({ value: q, label: `Q${q}` }))
 
-    const yearOptions  = [new Date().getFullYear(), new Date().getFullYear() - 1]
+    const yearOptions    = [new Date().getFullYear(), new Date().getFullYear() - 1]
     const annualEstimate = parseFloat(calcProfile.annual_production_estimate) || 0
 
-    // Threshold progress bar values — green → amber → red as 60k approaches
-    const ytdPercent    = annualEstimate === 0 || calcResult.isSmallBrewer
-      ? Math.min(100, (calcResult.cumulativeAfter / 60_000) * 100)
-      : 0
-    const progressColor  = ytdPercent >= 100 ? 'bg-danger' : ytdPercent >= 83 ? 'bg-amber' : 'bg-green-500'
-    const progressBorder = ytdPercent >= 100 ? 'border-red-200 bg-red-50'
-      : ytdPercent >= 83 ? 'border-amber/30 bg-amber/5' : 'border-green-200 bg-green-50'
+    // Small brewer: under 2,000,000 bbls/yr — qualifies for $3.50/bbl on first 60,000 bbls
+    const isSmallBrewer = annualEstimate === 0 || annualEstimate < LARGE_BREWER_CUTOFF
 
-    // YTD totals from saved periods for the selected year
-    const yearPeriods  = excisePeriods.filter(p => p.period_year === calcYear && p.period_type === periodType)
-    const ytdTaxOwed   = yearPeriods.reduce((s, p) => s + (parseFloat(p.tax_owed) || 0), 0)
-    const ytdTaxPaid   = yearPeriods.filter(p => p.status === 'paid').reduce((s, p) => s + (parseFloat(p.tax_owed) || 0), 0)
+    // Projected annual liability used to recommend filing frequency.
+    // Formula: min(est, 60k) × $3.50  +  max(0, est − 60k) × $16.00
+    const projectedAnnualLiability = isSmallBrewer
+      ? Math.min(annualEstimate, 60_000) * 3.50 + Math.max(0, annualEstimate - 60_000) * 16.00
+      : annualEstimate * 16.00
+    const recommendedFreq = projectedAnnualLiability > 50_000 ? 'monthly' : 'quarterly'
+
+    // Label for the current period in the Step 2 card title
+    const periodLabel = currentFreq === 'monthly'
+      ? MONTH_NAMES[calcPeriodNum - 1]
+      : `Q${calcPeriodNum}`
+
+    // YTD totals from all saved periods for the selected year and frequency type
+    const yearPeriods    = excisePeriods.filter(p => p.period_year === calcYear && p.period_type === periodType)
+    const ytdTaxOwed     = yearPeriods.reduce((s, p) => s + (parseFloat(p.tax_owed) || 0), 0)
+    const ytdTaxPaid     = yearPeriods.filter(p => p.status === 'paid').reduce((s, p) => s + (parseFloat(p.tax_owed) || 0), 0)
     const ytdOutstanding = Math.max(0, ytdTaxOwed - ytdTaxPaid)
 
-    // Whether the period form is populated enough to show the inputs panel
-    const periodFormVisible = existingPeriodRow !== null
-      || periodForm.barrels_produced !== ''
-      || periodForm.barrels_removed_sale !== ''
+    // YTD taxable barrels = sum of (removed_sale − exports − destruction − transfers) across all saved periods
+    const ytdTaxableBarrels = yearPeriods.reduce((s, p) => s + Math.max(0,
+      (parseFloat(p.barrels_removed_sale)        || 0)
+      - (parseFloat(p.barrels_removed_export)      || 0)
+      - (parseFloat(p.barrels_removed_destruction) || 0)
+      - (parseFloat(p.barrels_transferred)         || 0)
+    ), 0)
 
-    // Whether the live calculation summary should be shown
-    const showCalcSummary = parseFloat(periodForm.barrels_removed_sale) > 0
-      || parseFloat(periodForm.barrels_produced) > 0
+    // Threshold progress toward the 60,000 bbl small-brewer rate cutoff.
+    // Green under 50%, amber 50–83%, red above 83% (within ~10k bbls of the threshold).
+    const thresholdPct    = isSmallBrewer ? Math.min(100, (calcResult.cumulativeAfter / 60_000) * 100) : 0
+    const thresholdBarCls = thresholdPct >= 83 ? 'bg-danger' : thresholdPct >= 50 ? 'bg-amber' : 'bg-green-500'
+
+    // Whether there's enough barrel data to show the live calculation panel
+    const showLiveCalc   = parseFloat(periodForm.barrels_removed_sale) > 0
+    const periodFormReady = existingPeriodRow !== null
+      || periodForm.barrels_removed_sale !== ''
+      || periodForm.barrels_produced    !== ''
+
+    // Full year projection — only meaningful once at least one period is saved
+    const totalPeriodsInYear  = currentFreq === 'quarterly' ? 4 : currentFreq === 'monthly' ? 12 : 1
+    const currentPeriodIndex  = currentFreq === 'quarterly'
+      ? Math.floor(new Date().getMonth() / 3) + 1
+      : currentFreq === 'monthly' ? new Date().getMonth() + 1 : 1
+    const completedPeriods    = yearPeriods.length
+    // Average taxable barrels per period this year so far
+    const avgBarrelsPerPeriod = completedPeriods > 0 ? ytdTaxableBarrels / completedPeriods : 0
+    const remainingPeriods    = Math.max(0, totalPeriodsInYear - currentPeriodIndex)
+    const projectedTotalBbls  = ytdTaxableBarrels + avgBarrelsPerPeriod * remainingPeriods
+    // Projected annual tax using small-brewer rate tiers: $3.50 up to 60k, $16.00 above
+    const projectedTotalTax   = isSmallBrewer
+      ? Math.min(projectedTotalBbls, 60_000) * 3.50 + Math.max(0, projectedTotalBbls - 60_000) * 16.00
+      : projectedTotalBbls * 16.00
+    const projectedRemaining  = Math.max(0, projectedTotalTax - ytdTaxPaid)
 
     return (
       <div className="space-y-5">
 
-        {/* ── Disclaimer ── */}
-        <div className="bg-amber/10 border border-amber/30 rounded-xl px-4 py-3 flex gap-3">
-          <span className="text-amber text-lg flex-shrink-0 mt-0.5">⚠️</span>
-          <p className="text-sm text-gray-700 leading-relaxed">
-            <strong className="text-navy">Estimates only.</strong>{' '}
-            This calculator is for planning purposes. Consult a CPA or licensed alcohol beverage
-            attorney to confirm your exact liability before filing. File using{' '}
-            <strong>TTB Form 5000.24</strong> via{' '}
-            <a href="https://pay.gov" target="_blank" rel="noopener noreferrer"
-              className="text-amber underline hover:text-amber-dark">Pay.gov</a> or by mail.
-          </p>
+        {/* ── Top disclaimer banner ── */}
+        <div className="bg-amber/10 border border-amber/30 rounded-xl px-4 py-3 flex flex-wrap items-start gap-3">
+          <span className="text-amber text-lg flex-shrink-0 mt-0.5">⚠</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-navy">Planning Tool Only</p>
+            <p className="text-sm text-gray-700 mt-0.5">
+              This calculator provides estimates for planning purposes. Always verify your final
+              liability with a CPA or alcohol beverage attorney before filing. File using{' '}
+              <strong>TTB Form 5000.24</strong> via Pay.gov or by mail to TTB.
+            </p>
+          </div>
+          <a href="https://www.ttb.gov/beer/beer-excise-tax" target="_blank" rel="noopener noreferrer"
+            className="shrink-0 text-xs font-semibold text-amber hover:text-amber-dark underline whitespace-nowrap mt-0.5">
+            How to File →
+          </a>
         </div>
 
-        {/* ── Section 1: Brewery Tax Profile ── */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <div className="flex items-center justify-between mb-1">
+        {/* ── STEP 1 — Brewery Tax Profile (collapsible after first save) ── */}
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          {/* Header — always visible, click to expand/collapse */}
+          <button type="button" onClick={() => setProfileCollapsed(p => !p)}
+            className="w-full flex items-start justify-between px-5 py-4 hover:bg-gray-50 transition-colors text-left">
             <div>
-              <h3 className="font-semibold text-navy">Brewery Tax Profile</h3>
-              <p className="text-xs text-gray-500 mt-0.5">Used to determine your rate tier and project your annual position.</p>
+              <p className="text-xs font-bold text-amber uppercase tracking-wide">Step 1</p>
+              <h3 className="font-bold text-navy mt-0.5">Your Brewery Tax Profile</h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Set this up once. We use it to apply the correct federal excise tax rate to your calculations.
+              </p>
             </div>
-            {calcProfileSaved && <span className="text-sm text-success font-medium">✓ Saved</span>}
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
-            <Field label="Estimated Annual Production (barrels)">
-              <input type="number" min="0" step="1"
-                value={calcProfile.annual_production_estimate}
-                onChange={e => setCalcProfile(p => ({ ...p, annual_production_estimate: e.target.value }))}
-                placeholder="e.g. 500" className={inputCls} />
-            </Field>
-            <Field label="Year-to-Date Excise Tax Already Paid ($)">
-              <input type="number" min="0" step="0.01"
-                value={calcProfile.excise_tax_ytd_paid}
-                onChange={e => setCalcProfile(p => ({ ...p, excise_tax_ytd_paid: e.target.value }))}
-                placeholder="e.g. 1200.00" className={inputCls} />
-            </Field>
-          </div>
-
-          {/* Rate tier callout */}
-          {annualEstimate > 0 ? (
-            <div className="mt-4 p-3 bg-green-50 rounded-lg border border-green-200 text-sm text-green-800">
-              <strong>✓ Small Brewer Rate — Qualified</strong><br />
-              Your estimated {annualEstimate.toLocaleString()} barrels/yr qualifies you for{' '}
-              <strong>$3.50/bbl</strong> on your first 60,000 barrels removed for sale.
-              Barrels above 60,000 are taxed at $16.00/bbl.
+            <div className="flex items-center gap-3 flex-shrink-0 ml-4 mt-1">
+              {calcProfileSaved && <span className="text-xs text-success font-semibold">Profile saved ✓</span>}
+              {profileCollapsed && annualEstimate > 0 && (
+                <span className="text-xs text-gray-400">{annualEstimate.toLocaleString()} bbl/yr</span>
+              )}
+              <span className="text-gray-400">{profileCollapsed ? '▸' : '▾'}</span>
             </div>
-          ) : (
-            <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200 text-sm text-gray-600">
-              Enter your estimated annual production above. Virtually all craft breweries
-              qualify for the small brewer rate of <strong>$3.50/bbl</strong> on their first 60,000 barrels.
+          </button>
+
+          {/* Collapsible body */}
+          {!profileCollapsed && (
+            <div className="px-5 pb-5 space-y-5 border-t border-gray-100">
+
+              {/* Annual Production Estimate */}
+              <div className="mt-4">
+                <Field label="Annual Production Estimate (barrels)">
+                  <input type="number" min="0" step="1"
+                    value={calcProfile.annual_production_estimate}
+                    onChange={e => setCalcProfile(p => ({ ...p, annual_production_estimate: e.target.value }))}
+                    placeholder="e.g. 500" className={inputCls} />
+                </Field>
+                <p className="text-xs text-gray-500 mt-1.5">
+                  Enter your total expected barrels brewed this calendar year (January–December).
+                  This determines whether you qualify for the small brewer rate of $3.50/bbl on your
+                  first 60,000 barrels.
+                </p>
+                {annualEstimate > 0 && (
+                  <div className={`mt-2 px-3 py-2 rounded-lg border text-xs font-medium flex items-start gap-2 ${
+                    isSmallBrewer
+                      ? 'bg-green-50 border-green-200 text-green-800'
+                      : 'bg-gray-50 border-gray-200 text-gray-700'
+                  }`}>
+                    <span className="mt-0.5">{isSmallBrewer ? '✓' : '○'}</span>
+                    <span>
+                      {isSmallBrewer
+                        ? `Small Brewer Rate — $3.50/bbl on your first 60,000 barrels removed for sale, $16.00/bbl above that`
+                        : `Standard Rate — $16.00/bbl applies (production over 2,000,000 barrels/yr)`}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Filing Frequency — informational based on projected liability */}
+              <div>
+                <p className="text-sm font-medium text-navy mb-1">Filing Frequency</p>
+                <div className="flex gap-2">
+                  {['monthly', 'quarterly'].map(opt => (
+                    <div key={opt}
+                      className={`px-4 py-2 rounded-lg border-2 text-sm font-semibold ${
+                        currentFreq === opt
+                          ? 'border-amber bg-amber/5 text-amber-dark'
+                          : 'border-gray-200 text-gray-400'
+                      }`}>
+                      {opt.charAt(0).toUpperCase() + opt.slice(1)}
+                      {currentFreq === opt && <span className="ml-1.5 text-[10px] font-bold">← Current</span>}
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-500 mt-1.5">
+                  Choose Quarterly if your total annual excise tax liability is under $50,000 — most
+                  small craft breweries qualify. Choose Monthly if over $50,000. Your frequency is
+                  set on the Filing Dashboard.
+                </p>
+                {annualEstimate > 0 && (
+                  <p className="text-xs mt-1.5 text-gray-600">
+                    Based on your production estimate, your projected annual liability is approximately{' '}
+                    <strong className="text-navy">{fmtCurrency(projectedAnnualLiability)}</strong> —{' '}
+                    <span className={recommendedFreq === 'quarterly' ? 'text-green-700 font-medium' : 'text-amber font-medium'}>
+                      {recommendedFreq === 'quarterly' ? 'Quarterly' : 'Monthly'} filing applies.
+                    </span>
+                  </p>
+                )}
+              </div>
+
+              {/* Year-to-date barrels — for mid-year setup */}
+              <div>
+                <Field label="Year-to-Date Barrels Already Removed (optional)">
+                  <input type="number" min="0" step="0.001"
+                    value={calcProfile.excise_tax_ytd_paid}
+                    onChange={e => setCalcProfile(p => ({ ...p, excise_tax_ytd_paid: e.target.value }))}
+                    placeholder="0.000" className={inputCls} />
+                </Field>
+                <p className="text-xs text-gray-500 mt-1.5">
+                  Only needed if you are setting up mid-year and have already removed barrels for
+                  sale this calendar year before using this calculator. Enter 0 if starting fresh
+                  or starting in January. Prior periods you save below will automatically update this.
+                </p>
+              </div>
+
+              <button
+                onClick={async () => { await handleSaveCalcProfile(); setProfileCollapsed(true) }}
+                disabled={calcProfileSaving}
+                className="bg-amber hover:bg-amber-dark text-white text-sm font-semibold px-6 py-2.5 rounded-lg transition-colors disabled:opacity-60">
+                {calcProfileSaving ? 'Saving…' : 'Save Brewery Profile'}
+              </button>
             </div>
           )}
-
-          <div className="mt-3 p-3 bg-gray-50 rounded-lg text-xs text-gray-600">
-            <strong>Filing frequency:</strong>{' '}
-            {currentFreq.charAt(0).toUpperCase() + currentFreq.slice(1)}
-            {currentFreq !== 'monthly' && (
-              <span className="ml-1">
-                — Quarterly filing is available if your annual excise tax liability is $50,000 or less.
-                Most small craft breweries qualify.
-              </span>
-            )}
-          </div>
-
-          <button onClick={handleSaveCalcProfile} disabled={calcProfileSaving}
-            className="mt-4 bg-amber hover:bg-amber-dark text-white text-sm font-semibold px-5 py-2 rounded-lg transition-colors disabled:opacity-60">
-            {calcProfileSaving ? 'Saving…' : 'Save Profile'}
-          </button>
         </div>
 
-        {/* ── Section 2: Period Calculator ── */}
+        {/* ── STEP 2 — Calculate This Filing Period ── */}
         <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-5">
-          <h3 className="font-semibold text-navy">Period Calculator</h3>
+          <div>
+            <p className="text-xs font-bold text-amber uppercase tracking-wide">Step 2</p>
+            <h3 className="font-bold text-navy mt-0.5">
+              Calculate This {currentFreq === 'monthly' ? 'Month' : 'Quarter'}
+            </h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Select a period and enter your barrel removals to calculate what you owe.
+            </p>
+          </div>
 
-          {/* Period selector row */}
+          {/* Period selector */}
           <div className="flex flex-wrap gap-3 items-end">
             <div>
               <label className="text-sm font-medium text-navy block mb-1">Year</label>
@@ -1369,90 +1475,115 @@ export default function TtbPage() {
             </div>
             <button onClick={() => loadExcisePeriod(calcYear, calcPeriodNum)} disabled={periodLoading}
               className="bg-navy hover:opacity-90 text-white text-sm font-semibold px-5 py-2 rounded-lg transition-colors disabled:opacity-60">
-              {periodLoading ? 'Loading…' : 'Load Period'}
+              {periodLoading ? 'Loading…' : existingPeriodRow ? 'Reload Period' : 'Load Period'}
             </button>
           </div>
 
-          {/* Barrel input form — shown after a period is loaded */}
-          {periodFormVisible && (
-            <div className="border-t border-gray-100 pt-5 space-y-4">
+          {/* Barrel inputs — shown once a period is loaded or form is touched */}
+          {periodFormReady && (
+            <div className="border-t border-gray-100 pt-5 space-y-5">
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Field label="Barrels Produced This Period"
-                  extra={autoFilledProduced && !existingPeriodRow ? '📊 Auto-filled from brew days — verify' : undefined}>
-                  <input type="number" min="0" step="0.001"
-                    value={periodForm.barrels_produced}
-                    onChange={e => setPeriodForm(p => ({ ...p, barrels_produced: e.target.value }))}
-                    placeholder="0.000" className={inputCls} />
-                </Field>
-                <Field label="Barrels Removed for Consumption / Sale">
+              {/* Primary: barrels removed for sale — the taxable base */}
+              <div>
+                <Field label="Barrels Removed for Consumption or Sale"
+                  extra={autoFilledProduced && !existingPeriodRow ? '📊 Auto-filled from Brew Day records — verify' : undefined}
+                  required>
                   <input type="number" min="0" step="0.001"
                     value={periodForm.barrels_removed_sale}
                     onChange={e => setPeriodForm(p => ({ ...p, barrels_removed_sale: e.target.value }))}
                     placeholder="0.000" className={inputCls} />
                 </Field>
+                <p className="text-xs text-gray-500 mt-1.5">
+                  Enter the total barrels of beer you removed from your brewery for sale or
+                  consumption this period. <strong>This is what TTB taxes</strong> — not what you produced.
+                  {autoFilledProduced && !existingPeriodRow && (
+                    <span className="block mt-0.5 text-amber">
+                      Verify this matches your actual removals and adjust if needed.
+                    </span>
+                  )}
+                </p>
               </div>
 
+              {/* Exemptions — export, transfers, destruction */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <Field label="Barrels Removed for Export (exempt)">
-                  <input type="number" min="0" step="0.001"
-                    value={periodForm.barrels_removed_export}
-                    onChange={e => setPeriodForm(p => ({ ...p, barrels_removed_export: e.target.value }))}
-                    placeholder="0.000" className={inputCls} />
-                </Field>
-                <Field label="Barrels Removed for Destruction">
-                  <input type="number" min="0" step="0.001"
-                    value={periodForm.barrels_removed_destruction}
-                    onChange={e => setPeriodForm(p => ({ ...p, barrels_removed_destruction: e.target.value }))}
-                    placeholder="0.000" className={inputCls} />
-                </Field>
-                <Field label="Barrels Transferred (alt. proprietors)">
-                  <input type="number" min="0" step="0.001"
-                    value={periodForm.barrels_transferred}
-                    onChange={e => setPeriodForm(p => ({ ...p, barrels_transferred: e.target.value }))}
-                    placeholder="0.000" className={inputCls} />
-                </Field>
+                <div>
+                  <Field label="Barrels Removed for Export (if any)">
+                    <input type="number" min="0" step="0.001"
+                      value={periodForm.barrels_removed_export}
+                      onChange={e => setPeriodForm(p => ({ ...p, barrels_removed_export: e.target.value }))}
+                      placeholder="0.000" className={inputCls} />
+                  </Field>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Beer exported outside the US is exempt from federal excise tax. Enter 0 if not applicable.
+                  </p>
+                </div>
+                <div>
+                  <Field label="Barrels Transferred to Another Brewery (if any)">
+                    <input type="number" min="0" step="0.001"
+                      value={periodForm.barrels_transferred}
+                      onChange={e => setPeriodForm(p => ({ ...p, barrels_transferred: e.target.value }))}
+                      placeholder="0.000" className={inputCls} />
+                  </Field>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Transfers to alternating proprietors or other licensed breweries. Enter 0 if not applicable.
+                  </p>
+                </div>
+                <div>
+                  <Field label="Barrels Removed for Destruction/Waste (if any)">
+                    <input type="number" min="0" step="0.001"
+                      value={periodForm.barrels_removed_destruction}
+                      onChange={e => setPeriodForm(p => ({ ...p, barrels_removed_destruction: e.target.value }))}
+                      placeholder="0.000" className={inputCls} />
+                  </Field>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Beer destroyed under TTB supervision may be exempt. Enter 0 if not applicable.
+                  </p>
+                </div>
               </div>
 
-              {/* Live calculation summary — shown as soon as any barrel value is entered */}
-              {showCalcSummary && (
-                <div className="bg-navy text-white rounded-xl p-5 font-mono text-sm leading-relaxed">
-                  <p className="font-bold text-amber mb-3 font-sans text-base">Calculation Summary</p>
+              {/* ── LIVE CALCULATION — updates in real time as barrels are entered ── */}
+              {showLiveCalc && (
+                <div className="bg-navy text-white rounded-xl p-5 space-y-4">
+                  <p className="font-bold text-amber text-base tracking-wide">HOW YOUR TAX IS CALCULATED</p>
 
-                  {/* Step 1: Taxable barrel derivation */}
-                  <div className="space-y-1">
+                  {/* Part 1: Taxable barrel derivation
+                      Formula: taxable = removed_sale − exports − transfers − destruction */}
+                  <div className="font-mono text-sm space-y-1.5">
+                    <p className="text-[10px] text-gray-400 font-sans uppercase tracking-widest mb-2">Taxable Barrels This Period</p>
                     <div className="flex justify-between">
-                      <span className="text-gray-300">Barrels removed for sale this period:</span>
+                      <span className="text-gray-300">Total barrels removed this period:</span>
                       <span>{(parseFloat(periodForm.barrels_removed_sale) || 0).toFixed(3)} bbl</span>
                     </div>
                     {parseFloat(periodForm.barrels_removed_export) > 0 && (
                       <div className="flex justify-between text-gray-400">
-                        <span>Less: Export exemption:</span>
-                        <span>−{(parseFloat(periodForm.barrels_removed_export) || 0).toFixed(3)} bbl</span>
-                      </div>
-                    )}
-                    {parseFloat(periodForm.barrels_removed_destruction) > 0 && (
-                      <div className="flex justify-between text-gray-400">
-                        <span>Less: Destruction exemption:</span>
-                        <span>−{(parseFloat(periodForm.barrels_removed_destruction) || 0).toFixed(3)} bbl</span>
+                        <span>Less export exemption:</span>
+                        <span>− {(parseFloat(periodForm.barrels_removed_export) || 0).toFixed(3)} bbl</span>
                       </div>
                     )}
                     {parseFloat(periodForm.barrels_transferred) > 0 && (
                       <div className="flex justify-between text-gray-400">
-                        <span>Less: Transfers:</span>
-                        <span>−{(parseFloat(periodForm.barrels_transferred) || 0).toFixed(3)} bbl</span>
+                        <span>Less transfers:</span>
+                        <span>− {(parseFloat(periodForm.barrels_transferred) || 0).toFixed(3)} bbl</span>
                       </div>
                     )}
-                    <div className="flex justify-between border-t border-gray-600 pt-1 font-semibold">
+                    {parseFloat(periodForm.barrels_removed_destruction) > 0 && (
+                      <div className="flex justify-between text-gray-400">
+                        <span>Less destruction exemption:</span>
+                        <span>− {(parseFloat(periodForm.barrels_removed_destruction) || 0).toFixed(3)} bbl</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between border-t border-gray-600 pt-1.5 font-semibold">
                       <span>Taxable barrels this period:</span>
                       <span>{calcResult.taxable.toFixed(3)} bbl</span>
                     </div>
                   </div>
 
-                  {/* Step 2: YTD position */}
-                  <div className="mt-3 pt-3 border-t border-gray-600 space-y-1">
+                  {/* Part 2: YTD position + threshold progress bar
+                      cumulative = priorYTDBarrels + taxable this period */}
+                  <div className="font-mono text-sm space-y-1.5 border-t border-gray-700 pt-4">
+                    <p className="text-[10px] text-gray-400 font-sans uppercase tracking-widest mb-2">Year-to-Date Tracking</p>
                     <div className="flex justify-between text-gray-300">
-                      <span>Year-to-date removals (prior periods):</span>
+                      <span>YTD barrels removed (prior periods):</span>
                       <span>{priorYTDBarrels.toFixed(3)} bbl</span>
                     </div>
                     <div className="flex justify-between">
@@ -1461,82 +1592,68 @@ export default function TtbPage() {
                         calcResult.cumulativeAfter > 60_000 ? 'text-red-400 font-bold'
                         : calcResult.cumulativeAfter > 50_000 ? 'text-amber font-semibold'
                         : 'text-green-400'
-                      }>
-                        {calcResult.cumulativeAfter.toFixed(3)} bbl
-                      </span>
+                      }>{calcResult.cumulativeAfter.toFixed(3)} bbl</span>
                     </div>
+
+                    {/* Progress toward 60,000 bbl threshold — small brewers only */}
+                    {isSmallBrewer && calcResult.cumulativeAfter > 0 && (
+                      <div className="mt-2 font-sans">
+                        <div className="flex justify-between text-xs text-gray-400 mb-1">
+                          <span>Progress toward 60,000 bbl threshold:</span>
+                          <span>{Math.min(100, thresholdPct).toFixed(1)}%</span>
+                        </div>
+                        <div className="w-full bg-gray-700 rounded-full h-2.5">
+                          <div className={`h-2.5 rounded-full transition-all duration-300 ${thresholdBarCls}`}
+                            style={{ width: `${Math.min(100, thresholdPct)}%` }} />
+                        </div>
+                        {thresholdPct >= 83 && thresholdPct < 100 && (
+                          <p className="text-xs text-amber mt-1.5">
+                            ⚠ You are within {Math.round(60_000 - calcResult.cumulativeAfter).toLocaleString()} barrels of the $16.00/bbl rate threshold. Plan accordingly.
+                          </p>
+                        )}
+                        {thresholdPct >= 100 && (
+                          <p className="text-xs text-red-400 mt-1.5">
+                            Threshold exceeded — all additional barrels this year are taxed at $16.00/bbl.
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
 
-                  {/* Step 3: Rate tier breakdown */}
-                  <div className="mt-3 pt-3 border-t border-gray-600 space-y-1">
-                    <p className="text-gray-300 mb-1">Rate calculation:</p>
+                  {/* Part 3: Tax calculation — rate tier breakdown
+                      Small brewer: taxable × $3.50 (up to 60k threshold), overflow × $16.00
+                      Large brewer: taxable × $16.00 (up to 6M), overflow × $18.00 */}
+                  <div className="font-mono text-sm space-y-1.5 border-t border-gray-700 pt-4">
+                    <p className="text-[10px] text-gray-400 font-sans uppercase tracking-widest mb-2">Tax Calculation</p>
                     {calcResult.at350 > 0 && (
-                      <div className="flex justify-between pl-4">
-                        <span className="text-gray-300">Barrels at $3.50/bbl:</span>
+                      <div className="flex justify-between">
+                        <span className="text-gray-300">Barrels at $3.50/bbl (up to 60,000 threshold):</span>
                         <span>{calcResult.at350.toFixed(3)} bbl = {fmtCurrency(calcResult.at350 * 3.50)}</span>
                       </div>
                     )}
                     {calcResult.at1600small > 0 && (
-                      <div className="flex justify-between pl-4">
-                        <span className="text-gray-300">Barrels at $16.00/bbl:</span>
+                      <div className="flex justify-between">
+                        <span className="text-gray-300">Barrels at $16.00/bbl (above threshold):</span>
                         <span>{calcResult.at1600small.toFixed(3)} bbl = {fmtCurrency(calcResult.at1600small * 16.00)}</span>
                       </div>
                     )}
                     {calcResult.at1600large > 0 && (
-                      <div className="flex justify-between pl-4">
+                      <div className="flex justify-between">
                         <span className="text-gray-300">Barrels at $16.00/bbl:</span>
                         <span>{calcResult.at1600large.toFixed(3)} bbl = {fmtCurrency(calcResult.at1600large * 16.00)}</span>
                       </div>
                     )}
                     {calcResult.at1800 > 0 && (
-                      <div className="flex justify-between pl-4">
+                      <div className="flex justify-between">
                         <span className="text-gray-300">Barrels at $18.00/bbl:</span>
                         <span>{calcResult.at1800.toFixed(3)} bbl = {fmtCurrency(calcResult.at1800 * 18.00)}</span>
                       </div>
                     )}
-                    <div className="flex justify-between border-t border-gray-600 pt-2 mt-1 text-base font-bold">
+                    <div className="flex justify-between border-t border-gray-600 pt-2 mt-1 text-lg font-bold">
                       <span>EXCISE TAX OWED THIS PERIOD:</span>
                       <span className="text-amber">{fmtCurrency(calcResult.tax)}</span>
                     </div>
                   </div>
-
-                  {/* YTD context */}
-                  <div className="mt-3 pt-3 border-t border-gray-600 space-y-1 text-gray-300">
-                    <div className="flex justify-between">
-                      <span>Year-to-date excise tax paid ({calcYear}):</span>
-                      <span>{fmtCurrency(ytdTaxPaid)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Projected annual excise tax:</span>
-                      <span>{fmtCurrency(calcResult.tax * (currentFreq === 'quarterly' ? 4 : currentFreq === 'monthly' ? 12 : 1))}</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Threshold progress bar — small brewers only */}
-              {calcResult.isSmallBrewer && calcResult.cumulativeAfter > 0 && (
-                <div className={`p-4 rounded-xl border ${progressBorder}`}>
-                  <div className="flex flex-wrap justify-between items-center text-sm mb-2 gap-1">
-                    <span className="font-semibold text-navy">60,000 Barrel Threshold</span>
-                    <span className="text-gray-500 text-xs">
-                      {Math.round(calcResult.cumulativeAfter).toLocaleString()} of 60,000 bbl used ({ytdPercent.toFixed(1)}%)
-                    </span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-3">
-                    <div className={`h-3 rounded-full transition-all duration-300 ${progressColor}`}
-                      style={{ width: `${ytdPercent}%` }} />
-                  </div>
-                  {ytdPercent >= 83 && ytdPercent < 100 && (
-                    <p className="text-xs text-amber mt-2 font-medium">
-                      ⚠️ Approaching threshold — barrels above 60,000 will be taxed at $16.00/bbl instead of $3.50/bbl.
-                    </p>
-                  )}
-                  {ytdPercent >= 100 && (
-                    <p className="text-xs text-danger mt-2 font-medium">
-                      Threshold exceeded — all additional barrels this year are taxed at $16.00/bbl.
-                    </p>
-                  )}
                 </div>
               )}
 
@@ -1563,39 +1680,149 @@ export default function TtbPage() {
               <div className="flex items-center gap-3">
                 <button onClick={handleSavePeriod} disabled={periodSaving}
                   className="bg-amber hover:bg-amber-dark text-white text-sm font-semibold px-6 py-2.5 rounded-lg transition-colors disabled:opacity-60">
-                  {periodSaving ? 'Saving…' : existingPeriodRow ? 'Update Period' : 'Save Period'}
+                  {periodSaving ? 'Saving…' : existingPeriodRow ? 'Update This Period' : 'Save This Period'}
                 </button>
-                {periodSaved && <span className="text-sm text-success font-medium">✓ Saved</span>}
+                {periodSaved && <span className="text-sm text-success font-medium">Period saved ✓</span>}
               </div>
             </div>
           )}
 
-          {/* Empty prompt — shown before a period is loaded */}
-          {!periodFormVisible && !periodLoading && (
+          {/* Prompt shown before a period is loaded */}
+          {!periodFormReady && !periodLoading && (
             <p className="text-sm text-gray-400 text-center py-4">
               Select a year and period above, then click <strong>Load Period</strong> to begin.
             </p>
           )}
         </div>
 
-        {/* ── Section 3: Filing History ── */}
+        {/* ── STEP 3 — Your Tax Summary Dashboard ── */}
+        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-5">
+          <div>
+            <p className="text-xs font-bold text-amber uppercase tracking-wide">Step 3</p>
+            <h3 className="font-bold text-navy mt-0.5">Your Tax Summary</h3>
+            <p className="text-xs text-gray-500 mt-0.5">Your complete excise tax picture for {calcYear}.</p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+
+            {/* This Period card */}
+            <div className="rounded-xl border border-navy/10 bg-navy/5 p-4">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">This Period</p>
+              {showLiveCalc ? (
+                <>
+                  <p className="text-3xl font-bold text-navy leading-none">{fmtCurrency(calcResult.tax)}</p>
+                  <p className="text-xs text-gray-500 mt-1.5">{periodLabel} {calcYear} · Excise tax owed</p>
+                  <span className={`mt-2 inline-block text-xs font-semibold px-2 py-0.5 rounded-full capitalize ${
+                    periodForm.status === 'paid'  ? 'bg-green-100 text-green-700'
+                    : periodForm.status === 'filed' ? 'bg-blue-100 text-blue-700'
+                    : 'bg-gray-100 text-gray-600'
+                  }`}>{periodForm.status}</span>
+                </>
+              ) : (
+                <p className="text-sm text-gray-400">Enter barrels removed in Step 2 to see this period's tax.</p>
+              )}
+            </div>
+
+            {/* Year-to-Date card */}
+            <div className="rounded-xl border border-navy/10 bg-navy/5 p-4">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Year-to-Date {calcYear}</p>
+              {yearPeriods.length > 0 ? (
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Barrels removed YTD:</span>
+                    <span className="font-medium text-navy">{ytdTaxableBarrels.toFixed(3)} bbl</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Tax owed YTD:</span>
+                    <span className="font-medium text-navy">{fmtCurrency(ytdTaxOwed)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Tax paid YTD:</span>
+                    <span className="font-medium text-success">{fmtCurrency(ytdTaxPaid)}</span>
+                  </div>
+                  {ytdOutstanding > 0 && (
+                    <div className="flex justify-between border-t border-gray-200 pt-2 mt-1">
+                      <span className="text-gray-600 font-medium">Outstanding:</span>
+                      <span className="font-bold text-danger">{fmtCurrency(ytdOutstanding)}</span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400">No periods saved for {calcYear} yet.</p>
+              )}
+            </div>
+
+            {/* Full Year Projection card */}
+            <div className="rounded-xl border border-navy/10 bg-navy/5 p-4">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Full Year Projection</p>
+              {completedPeriods > 0 ? (
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Avg barrels per period:</span>
+                    <span className="font-medium text-navy">{avgBarrelsPerPeriod.toFixed(3)} bbl</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Remaining periods:</span>
+                    <span className="font-medium text-navy">{remainingPeriods}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Projected total barrels:</span>
+                    <span className="font-medium text-navy">{projectedTotalBbls.toFixed(3)} bbl</span>
+                  </div>
+                  <div className="flex justify-between border-t border-gray-200 pt-2 mt-1">
+                    <span className="text-gray-600 font-medium">Projected total tax:</span>
+                    <span className="font-bold text-navy">{fmtCurrency(projectedTotalTax)}</span>
+                  </div>
+                  {projectedRemaining > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Projected still to pay:</span>
+                      <span className="font-semibold text-danger">{fmtCurrency(projectedRemaining)}</span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400">Save at least one period to see the full year projection.</p>
+              )}
+            </div>
+          </div>
+
+          {/* Summary sentence */}
+          {completedPeriods > 0 && (
+            <div className="bg-amber/5 border border-amber/20 rounded-lg px-4 py-3 text-sm text-gray-700 leading-relaxed">
+              Based on your current pace you will remove approximately{' '}
+              <strong className="text-navy">{Math.round(projectedTotalBbls).toLocaleString()} barrels</strong> this year
+              with an estimated total federal excise tax liability of{' '}
+              <strong className="text-navy">{fmtCurrency(projectedTotalTax)}</strong>.
+              You have paid <strong className="text-success">{fmtCurrency(ytdTaxPaid)}</strong> so far
+              {projectedRemaining > 0
+                ? <>, leaving an estimated <strong className="text-danger">{fmtCurrency(projectedRemaining)}</strong> still to pay.</>
+                : ' and you are on track — no projected balance remaining.'
+              }
+            </div>
+          )}
+        </div>
+
+        {/* ── Filing History table ── */}
         {excisePeriods.filter(p => p.period_type === periodType).length > 0 && (
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
               <h3 className="font-semibold text-navy">Filing History</h3>
-              <span className="text-xs text-gray-400">{currentFreq.charAt(0).toUpperCase() + currentFreq.slice(1)} periods</span>
+              <span className="text-xs text-gray-400">
+                {currentFreq.charAt(0).toUpperCase() + currentFreq.slice(1)} · {calcYear}
+              </span>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[720px]">
+              <table className="w-full text-sm min-w-[640px]">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
-                    {['Period', 'Taxable Bbl', 'Tax Owed', 'Cumulative YTD', 'Status', 'Filed Date', 'Paid Date', ''].map(h => (
+                    {['Period', 'Taxable Bbl', 'Tax Rate', 'Tax Owed', 'Status', 'Actions'].map(h => (
                       <th key={h} className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {excisePeriods.filter(p => p.period_type === periodType).map(p => {
+                    // taxable = removed_sale − exports − destruction − transfers
                     const taxable = Math.max(0,
                       (parseFloat(p.barrels_removed_sale)        || 0)
                       - (parseFloat(p.barrels_removed_export)      || 0)
@@ -1605,20 +1832,18 @@ export default function TtbPage() {
                     return (
                       <tr key={p.id} className="hover:bg-gray-50 transition-colors">
                         <td className="px-3 py-3 font-medium text-navy whitespace-nowrap">{excisePeriodLabel(p)}</td>
-                        <td className="px-3 py-3 text-gray-600">{taxable.toFixed(3)}</td>
-                        <td className="px-3 py-3 font-semibold text-navy">{fmtCurrency(p.tax_owed)}</td>
+                        <td className="px-3 py-3 text-gray-600">{taxable.toFixed(3)} bbl</td>
                         <td className="px-3 py-3 text-gray-600">
-                          {p.cumulative_barrels_ytd != null ? Number(p.cumulative_barrels_ytd).toFixed(3) : '—'}
+                          {p.tax_rate_applied != null ? `$${Number(p.tax_rate_applied).toFixed(2)}/bbl` : '—'}
                         </td>
+                        <td className="px-3 py-3 font-semibold text-navy">{fmtCurrency(p.tax_owed)}</td>
                         <td className="px-3 py-3">
                           <span className={`text-xs font-semibold px-2 py-0.5 rounded-full capitalize ${
-                            p.status === 'paid'     ? 'bg-green-100 text-green-700'
-                            : p.status === 'filed'  ? 'bg-blue-100 text-blue-700'
+                            p.status === 'paid'    ? 'bg-green-100 text-green-700'
+                            : p.status === 'filed' ? 'bg-blue-100 text-blue-700'
                             : 'bg-gray-100 text-gray-600'
                           }`}>{p.status}</span>
                         </td>
-                        <td className="px-3 py-3 text-gray-500 whitespace-nowrap">{fmtDate(p.filed_date)}</td>
-                        <td className="px-3 py-3 text-gray-500 whitespace-nowrap">{fmtDate(p.payment_date)}</td>
                         <td className="px-3 py-3">
                           <div className="flex gap-2 whitespace-nowrap">
                             {p.status === 'estimated' && (
@@ -1640,24 +1865,26 @@ export default function TtbPage() {
                     )
                   })}
                 </tbody>
-                {/* Summary footer row */}
-                <tfoot className="bg-gray-50 border-t-2 border-gray-200 font-semibold">
+                {/* Totals row */}
+                <tfoot className="bg-gray-50 border-t-2 border-gray-200 font-semibold text-sm">
                   <tr>
                     <td className="px-3 py-3 text-navy">{calcYear} Total</td>
                     <td className="px-3 py-3 text-navy">
                       {yearPeriods.reduce((s, p) => s + Math.max(0,
-                        (parseFloat(p.barrels_removed_sale) || 0)
-                        - (parseFloat(p.barrels_removed_export) || 0)
+                        (parseFloat(p.barrels_removed_sale)        || 0)
+                        - (parseFloat(p.barrels_removed_export)      || 0)
                         - (parseFloat(p.barrels_removed_destruction) || 0)
-                        - (parseFloat(p.barrels_transferred) || 0)
+                        - (parseFloat(p.barrels_transferred)         || 0)
                       ), 0).toFixed(3)} bbl
                     </td>
+                    <td className="px-3 py-3 text-gray-400">—</td>
                     <td className="px-3 py-3 text-navy">{fmtCurrency(ytdTaxOwed)}</td>
-                    <td className="px-3 py-3 text-gray-500">—</td>
-                    <td colSpan={3} className="px-3 py-3 text-gray-600">
+                    <td className="px-3 py-3 text-gray-600">
                       Paid: <span className="text-success">{fmtCurrency(ytdTaxPaid)}</span>
                       {ytdOutstanding > 0 && (
-                        <span className="ml-3">Outstanding: <span className="text-danger">{fmtCurrency(ytdOutstanding)}</span></span>
+                        <span className="ml-2">
+                          Outstanding: <span className="text-danger">{fmtCurrency(ytdOutstanding)}</span>
+                        </span>
                       )}
                     </td>
                     <td />
