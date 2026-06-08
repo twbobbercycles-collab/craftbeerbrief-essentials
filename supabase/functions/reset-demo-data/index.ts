@@ -224,6 +224,7 @@ Deno.serve(async (req) => {
     brewHazy:       crypto.randomUUID(),
     brewPivot:      crypto.randomUUID(),
     brewStout:      crypto.randomUUID(),
+    brewBaseline:   crypto.randomUUID(),
     // Vessels
     vessel1:        crypto.randomUUID(),
     vessel2:        crypto.randomUUID(),
@@ -331,7 +332,7 @@ Deno.serve(async (req) => {
       { id: ids.brewHazy,  brewery_id: b, batch_number: 'ADP-2026-001', recipe_id: ids.recipeHazyV2,  recipe_name: 'Adaptive Hazy IPA', beer_style: 'New England IPA',   status: 'completed', brew_date: '2026-03-10', planned_batch_size: 15, planned_batch_unit: 'barrels', target_og: 1.065, target_brewhouse_efficiency: 75, actual_og: 1.066, actual_brewhouse_efficiency: 74, volume_into_fermenter: 14.8, yeast_strain: 'US-05', brewer_name: 'Alex Rivera' },
       { id: ids.brewPivot, brewery_id: b, batch_number: 'ADP-2026-002', recipe_id: ids.recipePivot,   recipe_name: 'Pivot Pale Ale',    beer_style: 'American Pale Ale', status: 'completed', brew_date: '2026-04-07', planned_batch_size: 15, planned_batch_unit: 'barrels', target_og: 1.052, target_brewhouse_efficiency: 75, actual_og: 1.053, actual_brewhouse_efficiency: 72, volume_into_fermenter: 14.5, yeast_strain: 'US-05', brewer_name: 'Alex Rivera' },
       { id: ids.brewStout, brewery_id: b, batch_number: 'ADP-2026-003', recipe_id: ids.recipeStout,   recipe_name: 'Margin Stout',      beer_style: 'American Stout',    status: 'completed', brew_date: '2026-05-01', planned_batch_size: 10, planned_batch_unit: 'barrels', target_og: 1.072, target_brewhouse_efficiency: 73, actual_og: 1.071, actual_brewhouse_efficiency: 71, volume_into_fermenter: 9.8,  yeast_strain: 'US-05', brewer_name: 'Sam Patel' },
-      {                    brewery_id: b, batch_number: 'ADP-2026-004', recipe_id: ids.recipeBaseline, recipe_name: 'Baseline Lager',    beer_style: 'American Lager',    status: 'scheduled', brew_date: scheduledBrewStr, planned_batch_size: 20, planned_batch_unit: 'barrels', target_og: 1.048, target_brewhouse_efficiency: 75, yeast_strain: 'US-05', brewer_name: 'Alex Rivera' },
+      { id: ids.brewBaseline, brewery_id: b, batch_number: 'ADP-2026-004', recipe_id: ids.recipeBaseline, recipe_name: 'Baseline Lager',    beer_style: 'American Lager',    status: 'scheduled', brew_date: scheduledBrewStr, planned_batch_size: 20, planned_batch_unit: 'barrels', target_og: 1.048, target_brewhouse_efficiency: 75, yeast_strain: 'US-05', brewer_name: 'Alex Rivera' },
     ])
     check(bdErr, 'insert brew_days')
 
