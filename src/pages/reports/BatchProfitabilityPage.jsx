@@ -35,6 +35,11 @@ function fmtDate(dateStr) {
   })
 }
 
+function fmtCurrency(val) {
+  if (val == null || isNaN(parseFloat(val))) return '—'
+  return '$' + parseFloat(val).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
 // ── Status pipeline ───────────────────────────────────────────────────────────
 
 function deriveBatchStatus(batch) {
@@ -141,6 +146,29 @@ function BatchDetail({ batch }) {
   // Cost variance: actual - planned. Positive = over budget (bad).
   const costVariance = batch.actual_cost_per_pint != null && batch.recipe_cost_per_pint != null
     ? parseFloat(batch.actual_cost_per_pint) - parseFloat(batch.recipe_cost_per_pint)
+    : null
+
+  // Revenue and profit from distribution records
+  const actualRevenue     = parseFloat(batch.actual_revenue || 0) > 0 ? parseFloat(batch.actual_revenue) : null
+  const actualGrossProfit = actualRevenue != null && batch.actual_gross_profit != null
+    ? parseFloat(batch.actual_gross_profit)
+    : null
+  const actualGrossMarginPct = actualRevenue != null && actualGrossProfit != null
+    ? (actualGrossProfit / actualRevenue) * 100
+    : null
+
+  // Planned revenue = planned price per pint × packaged pints
+  const plannedRevenue = plannedPrice != null && batch.total_volume_packaged != null
+    ? plannedPrice * parseFloat(batch.total_volume_packaged) * 124
+    : null
+  const plannedGrossProfit = plannedRevenue != null && batch.total_planned_cost != null
+    ? plannedRevenue - parseFloat(batch.total_planned_cost)
+    : null
+  const revenueVariance = plannedRevenue != null && actualRevenue != null
+    ? actualRevenue - plannedRevenue
+    : null
+  const profitVariance = plannedGrossProfit != null && actualGrossProfit != null
+    ? actualGrossProfit - plannedGrossProfit
     : null
 
   // Build a merged list of container types from planned and actual splits
@@ -314,10 +342,34 @@ function BatchDetail({ batch }) {
               value={fmt$(actualPrice)}
             />
           </div>
+          {actualRevenue != null && (
+            <div className="mt-4 pt-4 border-t border-gray-100">
+              <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                Distribution Revenue
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-4">
+                <MetricCell label="Actual Revenue"      value={fmtCurrency(actualRevenue)} highlight="green" />
+                <MetricCell
+                  label="Actual Gross Profit"
+                  value={actualGrossProfit != null ? fmtCurrency(actualGrossProfit) : '—'}
+                  highlight={actualGrossProfit != null ? (actualGrossProfit >= 0 ? 'green' : 'red') : null}
+                />
+                <MetricCell
+                  label="Actual Gross Margin"
+                  value={actualGrossMarginPct != null ? fmtPct(actualGrossMarginPct) : '—'}
+                  highlight={actualGrossMarginPct != null ? (actualGrossMarginPct >= 40 ? 'green' : 'red') : null}
+                />
+                <MetricCell
+                  label="Units Sold"
+                  value={`${batch.total_units_sold ?? 0} units · ${batch.delivery_count ?? 0} ${parseInt(batch.delivery_count ?? 0) === 1 ? 'delivery' : 'deliveries'}`}
+                />
+              </div>
+            </div>
+          )}
           {batch.target_margin_percentage != null && plannedPrice != null && (
             <p className="text-xs text-gray-400 mt-3">
               Price estimates use the recipe's target margin ({fmtPct(batch.target_margin_percentage)}) applied to actual cost.
-              Record distribution sales to track real revenue.
+              {actualRevenue == null && ' No distribution records found for this batch — assign distribution in the Distribution module to track real revenue.'}
             </p>
           )}
         </section>
@@ -357,6 +409,26 @@ function BatchDetail({ batch }) {
               goodWhenNegative={true}
             />
           </div>
+          {(revenueVariance != null || plannedRevenue != null) && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+              <VarianceCard
+                label="Revenue vs Target"
+                planned={plannedRevenue != null ? fmtCurrency(plannedRevenue) : '—'}
+                actual={actualRevenue != null ? fmtCurrency(actualRevenue) : '—'}
+                variance={revenueVariance}
+                formatFn={v => fmtCurrency(v)}
+                goodWhenNegative={false}
+              />
+              <VarianceCard
+                label="Gross Profit vs Target"
+                planned={plannedGrossProfit != null ? fmtCurrency(plannedGrossProfit) : '—'}
+                actual={actualGrossProfit != null ? fmtCurrency(actualGrossProfit) : '—'}
+                variance={profitVariance}
+                formatFn={v => fmtCurrency(v)}
+                goodWhenNegative={false}
+              />
+            </div>
+          )}
         </section>
 
       </div>
@@ -399,6 +471,7 @@ export default function BatchProfitabilityPage() {
     const withActualCost = batches.filter(b => b.actual_cost_per_pint != null)
     const withYield      = batches.filter(b => b.packaging_yield_percentage != null)
     const completed      = batches.filter(b => b.packaging_status === 'complete')
+    const withRevenue    = batches.filter(b => parseFloat(b.actual_revenue || 0) > 0)
 
     function avg(arr, key) {
       return arr.length > 0
@@ -408,6 +481,24 @@ export default function BatchProfitabilityPage() {
 
     const avgPlanCost   = avg(withPlanCost, 'recipe_cost_per_pint')
     const avgActualCost = avg(withActualCost, 'actual_cost_per_pint')
+    const totalRevenue  = withRevenue.length > 0
+      ? withRevenue.reduce((s, b) => s + parseFloat(b.actual_revenue), 0)
+      : null
+
+    const withGrossProfit = batches.filter(b =>
+      parseFloat(b.actual_revenue || 0) > 0 && b.actual_gross_profit != null
+    )
+    const avgGrossMarginPct = withGrossProfit.length > 0
+      ? withGrossProfit.reduce((s, b) =>
+          s + (parseFloat(b.actual_gross_profit) / parseFloat(b.actual_revenue) * 100), 0
+        ) / withGrossProfit.length
+      : null
+
+    const bestBatch = withGrossProfit.length > 0
+      ? withGrossProfit.reduce((best, b) =>
+          parseFloat(b.actual_gross_profit) > parseFloat(best.actual_gross_profit) ? b : best
+        )
+      : null
 
     return {
       totalBatches:     batches.length,
@@ -417,7 +508,10 @@ export default function BatchProfitabilityPage() {
       costDelta: avgPlanCost != null && avgActualCost != null
         ? avgActualCost - avgPlanCost
         : null,
-      avgYield: avg(withYield, 'packaging_yield_percentage'),
+      avgYield:          avg(withYield, 'packaging_yield_percentage'),
+      totalRevenue,
+      avgGrossMarginPct,
+      bestBatch,
     }
   }, [batches])
 
@@ -469,6 +563,25 @@ export default function BatchProfitabilityPage() {
                 ? portfolioStats.costDelta <= 0
                 : null
             }
+          />
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+          <SummaryCard
+            label="Total Actual Revenue"
+            value={portfolioStats.totalRevenue != null ? fmtCurrency(portfolioStats.totalRevenue) : '—'}
+            subtext={portfolioStats.totalRevenue != null ? 'from distribution records' : 'No sales recorded yet'}
+          />
+          <SummaryCard
+            label="Avg Gross Margin"
+            value={portfolioStats.avgGrossMarginPct != null ? fmtPct(portfolioStats.avgGrossMarginPct) : '—'}
+            subtext={portfolioStats.avgGrossMarginPct != null ? 'across batches with sales' : null}
+          />
+          <SummaryCard
+            label="Best Batch Profit"
+            value={portfolioStats.bestBatch?.actual_gross_profit != null
+              ? fmtCurrency(portfolioStats.bestBatch.actual_gross_profit)
+              : '—'}
+            subtext={portfolioStats.bestBatch?.beer_name ?? null}
           />
         </div>
 
