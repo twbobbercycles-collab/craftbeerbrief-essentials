@@ -237,6 +237,8 @@ Deno.serve(async (req) => {
     // Packaging
     pkgHazy:        crypto.randomUUID(),
     bpkgHazy:       crypto.randomUUID(),
+    pkgPivot:       crypto.randomUUID(),
+    bpkgPivot:      crypto.randomUUID(),
     // Distribution accounts
     distRetailer1:  crypto.randomUUID(),
     distRetailer2:  crypto.randomUUID(),
@@ -381,7 +383,9 @@ Deno.serve(async (req) => {
 
     // ── Packaging Runs ────────────────────────────────────────────────────────
     const { error: prErr } = await svc.from('packaging_runs').insert([
-      { id: ids.pkgHazy, brewery_id: b, fermentation_id: ids.fermHazy, batch_package_id: ids.bpkgHazy, batch_number: 'ADP-2026-001', beer_name: 'Adaptive Hazy IPA', beer_style: 'New England IPA', packaging_date: '2026-03-28', status: 'complete', volume_from_fermenter: 14.8, total_volume_packaged: 14.2, packaging_yield_percentage: 95.9, recipe_cost_per_pint: 0.95, actual_splits: [{ type: '16oz Cans', units: 1820 }, { type: '1/6 barrel keg', units: 24 }, { type: 'Taproom Draft 16oz', units: 185 }], planned_splits: [{ type: '16oz Cans', units: 1860 }, { type: '1/6 barrel keg', units: 24 }, { type: 'Taproom Draft 16oz', units: 185 }] },
+      { id: ids.pkgHazy,  brewery_id: b, fermentation_id: ids.fermHazy,  batch_package_id: ids.bpkgHazy, batch_number: 'ADP-2026-001', beer_name: 'Adaptive Hazy IPA', beer_style: 'New England IPA',   packaging_date: '2026-03-28',                              status: 'complete', volume_from_fermenter: 14.8, total_volume_packaged: 14.2, packaging_yield_percentage: 95.9, recipe_cost_per_pint: 0.95, actual_splits: [{ type: '16oz Cans', units: 1820 }, { type: '1/6 barrel keg', units: 24 }, { type: 'Taproom Draft 16oz', units: 185 }], planned_splits: [{ type: '16oz Cans', units: 1860 }, { type: '1/6 barrel keg', units: 24 }, { type: 'Taproom Draft 16oz', units: 185 }] },
+      // Pivot Pale Ale — planned packaging run (ready to package)
+      { id: ids.pkgPivot, brewery_id: b, fermentation_id: ids.fermPivot,                                  batch_number: 'ADP-2026-002', beer_name: 'Pivot Pale Ale',    beer_style: 'American Pale Ale', packaging_date: new Date().toISOString().split('T')[0], status: 'planned',  volume_from_fermenter: 14.5,                                                   recipe_cost_per_pint: 0.82,                                                                                                                                                                                                                            planned_splits: [{ type: '16oz Cans', units: 1780 }, { type: '1/6 barrel keg', units: 20 }, { type: 'Taproom Draft 16oz', units: 160 }] },
     ])
     check(prErr, 'insert packaging_runs')
 
@@ -395,20 +399,20 @@ Deno.serve(async (req) => {
 
     // ── Distribution Accounts (4) ─────────────────────────────────────────────
     const { error: daErr } = await svc.from('distribution_accounts').insert([
-      { id: ids.distRetailer1, brewery_id: b, account_name: 'The Taproom District',        account_type: 'bar',      contact_name: 'Marcus Webb',  contact_email: 'marcus@taproomdistrict.example', contact_phone: '555-0201', payment_terms: 'net_30', is_active: true },
-      { id: ids.distRetailer2, brewery_id: b, account_name: 'Independent Bottle Shop',     account_type: 'retailer', contact_name: 'Sarah Kim',    contact_email: 'sarah@indbottle.example',         contact_phone: '555-0202', payment_terms: 'net_15', is_active: true },
-      { id: ids.distBar1,      brewery_id: b, account_name: 'Craft & Draft Bar',           account_type: 'bar',      contact_name: 'Dave Torres',  contact_email: 'dave@craftdraft.example',          contact_phone: '555-0203', payment_terms: 'cod',    is_active: true },
-      { id: ids.distTaproom,   brewery_id: b, account_name: 'Adaptive Taproom (in-house)', account_type: 'taproom',  is_active: true },
+      { id: ids.distRetailer1, brewery_id: b, account_name: 'The Taproom District',        account_type: 'bar',      contact_name: 'Marcus Webb',  contact_email: 'marcus@taproomdistrict.example', contact_phone: '555-0201', payment_terms: 'net_30', is_active: true, pricing: [{ package_type: '1/6 barrel keg',     price_per_unit: 145.00 }] },
+      { id: ids.distRetailer2, brewery_id: b, account_name: 'Independent Bottle Shop',     account_type: 'retailer', contact_name: 'Sarah Kim',    contact_email: 'sarah@indbottle.example',         contact_phone: '555-0202', payment_terms: 'net_15', is_active: true, pricing: [{ package_type: '16oz Cans',           price_per_unit: 1.85   }] },
+      { id: ids.distBar1,      brewery_id: b, account_name: 'Craft & Draft Bar',           account_type: 'bar',      contact_name: 'Dave Torres',  contact_email: 'dave@craftdraft.example',          contact_phone: '555-0203', payment_terms: 'cod',    is_active: true, pricing: [{ package_type: '1/6 barrel keg',     price_per_unit: 140.00 }] },
+      { id: ids.distTaproom,   brewery_id: b, account_name: 'Adaptive Taproom (in-house)', account_type: 'taproom',  is_active: true,                                                                                                                                              pricing: [{ package_type: 'Taproom Draft 16oz', price_per_unit: 7.50   }] },
     ])
     check(daErr, 'insert distribution_accounts')
 
     // ── Distribution Records (5) ──────────────────────────────────────────────
     const { error: drErr } = await svc.from('distribution_records').insert([
-      { brewery_id: b, batch_package_id: ids.bpkgHazy, account_id: ids.distRetailer1, account_name: 'The Taproom District',        account_type: 'bar',      package_type: '1/6 barrel keg',     quantity: 10,  delivery_date: '2026-03-30', price_per_unit: 145.00, returnable_kegs: true,  keg_return_date: new Date(new Date('2026-03-30').getTime() + 20 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] },
-      { brewery_id: b, batch_package_id: ids.bpkgHazy, account_id: ids.distRetailer2, account_name: 'Independent Bottle Shop',     account_type: 'retailer', package_type: '16oz Cans',          quantity: 240, delivery_date: '2026-03-30', price_per_unit: 1.85 },
-      { brewery_id: b, batch_package_id: ids.bpkgHazy, account_id: ids.distBar1,      account_name: 'Craft & Draft Bar',           account_type: 'bar',      package_type: '1/6 barrel keg',     quantity: 8,   delivery_date: '2026-04-01', price_per_unit: 140.00, returnable_kegs: true,  keg_return_date: new Date(new Date('2026-04-01').getTime() + 60 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] },
-      { brewery_id: b, batch_package_id: ids.bpkgHazy, account_id: ids.distTaproom,   account_name: 'Adaptive Taproom (in-house)', account_type: 'taproom',  package_type: 'Taproom Draft 16oz', quantity: 185, delivery_date: '2026-03-28', price_per_unit: 7.50 },
-      { brewery_id: b, batch_package_id: ids.bpkgHazy, account_id: ids.distRetailer1, account_name: 'The Taproom District',        account_type: 'bar',      package_type: '1/6 barrel keg',     quantity: 6,   delivery_date: '2026-04-05', price_per_unit: 145.00, returnable_kegs: true,  keg_return_date: new Date(new Date('2026-04-05').getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] },
+      { brewery_id: b, batch_package_id: ids.bpkgHazy, account_id: ids.distRetailer1, account_name: 'The Taproom District',        account_type: 'bar',      package_type: '1/6 barrel keg',     quantity: 10,  delivery_date: '2026-03-30', sale_price_per_unit: 145.00, ingredient_cost_per_unit: 0.95, returnable_kegs: true,  keg_return_date: new Date(new Date('2026-03-30').getTime() + 20 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] },
+      { brewery_id: b, batch_package_id: ids.bpkgHazy, account_id: ids.distRetailer2, account_name: 'Independent Bottle Shop',     account_type: 'retailer', package_type: '16oz Cans',          quantity: 240, delivery_date: '2026-03-30', sale_price_per_unit: 1.85,   ingredient_cost_per_unit: 0.95 },
+      { brewery_id: b, batch_package_id: ids.bpkgHazy, account_id: ids.distBar1,      account_name: 'Craft & Draft Bar',           account_type: 'bar',      package_type: '1/6 barrel keg',     quantity: 8,   delivery_date: '2026-04-01', sale_price_per_unit: 140.00, ingredient_cost_per_unit: 0.95, returnable_kegs: true,  keg_return_date: new Date(new Date('2026-04-01').getTime() + 60 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] },
+      { brewery_id: b, batch_package_id: ids.bpkgHazy, account_id: ids.distTaproom,   account_name: 'Adaptive Taproom (in-house)', account_type: 'taproom',  package_type: 'Taproom Draft 16oz', quantity: 185, delivery_date: '2026-03-28', sale_price_per_unit: 7.50,   ingredient_cost_per_unit: 0.95 },
+      { brewery_id: b, batch_package_id: ids.bpkgHazy, account_id: ids.distRetailer1, account_name: 'The Taproom District',        account_type: 'bar',      package_type: '1/6 barrel keg',     quantity: 6,   delivery_date: '2026-04-05', sale_price_per_unit: 145.00, ingredient_cost_per_unit: 0.95, returnable_kegs: true,  keg_return_date: new Date(new Date('2026-04-05').getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] },
     ])
     check(drErr, 'insert distribution_records')
 
