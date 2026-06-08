@@ -455,6 +455,9 @@ export default function BatchProfitabilityPage() {
       .from('batch_profitability_summary')
       .select('*')
       .order('brew_date', { ascending: false })
+    console.log('Batch profitability data:', data)
+    console.log('First batch actual_revenue:', data?.[0]?.actual_revenue)
+    console.log('First batch batch_package_id:', data?.[0]?.batch_package_id)
     if (error) {
       console.error('Error loading batch profitability:', error)
     } else {
