@@ -430,9 +430,9 @@ Deno.serve(async (req) => {
 
     // ── Wholesale Accounts (3) ────────────────────────────────────────────────
     const { error: waErr } = await svc.from('wholesale_accounts').insert([
-      { brewery_id: b, account_name: 'The Taproom District',    account_type: 'bar',      status: 'active', contacts: [{ name: 'Marcus Webb',  phone: '555-0201', email: 'marcus@taproomdistrict.example', title: 'Buyer' }],   last_contact_date: '2026-05-01', next_followup_date: new Date(new Date().getTime() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], notes: 'Best account — orders consistently, pays on time' },
+      { brewery_id: b, account_name: 'The Taproom District',    account_type: 'bar',      status: 'active', contacts: [{ name: 'Marcus Webb',  phone: '555-0201', email: 'marcus@taproomdistrict.example', title: 'Buyer' }],   last_contact_date: '2026-05-01', next_followup_date: new Date(new Date().getTime() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], relationship_notes: 'Best account — orders consistently, pays on time' },
       { brewery_id: b, account_name: 'Independent Bottle Shop', account_type: 'retailer', status: 'active', contacts: [{ name: 'Sarah Kim',   phone: '555-0202', email: 'sarah@indbottle.example',         title: 'Owner' }],   last_contact_date: '2026-05-01', next_followup_date: new Date(new Date().getTime() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] },
-      { brewery_id: b, account_name: 'Craft & Draft Bar',       account_type: 'bar',      status: 'active', contacts: [{ name: 'Dave Torres', phone: '555-0203', email: 'dave@craftdraft.example',          title: 'Manager' }], last_contact_date: '2026-04-28', next_followup_date: new Date(new Date().getTime() + 7  * 24 * 60 * 60 * 1000).toISOString().split('T')[0], notes: 'Slow keg returns — follow up on outstanding kegs' },
+      { brewery_id: b, account_name: 'Craft & Draft Bar',       account_type: 'bar',      status: 'active', contacts: [{ name: 'Dave Torres', phone: '555-0203', email: 'dave@craftdraft.example',          title: 'Manager' }], last_contact_date: '2026-04-28', next_followup_date: new Date(new Date().getTime() + 7  * 24 * 60 * 60 * 1000).toISOString().split('T')[0], relationship_notes: 'Slow keg returns — follow up on outstanding kegs' },
     ])
     check(waErr, 'insert wholesale_accounts')
 
