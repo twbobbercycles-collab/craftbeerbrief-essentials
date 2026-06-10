@@ -4627,6 +4627,28 @@ function SupplierIntelligenceTab({ ingredients, transactions, purchaseOrders, br
     (packagingMaterials ?? []).filter(m => m.is_active !== false),
   [packagingMaterials])
 
+  // Items available in the price trend dropdown — filtered by the active Supplier Directory catFilter
+  const trendItems = useMemo(() => {
+    if (catFilter === 'Packaging') {
+      return activePkgMaterials.map(m => ({ ...m, _source: 'packaging' }))
+    }
+    if (catFilter === 'Parts') {
+      return activeIngredients.filter(i => PARTS_CATS.includes(i.category)).map(i => ({ ...i, _source: 'part' }))
+    }
+    if (catFilter === 'Ingredients') {
+      return activeIngredients.filter(i => !PARTS_CATS.includes(i.category)).map(i => ({ ...i, _source: 'ingredient' }))
+    }
+    // All — ingredients first, then packaging, then parts
+    return [
+      ...activeIngredients.filter(i => !PARTS_CATS.includes(i.category)).map(i => ({ ...i, _source: 'ingredient' })),
+      ...activePkgMaterials.map(m => ({ ...m, _source: 'packaging' })),
+      ...activeIngredients.filter(i => PARTS_CATS.includes(i.category)).map(i => ({ ...i, _source: 'part' })),
+    ]
+  }, [catFilter, activeIngredients, activePkgMaterials])
+
+  // Clear selected item whenever the category filter changes to avoid stale cross-category selection
+  useEffect(() => { setSelectedIngId('') }, [catFilter])
+
   // ── Section 1: Summary card computations ─────────────────────────────────
 
   // Count of distinct supplier names across all active items (ingredients + packaging materials)
@@ -5053,7 +5075,7 @@ function SupplierIntelligenceTab({ ingredients, transactions, purchaseOrders, br
       <section>
         <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Price Trend Analysis</h3>
 
-        {/* Item selector — picking an item triggers the Supabase fetch (ingredients + parts only) */}
+        {/* Item selector — filtered by the active category filter above */}
         <div className="mb-4">
           <select
             value={selectedIngId}
@@ -5061,9 +5083,47 @@ function SupplierIntelligenceTab({ ingredients, transactions, purchaseOrders, br
             className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber w-full sm:w-80"
           >
             <option value="">Select an item to view price trends…</option>
-            {activeIngredients.map(i => (
-              <option key={i.id} value={i.id}>{i.name}</option>
-            ))}
+            {catFilter === 'All' ? (
+              <>
+                {/* Group into three sections when showing all */}
+                {trendItems.filter(i => i._source === 'ingredient').length > 0 && (
+                  <optgroup label="Ingredients">
+                    {trendItems.filter(i => i._source === 'ingredient').map(i => (
+                      <option key={i.id} value={i.id}>{i.name}</option>
+                    ))}
+                  </optgroup>
+                )}
+                {trendItems.filter(i => i._source === 'packaging').length > 0 && (
+                  <optgroup label="Packaging Materials">
+                    {trendItems.filter(i => i._source === 'packaging').map(i => (
+                      <option key={i.id} value={i.id}>{i.name}</option>
+                    ))}
+                  </optgroup>
+                )}
+                {trendItems.filter(i => i._source === 'part').length > 0 && (
+                  <optgroup label="Parts &amp; Supplies">
+                    {trendItems.filter(i => i._source === 'part').map(i => (
+                      <option key={i.id} value={i.id}>{i.name}</option>
+                    ))}
+                  </optgroup>
+                )}
+              </>
+            ) : (
+              // For a specific filter, group by item category
+              (() => {
+                const groups = {}
+                for (const item of trendItems) {
+                  const cat = item.category ?? 'Other'
+                  if (!groups[cat]) groups[cat] = []
+                  groups[cat].push(item)
+                }
+                return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b)).map(([cat, items]) => (
+                  <optgroup key={cat} label={cat}>
+                    {items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                  </optgroup>
+                ))
+              })()
+            )}
           </select>
         </div>
 
