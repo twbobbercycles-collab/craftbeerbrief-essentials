@@ -148,6 +148,9 @@ Deno.serve(async (req) => {
     'tracked_bills',
     'keg_deposit_records',
     'keg_fleet',
+    'equipment_maintenance_schedules',
+    'equipment_maintenance',
+    'equipment_assets',
     'excise_tax_periods',
     'taproom_metrics',
     'staff_training_records',
@@ -267,6 +270,21 @@ Deno.serve(async (req) => {
     pkgMat6:        crypto.randomUUID(),
     pkgMat7:        crypto.randomUUID(),
     pkgMat8:        crypto.randomUUID(),
+    // Equipment
+    equip1:         crypto.randomUUID(),
+    equip2:         crypto.randomUUID(),
+    equip3:         crypto.randomUUID(),
+    equip4:         crypto.randomUUID(),
+    equip5:         crypto.randomUUID(),
+    equip6:         crypto.randomUUID(),
+    equip7:         crypto.randomUUID(),
+    maint1:         crypto.randomUUID(),
+    maint2:         crypto.randomUUID(),
+    maint3:         crypto.randomUUID(),
+    sched1:         crypto.randomUUID(),
+    sched2:         crypto.randomUUID(),
+    sched3:         crypto.randomUUID(),
+    sched4:         crypto.randomUUID(),
   }
 
   const b = breweryId
@@ -551,6 +569,44 @@ Deno.serve(async (req) => {
       { brewery_id: b, account_name: 'Craft & Draft Bar',    keg_type: 'Sixth Barrel (5.16 gal)', kegs_out: 8,  deposit_per_keg: 25.00 },
     ])
     check(kdErr, 'insert keg_deposit_records')
+
+    // ── Equipment Assets ──────────────────────────────────────────────────────
+    const { error: eqErr } = await svc.from('equipment_assets').insert([
+      { id: ids.equip1, brewery_id: b, asset_name: 'Primary Conical 1',      asset_category: 'Fermentation & Conditioning', asset_type: 'Conical Fermenter',         manufacturer: 'SS Brewtech',      model_number: 'TC-15',    serial_number: 'SSB-2019-0441', purchase_date: '2019-06-01', purchase_price: 4800,  warranty_expiration_date: '2022-06-01', location: 'Fermentation Room', capacity_specs: '15 bbl, jacketed, temp controlled',          vendor_name: 'SS Brewtech',                   status: 'active', contacts: [{ name: 'Sales Team',         title: 'Vendor Support',   phone: '877-441-2739', email: 'sales@ssbrewtech.com' }] },
+      { id: ids.equip2, brewery_id: b, asset_name: 'Primary Conical 2',      asset_category: 'Fermentation & Conditioning', asset_type: 'Conical Fermenter',         manufacturer: 'SS Brewtech',      model_number: 'TC-15',    serial_number: 'SSB-2019-0442', purchase_date: '2019-06-01', purchase_price: 4800,  warranty_expiration_date: '2022-06-01', location: 'Fermentation Room', capacity_specs: '15 bbl, jacketed, temp controlled',          vendor_name: 'SS Brewtech',                   status: 'active', contacts: [] },
+      { id: ids.equip3, brewery_id: b, asset_name: 'Uni-Tank A',             asset_category: 'Fermentation & Conditioning', asset_type: 'Unitank',                   manufacturer: 'Spike Brewing',    model_number: 'UT-30',    serial_number: 'SPK-2021-1187', purchase_date: '2021-03-15', purchase_price: 8200,  warranty_expiration_date: '2024-03-15', location: 'Fermentation Room', capacity_specs: '30 bbl, pressure rated, CIP compatible',     vendor_name: 'Spike Brewing',                 status: 'active', contacts: [{ name: 'Customer Service',   title: 'Support',          phone: '414-364-9535', email: 'support@spikebrewing.com' }] },
+      { id: ids.equip4, brewery_id: b, asset_name: 'Wort Transfer Pump',     asset_category: 'Pumps & Transfer Equipment',  asset_type: 'Centrifugal Pump',          manufacturer: 'March Pumps',      model_number: '809-HS',   serial_number: 'MRC-2020-5521', purchase_date: '2020-02-01', purchase_price: 650,   warranty_expiration_date: '2022-02-01', location: 'Brewhouse',         capacity_specs: '15 GPM, 1/2 HP, tri-clamp fittings',        vendor_name: 'MoreBeer',                      status: 'active', contacts: [{ name: 'MoreBeer Support',   title: 'Technical Support', phone: '800-600-0033', email: 'support@morebeer.com' }] },
+      { id: ids.equip5, brewery_id: b, asset_name: 'Glycol Chiller',         asset_category: 'Glycol & Temperature Systems', asset_type: 'Glycol Chiller',           manufacturer: 'Penguin Chillers', model_number: 'PC-1000',  serial_number: 'PGN-2019-0882', purchase_date: '2019-06-01', purchase_price: 3200,  warranty_expiration_date: '2022-06-01', location: 'Utility Room',      capacity_specs: '1 ton cooling capacity, 120V',               vendor_name: 'Penguin Chillers',              status: 'active', contacts: [{ name: 'Service Dept',       title: 'Technical Service', phone: '888-601-6688', email: 'service@penguinchillers.com' }] },
+      { id: ids.equip6, brewery_id: b, asset_name: 'Keg Washer',             asset_category: 'CIP & Cleaning Systems',      asset_type: 'Keg Washer (automated)',    manufacturer: 'Crawford Brewing', model_number: 'KW-AUTO',  serial_number: 'CRW-2021-0334', purchase_date: '2021-05-01', purchase_price: 2800,  warranty_expiration_date: '2023-05-01', location: 'Packaging Area',    capacity_specs: 'Dual reservoir, touch screen, 120VAC',       vendor_name: 'Crawford Brewing Equipment',    status: 'active', contacts: [{ name: 'Crawford Support',   title: 'Service',           phone: '800-555-0188', email: 'info@brewtanks.com' }] },
+      { id: ids.equip7, brewery_id: b, asset_name: 'Draft System',           asset_category: 'Taproom & Draft Systems',     asset_type: 'Draft System',              manufacturer: 'Perlick',          model_number: 'GS12',     serial_number: 'PRL-2020-7741', purchase_date: '2020-08-01', purchase_price: 3600,  warranty_expiration_date: '2022-08-01', location: 'Taproom',           capacity_specs: '12 taps, glycol cooled, stainless faucets',  vendor_name: 'Perlick Corporation',           status: 'active', contacts: [{ name: 'Perlick Service',    title: 'Technical Support', phone: '800-558-5592', email: 'service@perlick.com' }] },
+    ])
+    check(eqErr, 'insert equipment_assets')
+
+    // ── Equipment Maintenance Records ─────────────────────────────────────────
+    const { error: emErr } = await svc.from('equipment_maintenance').insert([
+      { id: ids.maint1, brewery_id: b, asset_id: ids.equip1, maintenance_type: 'Routine Cleaning',       maintenance_date: '2026-04-15', performed_by: 'Sam Patel',                       description: 'Full CIP cycle on Primary Conical 1. Caustic wash, acid rinse, and sanitizer pass. Inspected all gaskets and replaced 2 worn tri-clamp gaskets.', parts_replaced: '2x 1.5" tri-clamp gaskets', cost: 12.50,  next_maintenance_date: new Date(new Date().getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], passed: true },
+      { id: ids.maint2, brewery_id: b, asset_id: ids.equip4, maintenance_type: 'Preventive Maintenance', maintenance_date: '2026-03-20', performed_by: 'Alex Rivera',                     description: 'Wort transfer pump inspection. Checked impeller, seals, and fittings. All in good condition. Lubricated motor bearings.',                         parts_replaced: null,                        cost: 0,      next_maintenance_date: new Date(new Date().getTime() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], passed: true },
+      { id: ids.maint3, brewery_id: b, asset_id: ids.equip5, maintenance_type: 'Annual Service',         maintenance_date: '2026-01-10', performed_by: 'Penguin Chillers Service Tech',   description: 'Annual glycol chiller service. Checked refrigerant levels, inspected compressor, cleaned condenser coils, verified thermostat calibration.',         parts_replaced: 'Condenser coil filter',     cost: 285.00, next_maintenance_date: '2027-01-10',                                                                            passed: true },
+    ])
+    check(emErr, 'insert equipment_maintenance')
+
+    // ── Equipment Maintenance Schedules ───────────────────────────────────────
+    const _overdueDate = new Date(_today); _overdueDate.setDate(_today.getDate() - 5)
+    const overdueStr = _overdueDate.toISOString().split('T')[0]
+    const _due14 = new Date(_today); _due14.setDate(_today.getDate() + 14)
+    const due14Str = _due14.toISOString().split('T')[0]
+    const _due45 = new Date(_today); _due45.setDate(_today.getDate() + 45)
+    const due45Str = _due45.toISOString().split('T')[0]
+    const _due90 = new Date(_today); _due90.setDate(_today.getDate() + 90)
+    const due90Str = _due90.toISOString().split('T')[0]
+
+    const { error: esErr } = await svc.from('equipment_maintenance_schedules').insert([
+      { id: ids.sched1, brewery_id: b, asset_id: ids.equip1, maintenance_type: 'Routine Cleaning',       frequency: 'Monthly',    frequency_days: 30, last_performed_date: '2026-04-15', next_due_date: overdueStr, alert_days_before: 7,  is_active: true, notes: 'Full CIP cycle after every 4 brews or monthly — whichever comes first' },
+      { id: ids.sched2, brewery_id: b, asset_id: ids.equip5, maintenance_type: 'Inspection',             frequency: 'Monthly',    frequency_days: 30, last_performed_date: '2026-04-20', next_due_date: due14Str,   alert_days_before: 14, is_active: true, notes: 'Check glycol level, temperature differential, and condenser cleanliness' },
+      { id: ids.sched3, brewery_id: b, asset_id: ids.equip4, maintenance_type: 'Preventive Maintenance', frequency: 'Quarterly',  frequency_days: 90, last_performed_date: '2026-03-20', next_due_date: due45Str,   alert_days_before: 14, is_active: true, notes: 'Inspect impeller, seals, fittings, lubricate bearings' },
+      { id: ids.sched4, brewery_id: b, asset_id: ids.equip7, maintenance_type: 'Routine Cleaning',       frequency: 'Weekly',     frequency_days: 7,  last_performed_date: new Date(new Date().getTime() - 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], next_due_date: due90Str, alert_days_before: 3, is_active: true, notes: 'Clean tap lines, faucets, and drip trays. Check for off-flavors.' },
+    ])
+    check(esErr, 'insert equipment_maintenance_schedules')
 
     // ── Tracked Bills ─────────────────────────────────────────────────────────
     const { error: tbErr } = await svc.from('tracked_bills').insert([
