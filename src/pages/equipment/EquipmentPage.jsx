@@ -558,6 +558,9 @@ function AssetRegistryTab({
                     <p className="text-gray-400">No maintenance scheduled</p>
                   )}
                   {asset.vendor_name && <p>Vendor: {asset.vendor_name}</p>}
+                  {Array.isArray(asset.contacts) && asset.contacts[0]?.name && (
+                    <p className="text-gray-500">Contact: {asset.contacts[0].name}{asset.contacts[0].phone ? ` · ${asset.contacts[0].phone}` : ''}</p>
+                  )}
                 </div>
 
                 {/* Action buttons */}
@@ -858,32 +861,61 @@ function AddAssetModal({ breweryId, editAsset, onClose, onSuccess }) {
     location: '', capacity_specs: '',
     manufacturer: '', model_number: '', serial_number: '',
     purchase_date: '', purchase_price: '', warranty_expiration_date: '',
-    vendor_name: '', vendor_contact_name: '', vendor_phone: '', vendor_email: '',
+    vendor_name: '',
     notes: '',
   }
+  const EMPTY_CONTACT = { name: '', title: '', phone: '', email: '' }
+
+  // Read the saved draft once for initialization (avoid calling loadDraft twice)
+  const savedDraft = (() => {
+    if (isEdit) return null
+    try {
+      const raw = sessionStorage.getItem('modal_draft_add_asset')
+      return raw ? JSON.parse(raw) : null
+    } catch { return null }
+  })()
 
   const [form, setForm] = useState(() => {
     if (isEdit) return { ...EMPTY_FORM, ...editAsset, status: editAsset.status ?? 'Active' }
-    const saved = draft.loadDraft()
-    return saved ?? EMPTY_FORM
+    if (savedDraft) { draft.loadDraft() }  // trigger the draft-restored banner
+    return savedDraft ?? EMPTY_FORM
   })
+
+  // Contacts are stored separately from the flat form fields
+  const [contacts, setContacts] = useState(() => {
+    if (isEdit) {
+      const c = editAsset.contacts
+      return Array.isArray(c) && c.length > 0 ? c : [{ ...EMPTY_CONTACT }]
+    }
+    return savedDraft?.contacts ?? [{ ...EMPTY_CONTACT }]
+  })
+
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-  // Save draft on every change (skip in edit mode — drafts are for new assets only)
+  // Persist form + contacts to draft on every change (skip in edit mode)
   useEffect(() => {
-    if (!isEdit) draft.saveDraft(form)
-  }, [form])
+    if (!isEdit) draft.saveDraft({ ...form, contacts })
+  }, [form, contacts])
 
-  const isDirty = JSON.stringify(form) !== JSON.stringify(EMPTY_FORM)
+  const isDirty = JSON.stringify(form) !== JSON.stringify(EMPTY_FORM) || contacts.some(c => c.name || c.phone || c.email)
 
   function set(field, value) {
     setForm(prev => {
       const next = { ...prev, [field]: value }
-      // Reset asset_type when category changes
       if (field === 'asset_category') next.asset_type = ''
       return next
     })
+  }
+
+  function addContact() {
+    setContacts(prev => [...prev, { ...EMPTY_CONTACT }])
+  }
+  function updateContact(index, field, value) {
+    setContacts(prev => prev.map((c, i) => i === index ? { ...c, [field]: value } : c))
+  }
+  function removeContact(index) {
+    setContacts(prev => prev.filter((_, i) => i !== index))
   }
 
   async function handleSave() {
@@ -891,6 +923,9 @@ function AddAssetModal({ breweryId, editAsset, onClose, onSuccess }) {
     if (!form.asset_type) return setError('Asset type is required.')
     setError('')
     setSaving(true)
+
+    // Strip blank contacts before saving
+    const cleanContacts = contacts.filter(c => c.name.trim() || c.phone.trim() || c.email.trim())
 
     const payload = {
       brewery_id:               breweryId,
@@ -907,9 +942,7 @@ function AddAssetModal({ breweryId, editAsset, onClose, onSuccess }) {
       purchase_price:           form.purchase_price ? parseFloat(form.purchase_price) : null,
       warranty_expiration_date: form.warranty_expiration_date || null,
       vendor_name:              form.vendor_name.trim() || null,
-      vendor_contact_name:      form.vendor_contact_name.trim() || null,
-      vendor_phone:             form.vendor_phone.trim() || null,
-      vendor_email:             form.vendor_email.trim() || null,
+      contacts:                 cleanContacts,
       notes:                    form.notes.trim() || null,
     }
 
@@ -1033,33 +1066,63 @@ function AddAssetModal({ breweryId, editAsset, onClose, onSuccess }) {
           </div>
         </div>
 
-        {/* Section 3: Vendor Information */}
+        {/* Section 3: Vendor / Contacts */}
         <div>
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Vendor / Supplier</p>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Vendor / Contacts</p>
           <div className="space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Vendor Name</label>
-                <input type="text" value={form.vendor_name} onChange={e => set('vendor_name', e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Contact Name</label>
-                <input type="text" value={form.vendor_contact_name} onChange={e => set('vendor_contact_name', e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber" />
-              </div>
+            {/* Vendor company name — standalone field */}
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Vendor / Supplier Name</label>
+              <input type="text" value={form.vendor_name} onChange={e => set('vendor_name', e.target.value)}
+                placeholder="e.g. ABE Equipment, North Star Equipment"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber" />
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Vendor Phone</label>
-                <input type="tel" value={form.vendor_phone} onChange={e => set('vendor_phone', e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Vendor Email</label>
-                <input type="email" value={form.vendor_email} onChange={e => set('vendor_email', e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber" />
-              </div>
+
+            {/* Multi-contact list */}
+            <div className="space-y-3">
+              {contacts.map((contact, idx) => (
+                <div key={idx} className="border border-gray-200 rounded-lg p-3 space-y-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-semibold text-gray-600">
+                      {idx === 0 ? 'Primary Contact' : `Contact ${idx + 1}`}
+                    </span>
+                    {contacts.length > 1 && (
+                      <button type="button" onClick={() => removeContact(idx)}
+                        className="text-xs text-danger hover:underline">
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Name</label>
+                      <input type="text" value={contact.name} onChange={e => updateContact(idx, 'name', e.target.value)}
+                        placeholder="Full name"
+                        className="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Title / Role</label>
+                      <input type="text" value={contact.title} onChange={e => updateContact(idx, 'title', e.target.value)}
+                        placeholder="e.g. Sales Rep, Service Tech"
+                        className="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Phone</label>
+                      <input type="tel" value={contact.phone} onChange={e => updateContact(idx, 'phone', e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Email</label>
+                      <input type="email" value={contact.email} onChange={e => updateContact(idx, 'email', e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber" />
+                    </div>
+                  </div>
+                </div>
+              ))}
+              <button type="button" onClick={addContact}
+                className="text-xs text-amber font-semibold hover:underline flex items-center gap-1">
+                + Add Contact
+              </button>
             </div>
           </div>
         </div>
@@ -1137,10 +1200,22 @@ function AssetDetailModal({ asset, maintenance, schedules, today, onClose, onEdi
               <Field label="Purchase Price" value={asset.purchase_price ? `$${parseFloat(asset.purchase_price).toLocaleString()}` : null} />
               <Field label="Warranty Expiration" value={fmtDate(asset.warranty_expiration_date)} />
               <Field label="Vendor" value={asset.vendor_name} />
-              <Field label="Vendor Contact" value={asset.vendor_contact_name} />
-              <Field label="Vendor Phone" value={asset.vendor_phone} />
-              <Field label="Vendor Email" value={asset.vendor_email} />
             </div>
+            {/* Contacts list */}
+            {Array.isArray(asset.contacts) && asset.contacts.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-gray-500 mb-2">Contacts</p>
+                <div className="space-y-2">
+                  {asset.contacts.map((c, i) => (
+                    <div key={i} className="bg-gray-50 rounded-lg px-3 py-2 text-sm">
+                      <p className="font-medium text-gray-800">{c.name}{c.title ? <span className="font-normal text-gray-500"> · {c.title}</span> : null}</p>
+                      {c.phone && <p className="text-gray-600">{c.phone}</p>}
+                      {c.email && <p className="text-gray-600">{c.email}</p>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {asset.notes && (
               <div>
                 <p className="text-xs font-medium text-gray-500 mb-1">Notes</p>

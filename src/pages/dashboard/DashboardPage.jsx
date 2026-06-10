@@ -998,20 +998,30 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Equipment Maintenance widget — Operations+ only, hidden when no schedules exist */}
-          {hasAccess('operations') && equipmentStats.hasSchedules && (equipmentStats.overdueCount > 0 || equipmentStats.dueSoonCount > 0) && (
+          {/* Equipment Maintenance widget — Operations+ only, shown whenever schedules exist */}
+          {hasAccess('operations') && equipmentStats.hasSchedules && (
             <div className={`rounded-xl border px-4 py-3 flex items-center justify-between gap-4 flex-wrap text-sm
-              ${equipmentStats.overdueCount > 0 ? 'bg-red-50 border-danger' : 'bg-amber/10 border-amber'}`}>
+              ${equipmentStats.overdueCount > 0
+                ? 'bg-red-50 border-danger'
+                : equipmentStats.dueSoonCount > 0
+                  ? 'bg-amber/10 border-amber'
+                  : 'bg-green-50 border-green-400'}`}>
               <div>
-                <p className={`font-semibold ${equipmentStats.overdueCount > 0 ? 'text-danger' : 'text-amber-dark'}`}>
+                <p className={`font-semibold ${equipmentStats.overdueCount > 0 ? 'text-danger' : equipmentStats.dueSoonCount > 0 ? 'text-amber-dark' : 'text-green-700'}`}>
                   🔧 Equipment Maintenance
                 </p>
                 <div className="flex flex-wrap gap-3 mt-0.5 text-xs text-gray-600">
-                  {equipmentStats.overdueCount > 0 && (
-                    <span className="text-danger font-medium">{equipmentStats.overdueCount} asset{equipmentStats.overdueCount !== 1 ? 's' : ''} with overdue maintenance</span>
-                  )}
-                  {equipmentStats.dueSoonCount > 0 && (
-                    <span className="text-amber font-medium">{equipmentStats.dueSoonCount} asset{equipmentStats.dueSoonCount !== 1 ? 's' : ''} due within 30 days</span>
+                  {equipmentStats.overdueCount === 0 && equipmentStats.dueSoonCount === 0 ? (
+                    <span className="text-green-700 font-medium">All equipment maintenance up to date</span>
+                  ) : (
+                    <>
+                      {equipmentStats.overdueCount > 0 && (
+                        <span className="text-danger font-medium">{equipmentStats.overdueCount} asset{equipmentStats.overdueCount !== 1 ? 's' : ''} with overdue maintenance</span>
+                      )}
+                      {equipmentStats.dueSoonCount > 0 && (
+                        <span className="text-amber font-medium">{equipmentStats.dueSoonCount} asset{equipmentStats.dueSoonCount !== 1 ? 's' : ''} due within 30 days</span>
+                      )}
+                    </>
                   )}
                 </div>
               </div>

@@ -116,6 +116,7 @@ export default function CompliancePage() {
     ])
 
     setEquipmentSchedules(equipRes.data ?? [])
+    console.log('[CompliancePage] Equipment schedules loaded:', equipRes.data?.length)
 
     if (dlRes.error) { setLoadError('Failed to load deadlines. Try refreshing the page.') }
     setDocuments(docRes.data ?? [])
