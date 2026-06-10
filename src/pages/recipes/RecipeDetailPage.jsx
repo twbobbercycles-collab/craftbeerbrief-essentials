@@ -1936,17 +1936,19 @@ function PintGlassVisualization({ costs }) {
   const marginCPP       = Math.max(0, suggestedRetail - trueCostPerPint)
 
   const allLayers = [
-    { label: 'Grain & Malt',  color: '#92400E', cost: grainCostPerPint },
-    { label: 'Hops',          color: '#16A34A', cost: hopsCostPerPint },
-    { label: 'Yeast',         color: '#CA8A04', cost: yeastCostPerPint },
-    { label: 'Other Ingr.',   color: '#2563EB', cost: otherIngCostPerPint },
-    { label: 'Packaging',     color: '#64748B', cost: packagingCPP },
-    { label: 'Labor+Ovhd',    color: '#EA580C', cost: laborOvhdCPP },
-    { label: 'Excise Tax',    color: '#D97706', cost: exciseTaxPerPint },
-    { label: 'Margin',        color: '#1A2744', cost: marginCPP },
-  ].filter(l => l.cost > 0.000001)
+    { label: 'Grain & Malt',      color: '#92400E', costPerPint: grainCostPerPint },
+    { label: 'Hops',              color: '#16A34A', costPerPint: hopsCostPerPint },
+    { label: 'Yeast',             color: '#CA8A04', costPerPint: yeastCostPerPint },
+    { label: 'Other Ingredients', color: '#2563EB', costPerPint: otherIngCostPerPint },
+    { label: 'Packaging',         color: '#64748B', costPerPint: packagingCPP },
+    { label: 'Labor & Overhead',  color: '#EA580C', costPerPint: laborOvhdCPP },
+    { label: 'Excise Tax',        color: '#D97706', costPerPint: exciseTaxPerPint },
+    { label: "Brewer's Margin",   color: '#1A2744', costPerPint: marginCPP },
+  ]
+  const filledLayers   = allLayers.filter(l => l.costPerPint > 0.000001)
+  const hasEmptyLayers = filledLayers.length < allLayers.length
 
-  if (!suggestedRetail || suggestedRetail <= 0 || allLayers.length === 0) {
+  if (!suggestedRetail || suggestedRetail <= 0 || filledLayers.length === 0) {
     return (
       <div className="px-4 py-8 text-center text-xs text-gray-400">
         Add ingredients and set a target margin to see your pint breakdown.
@@ -1955,15 +1957,15 @@ function PintGlassVisualization({ costs }) {
   }
 
   // SVG coordinate constants
-  const VW = 560, VH = 520
-  const GT = 30, GB = 490       // glass top / bottom y  (height = 460)
-  const GH = GB - GT            // 460
-  const CX = 280                // center x
-  const HWT = 110, HWB = 72     // half-widths at top / bottom → 220px top, 144px bottom
+  const VW = 700, VH = 600
+  const GT = 30, GB = 550       // glass top / bottom y  (height = 520)
+  const GH = GB - GT            // 520
+  const CX = 350                // center x
+  const HWT = 90, HWB = 65      // half-widths at top / bottom → 180px top, 130px bottom
 
-  const FOAM_H = 50
-  const BT = GT + FOAM_H        // beer top y = 80
-  const BH = GB - BT            // beer height = 410
+  const FOAM_H = 60
+  const BT = GT + FOAM_H        // beer top y = 90
+  const BH = GB - BT            // beer height = 460
 
   function gLeft(y)  { return CX - HWT + (HWT - HWB) * (y - GT) / GH }
   function gRight(y) { return CX + HWT - (HWT - HWB) * (y - GT) / GH }
@@ -1976,10 +1978,10 @@ function PintGlassVisualization({ costs }) {
     `L${CX + HWT},${GT} L${CX - HWT},${GT} Z`,
   ].join(' ')
 
-  // Compute layer rects from bottom to top
+  // Compute layer rects from bottom to top (filled layers only)
   let curY = GB
-  const layerRects = [...allLayers].reverse().map(layer => {
-    const h    = Math.max((layer.cost / suggestedRetail) * BH, 1)
+  const layerRects = [...filledLayers].reverse().map(layer => {
+    const h    = Math.max((layer.costPerPint / suggestedRetail) * BH, 1)
     const topY = Math.max(curY - h, BT)
     const actualH = curY - topY
     const midY = topY + actualH / 2
@@ -1987,8 +1989,8 @@ function PintGlassVisualization({ costs }) {
     return { ...layer, topY, h: actualH, midY }
   }).reverse()
 
-  // Spread label Y positions to prevent overlap (26px minimum gap)
-  const MIN_GAP = 26
+  // Spread label Y positions to prevent overlap (32px minimum gap)
+  const MIN_GAP = 32
   const naturalYs = layerRects.map(lr => Math.min(Math.max(lr.midY, GT + 12), GB - 12))
 
   function spreadPositions(ys) {
@@ -2005,8 +2007,8 @@ function PintGlassVisualization({ costs }) {
   }
 
   const labelYs = spreadPositions(naturalYs)
-  const LLEFT = 135   // right-aligned left labels
-  const RLEFT = 390   // left-aligned right labels
+  const LLEFT = 110   // right-aligned left labels
+  const RLEFT = 470   // left-aligned right labels
 
   return (
     <div>
@@ -2027,7 +2029,7 @@ function PintGlassVisualization({ costs }) {
         {/* Beer layers — clipped to glass */}
         <g clipPath="url(#pint-clip)">
           {layerRects.map(lr => (
-            <rect key={lr.label} x="160" y={lr.topY} width="240" height={lr.h} fill={lr.color} opacity="0.88" />
+            <rect key={lr.label} x="250" y={lr.topY} width="200" height={lr.h} fill={lr.color} opacity="0.88" />
           ))}
           <path d={foamPath} fill="#FFF8E7" />
         </g>
@@ -2040,23 +2042,23 @@ function PintGlassVisualization({ costs }) {
           stroke="white" strokeWidth="7" opacity="0.35" clipPath="url(#pint-clip)" />
 
         {/* Foam label */}
-        <text x={CX} y={BT - 8} textAnchor="middle" fontSize="13" fill="#92400E" fontWeight="500">Foam</text>
+        <text x={CX} y={BT - 8} textAnchor="middle" fontSize="14" fill="#92400E" fontWeight="500">Foam</text>
 
         {/* Layer callout labels */}
         {layerRects.map((lr, i) => {
           const lY  = labelYs[i]
           const eL  = gLeft(Math.min(Math.max(lr.midY, GT + 1), GB - 1))
           const eR  = gRight(Math.min(Math.max(lr.midY, GT + 1), GB - 1))
-          const pct = suggestedRetail > 0 ? (lr.cost / suggestedRetail * 100).toFixed(0) : '0'
+          const pct = suggestedRetail > 0 ? (lr.costPerPint / suggestedRetail * 100).toFixed(0) : '0'
           return (
             <g key={lr.label}>
               <line x1={LLEFT + 3} y1={lY} x2={eL - 4} y2={lr.midY}
                 stroke="#CBD5E1" strokeWidth="1" strokeDasharray="3,3" />
-              <text x={LLEFT} y={lY + 4} textAnchor="end" fontSize="13" fill="#374151">{lr.label}</text>
+              <text x={LLEFT} y={lY + 4} textAnchor="end" fontSize="14" fill="#374151">{lr.label}</text>
               <line x1={eR + 4} y1={lr.midY} x2={RLEFT - 3} y2={lY}
                 stroke="#CBD5E1" strokeWidth="1" strokeDasharray="3,3" />
-              <text x={RLEFT} y={lY} fontSize="13" fill="#1A2744" fontWeight="600">${lr.cost.toFixed(3)}</text>
-              <text x={RLEFT} y={lY + 16} fontSize="11" fill="#6B7280">{pct}%</text>
+              <text x={RLEFT} y={lY} fontSize="14" fill="#1A2744" fontWeight="600">${lr.costPerPint.toFixed(3)}</text>
+              <text x={RLEFT} y={lY + 16} fontSize="12" fill="#6B7280">{pct}%</text>
             </g>
           )
         })}
@@ -2066,12 +2068,17 @@ function PintGlassVisualization({ costs }) {
       <div className="px-4 pb-3">
         <div className="grid grid-cols-2 gap-x-3 gap-y-1">
           {allLayers.map(l => (
-            <div key={l.label} className="flex items-center gap-1.5">
+            <div key={l.label} className="flex items-center gap-1.5" style={{ opacity: l.costPerPint > 0.000001 ? 1 : 0.4 }}>
               <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: l.color }} />
-              <span className="text-[10px] text-gray-500 leading-tight">{l.label}</span>
+              <span className="text-[13px] text-gray-500 leading-tight">
+                {l.label}{l.costPerPint <= 0.000001 && <span className="text-gray-400"> (not set)</span>}
+              </span>
             </div>
           ))}
         </div>
+        {hasEmptyLayers && (
+          <p className="text-xs text-gray-400 mt-2 text-center">⬜ Grayed items not yet entered in cost calculator</p>
+        )}
       </div>
     </div>
   )
@@ -2114,7 +2121,7 @@ function CostPanel({
     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden text-xs">
       <div className="flex flex-col lg:flex-row items-start">
         {/* ── Left column: all cost inputs, summary, pricing ── */}
-        <div className="w-full lg:w-[50%] divide-y divide-gray-100 lg:border-r border-gray-200">
+        <div className="w-full lg:w-[48%] divide-y divide-gray-100 lg:border-r border-gray-200">
       <div className="px-4 py-3">
         <h3 className="font-bold text-navy text-sm">Cost Calculator</h3>
       </div>
@@ -2373,7 +2380,7 @@ function CostPanel({
         </div>{/* end left column */}
 
         {/* ── Right column: pint glass visualization ── */}
-        <div className="w-full lg:w-[50%] self-start border-t border-gray-200 lg:border-t-0">
+        <div className="w-full lg:w-[52%] self-start border-t border-gray-200 lg:border-t-0">
           <PintGlassVisualization costs={costs} />
         </div>
       </div>{/* end flex row */}
@@ -2774,6 +2781,10 @@ function AddIngredientModal({
   const [unitConversionWarning, setUnitConversionWarning] = useState(false)
   const [unitConversionMsg, setUnitConversionMsg]         = useState(null)
 
+  // Ref so handleUnitChange always reads current form values, not a stale closure
+  const formRef = useRef(form)
+  useEffect(() => { formRef.current = form }, [form])
+
   // Restore / save draft (add mode only)
   useEffect(() => {
     if (!isOpen || isEditMode) return
@@ -2839,15 +2850,16 @@ function AddIngredientModal({
     ? parseFloat(selectedIng.ingredient_suppliers?.find(s => s.is_preferred)?.price_per_unit ?? selectedIng.current_price_per_unit ?? 0)
     : null
 
-  // Unit change — uses a single atomic setForm call so all three fields (unit,
-  // amount, price_per_unit) land in the same React state update with no stale reads.
+  // Unit change — reads current values from formRef to avoid stale closures,
+  // then applies a single atomic setForm update so all fields change together.
   // Batch total is preserved exactly: new_cost = batchTotal / new_amount.
   function handleUnitChange(newUnit) {
-    const currentAmount      = parseFloat(form.amount) || 0
-    const currentCostPerUnit = mode === 'other' ? parseFloat(form.price_per_unit) || 0 : 0
-    const batchTotal         = currentAmount * currentCostPerUnit  // never changes
+    const f                  = formRef.current
+    const currentAmount      = parseFloat(f.amount) || 0
+    const currentCostPerUnit = mode === 'other' ? parseFloat(f.price_per_unit) || 0 : 0
+    const batchTotal         = currentAmount * currentCostPerUnit
 
-    const amountResult = convertAmount(currentAmount, form.unit, newUnit)
+    const amountResult = convertAmount(currentAmount, f.unit, newUnit)
 
     if (amountResult.warning || amountResult.amount <= 0) {
       setForm(prev => ({ ...prev, unit: newUnit }))
@@ -2860,7 +2872,6 @@ function AddIngredientModal({
       ? parseFloat((batchTotal / amountResult.amount).toFixed(6))
       : null
 
-    // Single atomic update — no race condition possible
     setForm(prev => ({
       ...prev,
       unit:   newUnit,
@@ -2871,8 +2882,8 @@ function AddIngredientModal({
     setUnitConversionWarning(false)
     setUnitConversionMsg(
       newCostPerUnit !== null
-        ? `✓ Amount and cost converted: ${form.unit} → ${newUnit} (batch total preserved)`
-        : `✓ Amount converted: ${form.unit} → ${newUnit}`
+        ? `✓ Amount and cost converted: ${f.unit} → ${newUnit} (batch total preserved)`
+        : `✓ Amount converted: ${f.unit} → ${newUnit}`
     )
   }
 
