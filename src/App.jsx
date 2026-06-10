@@ -49,6 +49,7 @@ const BatchProfitabilityPage  = lazy(() => import('./pages/reports/BatchProfitab
 const AnalyticsPage           = lazy(() => import('./pages/analytics/AnalyticsPage'))
 const NewsPage                = lazy(() => import('./pages/news/NewsPage'))
 const LegislativePage         = lazy(() => import('./pages/legislative/LegislativePage'))
+const EquipmentPage           = lazy(() => import('./pages/equipment/EquipmentPage'))
 
 // Suspense fallback wraps all lazy pages — shows a spinner during code loading
 function PageLoader() {
@@ -132,6 +133,7 @@ export default function App() {
           <Route path="news"        element={<NewsPage />} />
           <Route path="legislative" element={<LegislativePage />} />
           <Route path="reports/batch-profitability" element={<BatchProfitabilityPage />} />
+          <Route path="equipment" element={<EquipmentPage />} />
 
           {/* Admin-only route — only visible to VITE_ADMIN_EMAIL */}
           <Route

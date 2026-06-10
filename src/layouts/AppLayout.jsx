@@ -33,6 +33,7 @@ const OPS_NAV = [
   { path: '/distribution',  label: 'Distribution', icon: '🚚' },
   { path: '/taproom',       label: 'Taproom',      icon: '🍺' },
   { path: '/reports/batch-profitability', label: 'Batch Report', icon: '💹' },
+  { path: '/equipment', label: 'Equipment & Assets', icon: '🔧' },
 ]
 
 // Bottom nav items — always shown to all authenticated users
@@ -62,6 +63,7 @@ const WARNING_KEYS = {
   '/distribution': 'distribution',
   '/staff':        'staff',
   '/ttb':          'ttb',
+  '/equipment':    'equipment',
 }
 
 export default function AppLayout() {
@@ -124,6 +126,8 @@ export default function AppLayout() {
     const threeDaysAgo = new Date(Date.now() - 3 * 86400000).toISOString().slice(0, 10)
     const twentyOneDaysAgo = new Date(Date.now() - 21 * 86400000).toISOString().slice(0, 10)
 
+    const thirtyDaysFromNow = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10)
+
     const [
       invRes,
       fermRes,
@@ -131,6 +135,7 @@ export default function AppLayout() {
       packagingRes,
       distRes,
       staffCertRes,
+      equipRes,
     ] = await Promise.all([
       // Inventory: items with zero or low stock
       supabase.from('ingredients').select('id, current_stock_quantity, reorder_threshold')
@@ -157,6 +162,11 @@ export default function AppLayout() {
       supabase.from('staff_certifications').select('staff_member_id, expiration_date')
         .eq('brewery_id', brewery.id)
         .not('expiration_date', 'is', null),
+      // Equipment maintenance schedules: for sidebar dot on Equipment & Assets nav item
+      supabase.from('equipment_maintenance_schedules').select('next_due_date')
+        .eq('brewery_id', brewery.id)
+        .eq('is_active', true)
+        .not('next_due_date', 'is', null),
     ])
 
     const warnings = {}
@@ -254,6 +264,13 @@ export default function AppLayout() {
         }
       }
     }
+
+    // Equipment maintenance: red if any schedule is overdue, amber if due within 30 days
+    const equipRows = equipRes.data ?? []
+    const hasOverdueEquip = equipRows.some(r => r.next_due_date < today)
+    const hasDueSoonEquip = equipRows.some(r => r.next_due_date >= today && r.next_due_date <= thirtyDaysFromNow)
+    if (hasOverdueEquip) warnings.equipment = 'red'
+    else if (hasDueSoonEquip) warnings.equipment = 'amber'
 
     setSidebarWarnings(warnings)
   }, [brewery?.id, brewery?.ttb_filing_frequency])

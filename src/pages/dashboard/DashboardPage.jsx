@@ -35,6 +35,7 @@ export default function DashboardPage() {
   const [benchmarkStats,   setBenchmarkStats]   = useState({ currentRevenue: null, lastYearRevenue: null, laborPct: null })
   const [batchProfitStats, setBatchProfitStats] = useState({ recentBatch: null, avgCostDelta: null })
   const [staffCertStats, setStaffCertStats] = useState({ expiring: 0, expired: 0 })
+  const [equipmentStats, setEquipmentStats] = useState({ overdueCount: 0, dueSoonCount: 0, hasSchedules: false })
 
   useEffect(() => {
     if (!brewery?.id) return
@@ -224,7 +225,17 @@ export default function DashboardPage() {
       .eq('brewery_id', brewery.id)
       .not('expiration_date', 'is', null)
 
-    const [deadlinesResult, grantsResult, periodsResult, recipesResult, inventoryResult, brewDayResult, fermentationResult, packagingResult, taproomResult, eventsResult, wholesaleResult, trainingResults, benchmarkResult, batchProfitResult, staffCertResult] = await Promise.all([
+    // Equipment maintenance schedules — Operations+ only
+    const equipmentPromise = hasAccess('operations')
+      ? supabase
+          .from('equipment_maintenance_schedules')
+          .select('next_due_date')
+          .eq('brewery_id', brewery.id)
+          .eq('is_active', true)
+          .not('next_due_date', 'is', null)
+      : Promise.resolve({ data: [] })
+
+    const [deadlinesResult, grantsResult, periodsResult, recipesResult, inventoryResult, brewDayResult, fermentationResult, packagingResult, taproomResult, eventsResult, wholesaleResult, trainingResults, benchmarkResult, batchProfitResult, staffCertResult, equipmentResult] = await Promise.all([
       supabase
         .from('brewery_deadlines')
         .select('*, compliance_deadlines(*)')
@@ -262,6 +273,7 @@ export default function DashboardPage() {
       benchmarkPromise,
       batchProfitPromise,
       staffCertPromise,
+      equipmentPromise,
     ])
 
     setUpcomingDeadlines(deadlinesResult.data ?? [])
@@ -413,6 +425,15 @@ export default function DashboardPage() {
       else if (expDate <= sixtyDaysFromNow) expiringStaff.add(row.staff_member_id)
     }
     setStaffCertStats({ expiring: expiringStaff.size, expired: expiredStaff.size })
+
+    // Compute equipment maintenance stats for Operations+ users
+    const equipRows = equipmentResult.data ?? []
+    const thirtyDaysOut = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10)
+    setEquipmentStats({
+      overdueCount: equipRows.filter(r => r.next_due_date < today).length,
+      dueSoonCount: equipRows.filter(r => r.next_due_date >= today && r.next_due_date <= thirtyDaysOut).length,
+      hasSchedules: equipRows.length > 0,
+    })
 
     setLoading(false)
   }
@@ -974,6 +995,29 @@ export default function DashboardPage() {
                   )}
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Equipment Maintenance widget — Operations+ only, hidden when no schedules exist */}
+          {hasAccess('operations') && equipmentStats.hasSchedules && (equipmentStats.overdueCount > 0 || equipmentStats.dueSoonCount > 0) && (
+            <div className={`rounded-xl border px-4 py-3 flex items-center justify-between gap-4 flex-wrap text-sm
+              ${equipmentStats.overdueCount > 0 ? 'bg-red-50 border-danger' : 'bg-amber/10 border-amber'}`}>
+              <div>
+                <p className={`font-semibold ${equipmentStats.overdueCount > 0 ? 'text-danger' : 'text-amber-dark'}`}>
+                  🔧 Equipment Maintenance
+                </p>
+                <div className="flex flex-wrap gap-3 mt-0.5 text-xs text-gray-600">
+                  {equipmentStats.overdueCount > 0 && (
+                    <span className="text-danger font-medium">{equipmentStats.overdueCount} asset{equipmentStats.overdueCount !== 1 ? 's' : ''} with overdue maintenance</span>
+                  )}
+                  {equipmentStats.dueSoonCount > 0 && (
+                    <span className="text-amber font-medium">{equipmentStats.dueSoonCount} asset{equipmentStats.dueSoonCount !== 1 ? 's' : ''} due within 30 days</span>
+                  )}
+                </div>
+              </div>
+              <Link to="/equipment" className="text-xs font-semibold text-amber hover:underline shrink-0">
+                View Equipment →
+              </Link>
             </div>
           )}
 

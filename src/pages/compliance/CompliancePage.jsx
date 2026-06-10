@@ -40,7 +40,7 @@ function lsSet(key, val) {
 }
 
 export default function CompliancePage() {
-  const { brewery } = useAuth()
+  const { brewery, hasAccess } = useAuth()
   const { isReadOnly, ReadOnlyTooltip } = useReadOnly()
 
   // ── Persistent view + filter state ──────────────────────────────────────────
@@ -60,11 +60,12 @@ export default function CompliancePage() {
   })
 
   // ── Data state ───────────────────────────────────────────────────────────────
-  const [deadlines,        setDeadlines]        = useState([])
-  const [documents,        setDocuments]        = useState([])
-  const [loading,          setLoading]          = useState(true)
-  const [loadError,        setLoadError]        = useState('')
-  const [autoLoadedBanner, setAutoLoadedBanner] = useState(false)
+  const [deadlines,           setDeadlines]           = useState([])
+  const [documents,           setDocuments]           = useState([])
+  const [equipmentSchedules,  setEquipmentSchedules]  = useState([])
+  const [loading,             setLoading]             = useState(true)
+  const [loadError,           setLoadError]           = useState('')
+  const [autoLoadedBanner,    setAutoLoadedBanner]    = useState(false)
 
   // ── UI state ─────────────────────────────────────────────────────────────────
   const [selectedDeadline, setSelectedDeadline] = useState(null)
@@ -92,7 +93,17 @@ export default function CompliancePage() {
     setLoading(true)
     setLoadError('')
 
-    const [dlRes, docRes] = await Promise.all([
+    // Load equipment schedules only for Operations+ subscribers
+    const equipPromise = hasAccess('operations')
+      ? supabase.from('equipment_maintenance_schedules')
+          .select('id, asset_id, maintenance_type, frequency, next_due_date, equipment_assets(asset_name, asset_category)')
+          .eq('brewery_id', brewery.id)
+          .eq('is_active', true)
+          .not('next_due_date', 'is', null)
+          .order('next_due_date', { ascending: true })
+      : Promise.resolve({ data: [] })
+
+    const [dlRes, docRes, equipRes] = await Promise.all([
       supabase.from('brewery_deadlines')
         .select('*, compliance_deadlines(*)')
         .eq('brewery_id', brewery.id)
@@ -101,7 +112,10 @@ export default function CompliancePage() {
         .select('id, document_name')
         .eq('brewery_id', brewery.id)
         .order('document_name', { ascending: true }),
+      equipPromise,
     ])
+
+    setEquipmentSchedules(equipRes.data ?? [])
 
     if (dlRes.error) { setLoadError('Failed to load deadlines. Try refreshing the page.') }
     setDocuments(docRes.data ?? [])
@@ -416,6 +430,16 @@ export default function CompliancePage() {
         />
       )}
 
+      {/* ── Equipment Maintenance Events — Operations+ only ── */}
+      {hasAccess('operations') && equipmentSchedules.length > 0 && (
+        <EquipmentMaintenancePanel
+          schedules={equipmentSchedules}
+          calYear={calYear}
+          calMonth={calMonth}
+          view={view}
+        />
+      )}
+
       {/* ── Modals & panels ── */}
       <AddDeadlineModal
         isOpen={showAddModal}
@@ -436,4 +460,87 @@ export default function CompliancePage() {
       )}
     </div>
   )
+}
+
+// ── Equipment Maintenance Panel ───────────────────────────────────────────────
+// Shows upcoming equipment maintenance schedules alongside the compliance calendar.
+// Filters to the currently displayed month in calendar view; shows all upcoming in list view.
+function EquipmentMaintenancePanel({ schedules, calYear, calMonth, view }) {
+  const today = new Date().toISOString().slice(0, 10)
+
+  // In calendar view filter to the currently visible month; in list view show all upcoming
+  const visible = schedules.filter(s => {
+    if (!s.next_due_date) return false
+    if (view === 'calendar') {
+      const month = `${calYear}-${String(calMonth + 1).padStart(2, '0')}`
+      return s.next_due_date.startsWith(month)
+    }
+    return s.next_due_date >= today
+  })
+
+  if (visible.length === 0) return null
+
+  return (
+    <div className="bg-white rounded-xl border border-amber/30 overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 bg-amber/5 border-b border-amber/20">
+        <p className="text-sm font-semibold text-amber-dark flex items-center gap-2">
+          🔧 Equipment Maintenance
+          <span className="text-xs font-normal text-gray-500">
+            {view === 'calendar'
+              ? `Scheduled in ${new Date(calYear, calMonth, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`
+              : 'Upcoming scheduled maintenance'}
+          </span>
+        </p>
+        <Link to="/equipment" className="text-xs font-semibold text-amber hover:underline">
+          View Equipment →
+        </Link>
+      </div>
+      <div className="divide-y divide-gray-100">
+        {visible.map(s => {
+          const days = daysUntilEquip(s.next_due_date, today)
+          const isOverdue = days !== null && days < 0
+          const isDueSoon = days !== null && days >= 0 && days <= 30
+          return (
+            <div key={s.id} className="flex items-center justify-between px-4 py-2.5 hover:bg-gray-50 flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-sm">🔧</span>
+                <div>
+                  <p className="text-sm font-medium text-navy">
+                    {s.equipment_assets?.asset_name ?? 'Unknown Asset'} — {s.maintenance_type}
+                  </p>
+                  {s.equipment_assets?.asset_category && (
+                    <span className="text-[10px] bg-navy/10 text-navy px-1.5 py-0.5 rounded-full">{s.equipment_assets.asset_category}</span>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                  isOverdue ? 'bg-red-100 text-danger' :
+                  isDueSoon ? 'bg-amber/20 text-amber-dark' :
+                  'bg-green-100 text-green-700'
+                }`}>
+                  {isOverdue
+                    ? `${Math.abs(days)}d overdue`
+                    : days === 0 ? 'Due today'
+                    : days !== null ? `${days}d`
+                    : '—'}
+                </span>
+                <span className="text-xs text-gray-500">
+                  {new Date(s.next_due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                </span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// Returns days until a date (negative if overdue), used only in EquipmentMaintenancePanel
+function daysUntilEquip(dateStr, today) {
+  if (!dateStr) return null
+  const d = new Date(dateStr + 'T00:00:00')
+  const t = new Date(today + 'T00:00:00')
+  return Math.ceil((d - t) / 86400000)
 }
