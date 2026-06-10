@@ -1958,14 +1958,14 @@ function PintGlassVisualization({ costs }) {
 
   // SVG coordinate constants
   const VW = 700, VH = 600
-  const GT = 30, GB = 550       // glass top / bottom y  (height = 520)
-  const GH = GB - GT            // 520
+  const GT = 20, GB = 560       // glass top / bottom y  (height = 540)
+  const GH = GB - GT            // 540
   const CX = 350                // center x
-  const HWT = 90, HWB = 65      // half-widths at top / bottom → 180px top, 130px bottom
+  const HWT = 140, HWB = 100    // half-widths at top / bottom → 280px top, 200px bottom
 
   const FOAM_H = 60
-  const BT = GT + FOAM_H        // beer top y = 90
-  const BH = GB - BT            // beer height = 460
+  const BT = GT + FOAM_H        // beer top y = 80
+  const BH = GB - BT            // beer height = 480
 
   function gLeft(y)  { return CX - HWT + (HWT - HWB) * (y - GT) / GH }
   function gRight(y) { return CX + HWT - (HWT - HWB) * (y - GT) / GH }
@@ -2007,8 +2007,8 @@ function PintGlassVisualization({ costs }) {
   }
 
   const labelYs = spreadPositions(naturalYs)
-  const LLEFT = 110   // right-aligned left labels
-  const RLEFT = 470   // left-aligned right labels
+  const LLEFT = 160   // right-aligned left labels
+  const RLEFT = 540   // left-aligned right labels
 
   return (
     <div>
@@ -2016,7 +2016,8 @@ function PintGlassVisualization({ costs }) {
         <p className="text-sm font-bold text-navy">What's in Your Pint?</p>
         <p className="text-xs text-gray-400">Retail ${suggestedRetail.toFixed(2)}</p>
       </div>
-      <svg viewBox={`0 0 ${VW} ${VH}`} className="w-full">
+      <div style={{ width: '100%', minWidth: '500px', overflowX: 'auto' }}>
+      <svg viewBox={`0 0 ${VW} ${VH}`} width="100%" height="600" className="w-full">
         <defs>
           <clipPath id="pint-clip">
             <path d={glassPath} />
@@ -2029,7 +2030,7 @@ function PintGlassVisualization({ costs }) {
         {/* Beer layers — clipped to glass */}
         <g clipPath="url(#pint-clip)">
           {layerRects.map(lr => (
-            <rect key={lr.label} x="250" y={lr.topY} width="200" height={lr.h} fill={lr.color} opacity="0.88" />
+            <rect key={lr.label} x="205" y={lr.topY} width="290" height={lr.h} fill={lr.color} opacity="0.88" />
           ))}
           <path d={foamPath} fill="#FFF8E7" />
         </g>
@@ -2042,7 +2043,7 @@ function PintGlassVisualization({ costs }) {
           stroke="white" strokeWidth="7" opacity="0.35" clipPath="url(#pint-clip)" />
 
         {/* Foam label */}
-        <text x={CX} y={BT - 8} textAnchor="middle" fontSize="14" fill="#92400E" fontWeight="500">Foam</text>
+        <text x={CX} y={BT - 8} textAnchor="middle" fontSize="15" fill="#92400E" fontWeight="500">Foam</text>
 
         {/* Layer callout labels */}
         {layerRects.map((lr, i) => {
@@ -2052,17 +2053,18 @@ function PintGlassVisualization({ costs }) {
           const pct = suggestedRetail > 0 ? (lr.costPerPint / suggestedRetail * 100).toFixed(0) : '0'
           return (
             <g key={lr.label}>
-              <line x1={LLEFT + 3} y1={lY} x2={eL - 4} y2={lr.midY}
+              <line x1={LLEFT + 5} y1={lY} x2={eL - 4} y2={lr.midY}
                 stroke="#CBD5E1" strokeWidth="1" strokeDasharray="3,3" />
-              <text x={LLEFT} y={lY + 4} textAnchor="end" fontSize="14" fill="#374151">{lr.label}</text>
-              <line x1={eR + 4} y1={lr.midY} x2={RLEFT - 3} y2={lY}
+              <text x={LLEFT} y={lY + 4} textAnchor="end" fontSize="15" fill="#374151">{lr.label}</text>
+              <line x1={eR + 4} y1={lr.midY} x2={RLEFT - 5} y2={lY}
                 stroke="#CBD5E1" strokeWidth="1" strokeDasharray="3,3" />
-              <text x={RLEFT} y={lY} fontSize="14" fill="#1A2744" fontWeight="600">${lr.costPerPint.toFixed(3)}</text>
-              <text x={RLEFT} y={lY + 16} fontSize="12" fill="#6B7280">{pct}%</text>
+              <text x={RLEFT} y={lY} fontSize="15" fill="#1A2744" fontWeight="600">${lr.costPerPint.toFixed(3)}</text>
+              <text x={RLEFT} y={lY + 18} fontSize="13" fill="#6B7280">{pct}%</text>
             </g>
           )
         })}
       </svg>
+      </div>
 
       {/* Color legend */}
       <div className="px-4 pb-3">
@@ -2121,7 +2123,7 @@ function CostPanel({
     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden text-xs">
       <div className="flex flex-col lg:flex-row items-start">
         {/* ── Left column: all cost inputs, summary, pricing ── */}
-        <div className="w-full lg:w-[48%] divide-y divide-gray-100 lg:border-r border-gray-200">
+        <div className="w-full lg:w-[45%] divide-y divide-gray-100 lg:border-r border-gray-200">
       <div className="px-4 py-3">
         <h3 className="font-bold text-navy text-sm">Cost Calculator</h3>
       </div>
@@ -2380,7 +2382,7 @@ function CostPanel({
         </div>{/* end left column */}
 
         {/* ── Right column: pint glass visualization ── */}
-        <div className="w-full lg:w-[52%] self-start border-t border-gray-200 lg:border-t-0">
+        <div className="w-full lg:w-[55%] self-start border-t border-gray-200 lg:border-t-0">
           <PintGlassVisualization costs={costs} />
         </div>
       </div>{/* end flex row */}
@@ -2781,10 +2783,6 @@ function AddIngredientModal({
   const [unitConversionWarning, setUnitConversionWarning] = useState(false)
   const [unitConversionMsg, setUnitConversionMsg]         = useState(null)
 
-  // Ref so handleUnitChange always reads current form values, not a stale closure
-  const formRef = useRef(form)
-  useEffect(() => { formRef.current = form }, [form])
-
   // Restore / save draft (add mode only)
   useEffect(() => {
     if (!isOpen || isEditMode) return
@@ -2850,16 +2848,14 @@ function AddIngredientModal({
     ? parseFloat(selectedIng.ingredient_suppliers?.find(s => s.is_preferred)?.price_per_unit ?? selectedIng.current_price_per_unit ?? 0)
     : null
 
-  // Unit change — reads current values from formRef to avoid stale closures,
-  // then applies a single atomic setForm update so all fields change together.
-  // Batch total is preserved exactly: new_cost = batchTotal / new_amount.
-  function handleUnitChange(newUnit) {
-    const f                  = formRef.current
-    const currentAmount      = parseFloat(f.amount) || 0
-    const currentCostPerUnit = mode === 'other' ? parseFloat(f.price_per_unit) || 0 : 0
-    const batchTotal         = currentAmount * currentCostPerUnit
+  // Unit change — all current form values are passed as explicit arguments so there
+  // is no stale closure risk. Batch total is preserved: new_cost = batchTotal / new_amount.
+  const handleUnitChangeExplicit = useCallback((newUnit, currentAmount, currentCost, currentUnit) => {
+    const numAmount = parseFloat(currentAmount) || 0
+    const numCost   = parseFloat(currentCost)   || 0
+    const batchTotal = numAmount * numCost
 
-    const amountResult = convertAmount(currentAmount, f.unit, newUnit)
+    const amountResult = convertAmount(numAmount, currentUnit, newUnit)
 
     if (amountResult.warning || amountResult.amount <= 0) {
       setForm(prev => ({ ...prev, unit: newUnit }))
@@ -2868,24 +2864,24 @@ function AddIngredientModal({
       return
     }
 
-    const newCostPerUnit = mode === 'other' && currentCostPerUnit > 0
+    const newCostPerUnit = batchTotal > 0
       ? parseFloat((batchTotal / amountResult.amount).toFixed(6))
-      : null
+      : numCost
 
     setForm(prev => ({
       ...prev,
-      unit:   newUnit,
-      amount: String(parseFloat(amountResult.amount.toFixed(4))),
-      ...(newCostPerUnit !== null && { price_per_unit: String(newCostPerUnit) }),
+      unit:          newUnit,
+      amount:        String(parseFloat(amountResult.amount.toFixed(4))),
+      price_per_unit: String(parseFloat(newCostPerUnit.toFixed(6))),
     }))
 
     setUnitConversionWarning(false)
     setUnitConversionMsg(
-      newCostPerUnit !== null
-        ? `✓ Amount and cost converted: ${f.unit} → ${newUnit} (batch total preserved)`
-        : `✓ Amount converted: ${f.unit} → ${newUnit}`
+      batchTotal > 0
+        ? `✓ Amount and cost converted: ${currentUnit} → ${newUnit} (batch total preserved)`
+        : `✓ Amount converted: ${currentUnit} → ${newUnit}`
     )
-  }
+  }, [setForm])
 
   // Cost impact calculations — shown live as the brewer fills in the form
   const effectiveCostPerUnit = mode === 'inventory' && selectedIng
@@ -2985,7 +2981,7 @@ function AddIngredientModal({
             <label className="text-xs font-medium text-gray-600">Unit *</label>
             <UnitSelect
               value={form.unit}
-              onChange={e => handleUnitChange(e.target.value)}
+              onChange={e => handleUnitChangeExplicit(e.target.value, form.amount, form.price_per_unit, form.unit)}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber"
             />
           </div>
