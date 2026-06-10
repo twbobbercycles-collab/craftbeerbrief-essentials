@@ -31,7 +31,7 @@ APP NAVIGATION — always give the exact sidebar path:
 - Excise Tax Calculator: TTB Tracker → Excise Tax Calculator tab
 - Brewery Records: Essentials section → Brewery Records (licenses, permits, insurance, agreements, label artwork — all compliance documents in one place)
 - Staff & Certs: Essentials section → Staff & Certs
-- Inventory: Operations section → Inventory
+- Inventory: Operations section → Inventory (three tabs: Ingredients, Packaging Materials, Parts & Supplies; plus Purchase Orders, Transaction History, Supplier Intelligence)
 - Recipes: Operations section → Recipes (includes cost calculator + Water Chemistry Calculator per recipe)
 - Brew Day: Operations section → Brew Day
 - Fermentation: Operations section → Fermentation
@@ -39,6 +39,7 @@ APP NAVIGATION — always give the exact sidebar path:
 - Distribution: Operations section → Distribution (includes Keg Fleet tab)
 - Taproom: Operations section → Taproom
 - Batch Profitability Reports: Operations section → Batch Profitability Reports (path: /reports/batch-profitability)
+- Equipment & Assets: Operations section → Equipment & Assets (asset registry, maintenance log, schedules and alerts)
 - Water Chemistry: open any recipe → scroll to Water Chemistry section → Expand
 - Keg Fleet: Distribution → Keg Fleet tab
 - Compliance Alerts: Compliance Calendar → click any deadline → Alert Me
@@ -64,6 +65,11 @@ KEY WORKFLOWS:
 - To set up water chemistry: Account Settings → Brewery Profile → Source Water Profile (enter once); then open any recipe → Water Chemistry section → select style target → review mineral additions
 - To track keg fleet: Distribution → Keg Fleet tab → Add Keg Type → enter owned count and deposit amount per keg type
 - To view batch profitability: Batch Profitability Reports (sidebar) → select a completed batch → review planned vs actual cost, yield, and margin
+- To add equipment: Equipment & Assets → Asset Registry → Add Asset → select category and type → fill in details → add vendor contacts
+- To schedule maintenance: Equipment & Assets → Schedules & Alerts → Add Schedule → select asset and frequency → system calculates next due date
+- To log maintenance: Equipment & Assets → Maintenance Log → Log Maintenance → select asset → fill in details
+- To create a purchase order: Inventory → Purchase Orders → Create PO → select items from master catalog (any brewery item whether in inventory or not) → set quantities and costs → submit
+- To track parts and supplies: Inventory → Parts & Supplies tab → Add Part/Supply → select category and sub-type
 - To set a compliance alert: Compliance Calendar → click any deadline → Alert Me → choose advance notice days
 - To generate advocacy doc: Full Suite → Regulation Playbook → select template → fill form → Generate Document
 - To track a bill: Full Suite → Legislative Tracker → Add Bill → enter bill details, set A/B/C/D priority, add bill URL → Save

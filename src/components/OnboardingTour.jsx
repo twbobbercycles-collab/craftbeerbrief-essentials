@@ -174,7 +174,7 @@ export default function OnboardingTour({ onComplete }) {
         target: 'a[href="/inventory"]',
         placement: 'right',
         title: 'Inventory',
-        body: "Manage ingredient stock levels, create purchase orders, receive deliveries, and track supplier pricing over time.",
+        body: "Track ingredients, packaging materials, and parts and supplies across separate tabs. Create purchase orders for any item in the brewery master catalog — whether it exists in your inventory yet or not. Supplier intelligence and price alerts work across all categories.",
       },
       {
         target: 'a[href="/recipes"]',
@@ -205,6 +205,12 @@ export default function OnboardingTour({ onComplete }) {
         placement: 'right',
         title: 'Distribution',
         body: "Track wholesale accounts, assign package splits, monitor taproom margins, and manage your keg fleet with pool-based tracking. No serial numbers required.",
+      },
+      {
+        target: 'a[href="/equipment"]',
+        placement: 'right',
+        title: 'Equipment & Assets',
+        body: "Track all your brewery equipment with full asset registry, maintenance history, and service schedules. Get alerts when maintenance is due or overdue. Maintenance schedules also appear in the Compliance Calendar so nothing falls through the cracks.",
       },
       {
         target: 'a[href="/taproom"]',

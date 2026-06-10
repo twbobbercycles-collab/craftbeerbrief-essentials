@@ -492,6 +492,46 @@ const CATEGORIES = [
     ],
   },
   {
+    id: 'equipment-assets',
+    label: 'Equipment & Assets',
+    items: [
+      {
+        q: 'What is the Equipment & Assets module?',
+        a: 'Equipment & Assets is an Operations tier tool for tracking all your brewery equipment — fermenters, pumps, chillers, draft systems, vehicles, and more. Add each asset with full details including manufacturer, serial number, purchase date, warranty expiration, and vendor contacts. Log maintenance records and set recurring maintenance schedules so you never miss a service interval. Find it in the Operations section of the sidebar under Equipment & Assets.',
+      },
+      {
+        q: 'How do maintenance schedules and alerts work?',
+        a: 'For each piece of equipment you can set a recurring maintenance schedule — weekly, monthly, quarterly, annual, or custom interval. The system tracks when maintenance is last performed and calculates the next due date automatically. When maintenance is due within 30 days an amber alert appears on your dashboard and in the Compliance Calendar. When maintenance is overdue a red alert appears. Click Mark Complete after performing maintenance to reset the schedule automatically.',
+      },
+      {
+        q: 'Does Equipment & Assets integrate with the Compliance Calendar?',
+        a: 'Yes — upcoming equipment maintenance due dates appear as a panel below the Compliance Calendar so you can see operational maintenance alongside regulatory compliance deadlines. This gives you a complete picture of upcoming obligations in one place.',
+      },
+      {
+        q: 'Can I track multiple vendor contacts for each asset?',
+        a: 'Yes — each asset supports multiple contacts. You might have the original equipment vendor, a local service technician, and an emergency repair contact all stored for the same piece of equipment. The primary contact appears on the asset card for quick reference.',
+      },
+    ],
+  },
+  {
+    id: 'inventory',
+    label: 'Inventory',
+    items: [
+      {
+        q: 'What can I track in the Inventory module?',
+        a: 'The Inventory module has three separate tabs. The Ingredients tab tracks all brewing ingredients — malt, hops, yeast, adjuncts, water chemistry, and more. The Packaging Materials tab tracks cans, bottles, labels, kegs, carriers, and cleaning chemicals. The Parts & Supplies tab tracks consumable parts, lab supplies, and safety supplies. Each item can have full supplier contact information including lead time and minimum order quantities.',
+      },
+      {
+        q: 'How do Purchase Orders work?',
+        a: 'Purchase Orders let you order any item across all inventory categories — not just items that already exist in your inventory. The line item dropdown shows a master catalog of all brewery items organized by category. When a PO is received the stock quantities update automatically. If you order something that does not exist in your inventory yet it gets added automatically when the PO is received.',
+      },
+      {
+        q: 'Do Supplier Intelligence and price alerts work for all inventory types?',
+        a: 'Yes — Supplier Intelligence and price alerts work across all inventory categories including ingredients, packaging materials, and parts and supplies. The Supplier Directory groups all items by supplier so you can see everything you buy from each vendor regardless of category.',
+      },
+    ],
+  },
+  {
     id: 'excise-tax-calculator',
     label: 'TTB Excise Tax Calculator',
     items: [
