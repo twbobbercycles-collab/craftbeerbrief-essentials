@@ -190,8 +190,9 @@ function InventoryPageInner() {
     if (!brewery?.id) return
     setLoading(true)
 
-    // Fetch ingredient transactions, purchase orders, and packaging transactions in parallel
-    const [ingResult, txResult, poResult, pkgTxResult] = await Promise.all([
+    // Fetch all inventory data in parallel — including packaging materials so they
+    // stay fresh after every operation that calls loadAll (e.g. receiving a PO)
+    const [ingResult, txResult, poResult, pkgTxResult, pkgMatsResult] = await Promise.all([
       supabase
         .from('ingredients')
         .select('*, ingredient_suppliers(*)')
@@ -216,12 +217,20 @@ function InventoryPageInner() {
         .order('transaction_date', { ascending: false })
         .order('created_at',       { ascending: false })
         .limit(200),
+      supabase
+        .from('packaging_materials')
+        .select('*')
+        .eq('brewery_id', brewery.id)
+        .order('category').order('name'),
     ])
+
+    if (pkgMatsResult.error) console.error('Failed to load packaging materials:', pkgMatsResult.error)
 
     setIngredients(ingResult.data ?? [])
     setTransactions(txResult.data ?? [])
     setPurchaseOrders(poResult.data ?? [])
     setPkgTransactions(pkgTxResult.data ?? [])
+    setPackagingMaterials(pkgMatsResult.data ?? [])
     setLoading(false)
   }, [brewery?.id])
 
@@ -230,13 +239,14 @@ function InventoryPageInner() {
   const loadPackagingMaterials = useCallback(async () => {
     if (!brewery?.id) return
     setPkgMatsLoading(true)
-    const { data } = await supabase
+    const { data: pkgMatsData, error: pkgMatsError } = await supabase
       .from('packaging_materials')
       .select('*')
       .eq('brewery_id', brewery.id)
       .eq('is_active', true)
       .order('category').order('name')
-    setPackagingMaterials(data ?? [])
+    if (pkgMatsError) console.error('Failed to load packaging materials:', pkgMatsError)
+    setPackagingMaterials(pkgMatsData ?? [])
     setPkgMatsLoading(false)
   }, [brewery?.id])
 
