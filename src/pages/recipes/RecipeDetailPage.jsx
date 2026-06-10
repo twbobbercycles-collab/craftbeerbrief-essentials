@@ -1164,11 +1164,11 @@ export default function RecipeDetailPage() {
         />
       </div>
 
-      {/* ── Main layout — ingredient editor left, cost panel right ── */}
-      <div className="flex gap-6 items-start">
+      {/* ── Main layout — ingredients + cost (left) / pint glass (right at xl+) ── */}
+      <div className="grid grid-cols-1 xl:grid-cols-[60%_40%] gap-6 items-start">
 
-        {/* Left: Batch size selector + Ingredient sections */}
-        <div className="flex-1 min-w-0 space-y-6">
+        {/* Left column: batch size, ingredients, cost panel */}
+        <div className="min-w-0 space-y-6">
 
           {/* Batch size selector */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
@@ -1325,34 +1325,41 @@ export default function RecipeDetailPage() {
               />
             )
           })}
+
+          {/* Cost panel — inline below ingredients on lg+, bottom sheet on mobile */}
+          <div className="hidden lg:block">
+            <CostPanel
+              costs={costs}
+              batchBarrels={costs.batchBarrels}
+              packagingSplits={packagingSplits}
+              onSplitsChange={newSplits => { setPackagingSplits(newSplits); saveCostSettings() }}
+              packagingContainerType={packagingContainerType}
+              packagingCostPerUnit={packagingCostPerUnit}
+              labelCostPerUnit={labelCostPerUnit}
+              carrierCostPerUnit={carrierCostPerUnit}
+              packagingYieldPct={packagingYieldPct}
+              brewHours={brewHours}
+              laborRatePerHour={laborRatePerHour}
+              utilitiesCostPerBarrel={utilitiesCostPerBarrel}
+              cleaningCostPerBatch={cleaningCostPerBatch}
+              waterCostPerBarrel={waterCostPerBarrel}
+              wastewaterCostPerBarrel={wastewaterCostPerBarrel}
+              fixedOverheadPct={fixedOverheadPct}
+              marginPct={marginPct}
+              taxRate={taxRate}
+              exciseTaxRatePerBbl={exciseTaxRatePerBbl}
+              brewery={brewery}
+              onChange={handleCostFieldChange}
+              onBlur={saveCostSettings}
+            />
+          </div>
         </div>
 
-        {/* Right: Cost panel — sticky sidebar, hidden on mobile (shown as bottom sheet) */}
-        <div className="hidden lg:block w-[580px] flex-shrink-0 sticky top-6">
-          <CostPanel
-            costs={costs}
-            batchBarrels={costs.batchBarrels}
-            packagingSplits={packagingSplits}
-            onSplitsChange={newSplits => { setPackagingSplits(newSplits); saveCostSettings() }}
-            packagingContainerType={packagingContainerType}
-            packagingCostPerUnit={packagingCostPerUnit}
-            labelCostPerUnit={labelCostPerUnit}
-            carrierCostPerUnit={carrierCostPerUnit}
-            packagingYieldPct={packagingYieldPct}
-            brewHours={brewHours}
-            laborRatePerHour={laborRatePerHour}
-            utilitiesCostPerBarrel={utilitiesCostPerBarrel}
-            cleaningCostPerBatch={cleaningCostPerBatch}
-            waterCostPerBarrel={waterCostPerBarrel}
-            wastewaterCostPerBarrel={wastewaterCostPerBarrel}
-            fixedOverheadPct={fixedOverheadPct}
-            marginPct={marginPct}
-            taxRate={taxRate}
-            exciseTaxRatePerBbl={exciseTaxRatePerBbl}
-            brewery={brewery}
-            onChange={handleCostFieldChange}
-            onBlur={saveCostSettings}
-          />
+        {/* Right column: pint glass — xl+ only, sticky */}
+        <div className="hidden xl:block min-w-0">
+          <div className="sticky top-4">
+            <PintGlassVisualization costs={costs} />
+          </div>
         </div>
       </div>
 
@@ -2016,8 +2023,7 @@ function PintGlassVisualization({ costs }) {
         <p className="text-sm font-bold text-navy">What's in Your Pint?</p>
         <p className="text-xs text-gray-400">Retail ${suggestedRetail.toFixed(2)}</p>
       </div>
-      <div style={{ width: '100%', minWidth: '500px', overflowX: 'auto' }}>
-      <svg viewBox={`0 0 ${VW} ${VH}`} width="100%" height="600" className="w-full">
+      <svg viewBox={`0 0 ${VW} ${VH}`} width="100%" height="auto" preserveAspectRatio="xMidYMid meet" style={{ display: 'block' }} className="w-full">
         <defs>
           <clipPath id="pint-clip">
             <path d={glassPath} />
@@ -2064,7 +2070,6 @@ function PintGlassVisualization({ costs }) {
           )
         })}
       </svg>
-      </div>
 
       {/* Color legend */}
       <div className="px-4 pb-3">
@@ -2121,9 +2126,7 @@ function CostPanel({
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden text-xs">
-      <div className="flex flex-col lg:flex-row items-start">
-        {/* ── Left column: all cost inputs, summary, pricing ── */}
-        <div className="w-full lg:w-[45%] divide-y divide-gray-100 lg:border-r border-gray-200">
+      <div className="divide-y divide-gray-100">
       <div className="px-4 py-3">
         <h3 className="font-bold text-navy text-sm">Cost Calculator</h3>
       </div>
@@ -2379,13 +2382,7 @@ function CostPanel({
           </div>
         )
       )}
-        </div>{/* end left column */}
-
-        {/* ── Right column: pint glass visualization ── */}
-        <div className="w-full lg:w-[55%] self-start border-t border-gray-200 lg:border-t-0">
-          <PintGlassVisualization costs={costs} />
-        </div>
-      </div>{/* end flex row */}
+      </div>
     </div>
   )
 }
