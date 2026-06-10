@@ -52,7 +52,10 @@ const PO_STATUSES = [
   { value: 'cancelled',          label: 'Cancelled',          bg: 'bg-red-100',    text: 'text-danger' },
 ]
 
-const TABS = ['Inventory', 'Packaging Materials', 'Receive Stock', 'Purchase Orders', 'Transaction History', 'Supplier Intelligence']
+const TABS = ['Ingredients', 'Packaging Materials', 'Parts & Supplies', 'Purchase Orders', 'Transaction History', 'Supplier Intelligence']
+
+const PARTS_CATS = ['Parts & Consumables', 'Lab & QC Supplies', 'Safety Supplies']
+const PART_UNITS = ['each', 'box', 'case', 'gallon', 'liter', 'lb', 'oz', 'bag', 'other']
 
 // Grouped packaging material types — keys become category labels, values are type options
 const PACKAGING_MATERIAL_TYPES = {
@@ -144,7 +147,7 @@ function InventoryPageInner() {
   const { brewery } = useAuth()
   const { isReadOnly, ReadOnlyTooltip } = useReadOnly()
 
-  const [activeTab,    setActiveTab]    = usePersistedTab('inventory_active_tab', 'Inventory')
+  const [activeTab,    setActiveTab]    = usePersistedTab('inventory_active_tab', 'Ingredients')
   const [ingredients,  setIngredients]  = useState([])
   const [transactions, setTransactions] = useState([])
   const [purchaseOrders, setPurchaseOrders] = useState([])
@@ -167,6 +170,10 @@ function InventoryPageInner() {
   const [pkgMatsLoading,      setPkgMatsLoading]      = useState(false)
   const [addPkgMatOpen,       setAddPkgMatOpen]       = useState(false)
   const [adjustPkgMatTarget,  setAdjustPkgMatTarget]  = useState(null)
+
+  // Parts & Supplies tab state
+  const [addPartOpen,    setAddPartOpen]    = useState(false)
+  const [editPartTarget, setEditPartTarget] = useState(null)
 
   // ── Load all data ────────────────────────────────────────────────────────────
 
@@ -298,7 +305,7 @@ function InventoryPageInner() {
       {/* ── Page header ── */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h2 className="text-xl font-bold text-navy">Ingredient Inventory</h2>
+          <h2 className="text-xl font-bold text-navy">Inventory</h2>
           <p className="text-xs text-gray-500 mt-0.5">
             {ingredients.filter(i => i.is_active).length} active ingredients ·{' '}
             {lowStockIngredients.length > 0 && (
@@ -309,14 +316,14 @@ function InventoryPageInner() {
             )}
           </p>
         </div>
-        {activeTab === 'Inventory' && (
+        {activeTab === 'Ingredients' && (
           <ReadOnlyTooltip isReadOnly={isReadOnly}>
             <button
               onClick={() => { setEditIngTarget(null); setAddIngOpen(true) }}
               disabled={isReadOnly}
               className="bg-amber hover:bg-amber-dark text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
             >
-              + Add to Inventory
+              + Add Ingredient
             </button>
           </ReadOnlyTooltip>
         )}
@@ -328,6 +335,17 @@ function InventoryPageInner() {
               className="bg-amber hover:bg-amber-dark text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
             >
               + Add Material
+            </button>
+          </ReadOnlyTooltip>
+        )}
+        {activeTab === 'Parts & Supplies' && (
+          <ReadOnlyTooltip isReadOnly={isReadOnly}>
+            <button
+              onClick={() => { setEditPartTarget(null); setAddPartOpen(true) }}
+              disabled={isReadOnly}
+              className="bg-amber hover:bg-amber-dark text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+            >
+              + Add Part / Supply
             </button>
           </ReadOnlyTooltip>
         )}
@@ -399,7 +417,7 @@ function InventoryPageInner() {
       )}
 
       {/* ── Tab content ── */}
-      {activeTab === 'Inventory' && (
+      {activeTab === 'Ingredients' && (
         <InventoryTab
           ingredients={ingredients}
           isReadOnly={isReadOnly}
@@ -434,16 +452,16 @@ function InventoryPageInner() {
         />
       )}
 
-      {activeTab === 'Receive Stock' && (
-        <ReceiveStockTab
+      {activeTab === 'Parts & Supplies' && (
+        <PartsSuppliesTab
           ingredients={ingredients}
-          transactions={transactions.filter(t => t.transaction_type === 'received').slice(0, 20)}
-          purchaseOrders={purchaseOrders.filter(p => ['submitted','confirmed','partially_received'].includes(p.status))}
           isReadOnly={isReadOnly}
           ReadOnlyTooltip={ReadOnlyTooltip}
-          successMsg={receiveSuccessMsg}
-          onClearSuccess={() => setReceiveSuccessMsg(null)}
-          onOpenReceive={po => { setReceiveSuccessMsg(null); setReceivePO(po ?? null); setReceiveOpen(true) }}
+          onAdd={() => { setEditPartTarget(null); setAddPartOpen(true) }}
+          onEdit={item => { setEditPartTarget(item); setAddPartOpen(true) }}
+          onAdjust={item => setAdjustTarget(item)}
+          onDeactivate={handleDeactivateIng}
+          onReactivate={handleReactivateIng}
         />
       )}
 
@@ -579,6 +597,24 @@ function InventoryPageInner() {
           onSaved={updatedMat => {
             setPackagingMaterials(prev => prev.map(m => m.id === updatedMat.id ? updatedMat : m))
             setAdjustPkgMatTarget(null)
+          }}
+        />
+      )}
+
+      {addPartOpen && (
+        <AddPartModal
+          isOpen={addPartOpen}
+          part={editPartTarget}
+          breweryId={brewery.id}
+          onClose={() => { setAddPartOpen(false); setEditPartTarget(null) }}
+          onSaved={updated => {
+            setIngredients(prev =>
+              editPartTarget
+                ? prev.map(i => i.id === updated.id ? updated : i)
+                : [updated, ...prev]
+            )
+            setAddPartOpen(false)
+            setEditPartTarget(null)
           }}
         />
       )}
@@ -3719,6 +3755,448 @@ function AdjustPackagingMaterialModal({ isOpen, material, breweryId, onClose, on
             className="flex-1 bg-amber hover:bg-amber-dark text-white font-semibold py-3 rounded-lg text-sm transition-colors disabled:opacity-50"
           >
             {saving ? 'Saving…' : 'Save Adjustment'}
+          </button>
+          <button type="button" onClick={onClose}
+            className="flex-1 border border-gray-300 text-gray-600 font-medium py-3 rounded-lg text-sm hover:bg-gray-50 transition-colors">
+            Cancel
+          </button>
+        </div>
+      </form>
+    </ModalShell>
+  )
+}
+
+// ─── Tab: Parts & Supplies ────────────────────────────────────────────────────
+
+// Color classes for each parts/supplies category badge
+const PARTS_CAT_COLORS = {
+  'Parts & Consumables': 'bg-amber/10 text-amber-dark',
+  'Lab & QC Supplies':   'bg-teal-50 text-teal-700',
+  'Safety Supplies':     'bg-red-50 text-danger',
+}
+
+function PartsSuppliesTab({ ingredients, isReadOnly, ReadOnlyTooltip, onAdd, onEdit, onAdjust, onDeactivate }) {
+  const [search,         setSearch]         = useState('')
+  const [catFilter,      setCatFilter]      = useState('')
+  const [subTypeFilter,  setSubTypeFilter]  = useState('')
+  const [showLowStock,   setShowLowStock]   = useState(false)
+
+  // Only active items in the three parts/supplies categories
+  const allParts = useMemo(() =>
+    ingredients.filter(i => i.is_active && PARTS_CATS.includes(i.category)),
+  [ingredients])
+
+  const lowStockItems = allParts.filter(i =>
+    i.reorder_threshold != null &&
+    (parseFloat(i.current_stock_quantity) || 0) <= parseFloat(i.reorder_threshold)
+  )
+
+  // Sub-types available for the current category filter
+  const availableSubTypes = catFilter ? (CATEGORY_SUBTYPES[catFilter] ?? []) : []
+
+  const filtered = useMemo(() => {
+    let list = [...allParts]
+    if (search)         list = list.filter(i => i.name.toLowerCase().includes(search.toLowerCase()))
+    if (catFilter)      list = list.filter(i => i.category === catFilter)
+    if (subTypeFilter)  list = list.filter(i => i.sub_type === subTypeFilter)
+    if (showLowStock)   list = list.filter(i =>
+      i.reorder_threshold != null &&
+      (parseFloat(i.current_stock_quantity) || 0) <= parseFloat(i.reorder_threshold)
+    )
+    return list.sort((a, b) => a.name.localeCompare(b.name))
+  }, [allParts, search, catFilter, subTypeFilter, showLowStock])
+
+  return (
+    <div className="space-y-4">
+
+      {/* Low stock alert banner */}
+      {lowStockItems.length > 0 && (
+        <div className="bg-amber/10 border border-amber rounded-lg px-4 py-2.5 text-sm text-amber-dark">
+          <strong>{lowStockItems.length} item{lowStockItems.length > 1 ? 's' : ''} at or below reorder threshold:</strong>{' '}
+          {lowStockItems.map(i => i.name).join(', ')}
+        </div>
+      )}
+
+      {/* Filter bar */}
+      <div className="flex flex-wrap gap-2 items-center">
+        <input
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search parts & supplies..."
+          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber w-48"
+        />
+        <select
+          value={catFilter}
+          onChange={e => { setCatFilter(e.target.value); setSubTypeFilter('') }}
+          className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber"
+        >
+          <option value="">All categories</option>
+          {PARTS_CATS.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+        {/* Sub-type dropdown — only shown when a specific category is selected */}
+        {availableSubTypes.length > 0 && (
+          <select
+            value={subTypeFilter}
+            onChange={e => setSubTypeFilter(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber"
+          >
+            <option value="">All types</option>
+            {availableSubTypes.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        )}
+        <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
+          <input type="checkbox" checked={showLowStock} onChange={e => setShowLowStock(e.target.checked)}
+            className="rounded border-gray-300 accent-amber" />
+          Low stock only
+        </label>
+        <span className="text-xs text-gray-400 ml-auto">{filtered.length} item{filtered.length !== 1 ? 's' : ''}</span>
+      </div>
+
+      {/* Cards grid */}
+      {filtered.length === 0 ? (
+        <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
+          <p className="text-3xl mb-2">🔧</p>
+          <p className="text-gray-500 text-sm">
+            {allParts.length === 0
+              ? 'No parts or supplies tracked yet.'
+              : 'No items match your filters.'}
+          </p>
+          {allParts.length === 0 && (
+            <button onClick={onAdd}
+              className="mt-3 text-amber hover:underline text-sm font-medium">
+              + Add Part / Supply
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {filtered.map(item => {
+            const qty    = parseFloat(item.current_stock_quantity) || 0
+            const reorder = item.reorder_threshold != null ? parseFloat(item.reorder_threshold) : null
+            const isLow  = reorder != null && qty <= reorder
+            const catColor = PARTS_CAT_COLORS[item.category] ?? 'bg-gray-100 text-gray-500'
+            return (
+              <div key={item.id}
+                className={`bg-white rounded-xl border p-4 space-y-3 ${isLow ? 'border-amber' : 'border-gray-200'}`}>
+
+                {/* Header row: name + low-stock badge */}
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-navy text-sm leading-tight">{item.name}</p>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      <span className={`text-[11px] px-1.5 py-0.5 rounded-full font-medium ${catColor}`}>
+                        {item.category}
+                      </span>
+                      {item.sub_type && (
+                        <span className="text-[11px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">
+                          {item.sub_type}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {isLow && (
+                    <span className="text-[10px] bg-amber/20 text-amber-dark font-semibold px-1.5 py-0.5 rounded shrink-0 whitespace-nowrap">
+                      Low Stock
+                    </span>
+                  )}
+                </div>
+
+                {/* Stock + cost grid */}
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+                  <div>
+                    <p className="text-gray-400">In stock</p>
+                    <p className={`font-semibold ${isLow ? 'text-amber' : 'text-navy'}`}>
+                      {qty.toFixed(2)} {item.stock_unit ?? item.unit ?? 'each'}
+                    </p>
+                  </div>
+                  {reorder != null && (
+                    <div>
+                      <p className="text-gray-400">Reorder at</p>
+                      <p className="font-medium text-gray-600">{reorder} {item.stock_unit ?? item.unit ?? 'each'}</p>
+                    </div>
+                  )}
+                  {(item.last_received_price ?? item.current_price_per_unit) != null && (
+                    <div>
+                      <p className="text-gray-400">Cost/unit</p>
+                      <p className="font-medium text-gray-600">
+                        ${parseFloat(item.last_received_price ?? item.current_price_per_unit).toFixed(4)}
+                      </p>
+                    </div>
+                  )}
+                  {item.supplier_name && (
+                    <div>
+                      <p className="text-gray-400">Supplier</p>
+                      <p className="font-medium text-gray-600 truncate">{item.supplier_name}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Action buttons */}
+                <div className="flex gap-2 pt-0.5 flex-wrap">
+                  <ReadOnlyTooltip isReadOnly={isReadOnly}>
+                    <button onClick={() => onAdjust(item)} disabled={isReadOnly}
+                      className="text-xs text-amber hover:text-amber-dark font-medium px-2 py-1 rounded border border-amber/30 hover:border-amber transition-colors disabled:opacity-40">
+                      Adjust
+                    </button>
+                  </ReadOnlyTooltip>
+                  <ReadOnlyTooltip isReadOnly={isReadOnly}>
+                    <button onClick={() => onEdit(item)} disabled={isReadOnly}
+                      className="text-xs text-gray-500 hover:text-navy font-medium px-2 py-1 rounded border border-gray-200 hover:border-gray-300 transition-colors disabled:opacity-40">
+                      Edit
+                    </button>
+                  </ReadOnlyTooltip>
+                  <ReadOnlyTooltip isReadOnly={isReadOnly}>
+                    <button onClick={() => onDeactivate(item)} disabled={isReadOnly}
+                      className="text-xs text-gray-400 hover:text-danger px-2 py-1 rounded border border-gray-200 hover:border-red-200 transition-colors disabled:opacity-40">
+                      Remove
+                    </button>
+                  </ReadOnlyTooltip>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Modal: Add / Edit Part or Supply ─────────────────────────────────────────
+
+const EMPTY_PART = {
+  name: '', category: 'Parts & Consumables', sub_type: '',
+  stock_unit: 'each', current_stock_quantity: '0',
+  reorder_threshold: '', notes: '',
+  supplier_name: '', supplier_contact_name: '', supplier_phone: '',
+  supplier_email: '', supplier_website: '', supplier_account_number: '',
+  supplier_lead_time_days: '', supplier_minimum_order_quantity: '', supplier_notes: '',
+}
+
+function AddPartModal({ isOpen, part, breweryId, onClose, onSaved }) {
+  const { loadDraft, saveDraft, clearDraft, draftRestored, dismissDraftBanner } =
+    useModalDraft('modal_draft_add_part')
+
+  const [form,            setForm]            = useState(EMPTY_PART)
+  const [saving,          setSaving]          = useState(false)
+  const [error,           setError]           = useState('')
+  const [showSupSection,  setShowSupSection]  = useState(false)
+
+  const isEdit    = !!part
+  const subTypes  = CATEGORY_SUBTYPES[form.category] ?? []
+
+  // Populate from existing row (edit) or restore draft (add)
+  useEffect(() => {
+    if (!isOpen) return
+    if (isEdit) {
+      setForm({
+        name:                   part.name ?? '',
+        category:               part.category ?? 'Parts & Consumables',
+        sub_type:               part.sub_type ?? '',
+        stock_unit:             part.stock_unit ?? part.unit ?? 'each',
+        current_stock_quantity: String(part.current_stock_quantity ?? 0),
+        reorder_threshold:      part.reorder_threshold != null ? String(part.reorder_threshold) : '',
+        notes:                  part.notes ?? '',
+        supplier_name:                   part.supplier_name ?? '',
+        supplier_contact_name:           part.supplier_contact_name ?? '',
+        supplier_phone:                  part.supplier_phone ?? '',
+        supplier_email:                  part.supplier_email ?? '',
+        supplier_website:                part.supplier_website ?? '',
+        supplier_account_number:         part.supplier_account_number ?? '',
+        supplier_lead_time_days:         part.supplier_lead_time_days != null ? String(part.supplier_lead_time_days) : '',
+        supplier_minimum_order_quantity: part.supplier_minimum_order_quantity != null ? String(part.supplier_minimum_order_quantity) : '',
+        supplier_notes:                  part.supplier_notes ?? '',
+      })
+    } else {
+      const draft = loadDraft()
+      setForm(draft?.form ?? EMPTY_PART)
+    }
+    setError('')
+  }, [isOpen])
+
+  // Auto-save draft while composing a new item
+  useEffect(() => {
+    if (!isOpen || isEdit) return
+    saveDraft({ form })
+  }, [form])
+
+  function setField(k, v) { setForm(prev => ({ ...prev, [k]: v })) }
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    if (!form.name.trim()) { setError('Name is required.'); return }
+    setSaving(true); setError('')
+
+    const payload = {
+      brewery_id:             breweryId,
+      name:                   form.name.trim(),
+      category:               form.category,
+      sub_type:               form.sub_type || null,
+      unit:                   form.stock_unit,
+      stock_unit:             form.stock_unit,
+      current_stock_quantity: parseFloat(form.current_stock_quantity) || 0,
+      reorder_threshold:      form.reorder_threshold ? parseFloat(form.reorder_threshold) : null,
+      notes:                  form.notes.trim() || null,
+      is_active:              true,
+      supplier_name:                   form.supplier_name.trim() || null,
+      supplier_contact_name:           form.supplier_contact_name.trim() || null,
+      supplier_phone:                  form.supplier_phone.trim() || null,
+      supplier_email:                  form.supplier_email.trim() || null,
+      supplier_website:                form.supplier_website.trim() || null,
+      supplier_account_number:         form.supplier_account_number.trim() || null,
+      supplier_lead_time_days:         form.supplier_lead_time_days ? parseInt(form.supplier_lead_time_days) : null,
+      supplier_minimum_order_quantity: form.supplier_minimum_order_quantity ? parseFloat(form.supplier_minimum_order_quantity) : null,
+      supplier_notes:                  form.supplier_notes.trim() || null,
+    }
+
+    let savedId
+    if (isEdit) {
+      const { error: e2 } = await supabase.from('ingredients').update(payload).eq('id', part.id)
+      if (e2) { setSaving(false); setError(e2.message); return }
+      savedId = part.id
+    } else {
+      const { data, error: e2 } = await supabase.from('ingredients').insert(payload).select('id').single()
+      if (e2) { setSaving(false); setError(e2.message); return }
+      savedId = data.id
+    }
+
+    // Re-fetch the full row with suppliers so parent state is consistent
+    const { data: final } = await supabase
+      .from('ingredients').select('*, ingredient_suppliers(*)').eq('id', savedId).single()
+
+    clearDraft()
+    setSaving(false)
+    onSaved(final)
+  }
+
+  return (
+    <ModalShell
+      isOpen={isOpen}
+      onClose={onClose}
+      title={isEdit ? `Edit ${part.name}` : 'Add Part / Supply'}
+      isDirty={!isEdit && JSON.stringify(form) !== JSON.stringify(EMPTY_PART)}
+      draftRestored={draftRestored}
+      onDismissDraft={dismissDraftBanner}
+      maxWidth="max-w-xl"
+    >
+      <form onSubmit={handleSubmit} className="space-y-4">
+
+        {/* Name + category */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Field label="Name *">
+            <input type="text" value={form.name} onChange={e => setField('name', e.target.value)}
+              placeholder="e.g. Tri-Clamp Gasket 1.5in" className="field-input" autoFocus={!isEdit} />
+          </Field>
+          <Field label="Category *">
+            <select value={form.category}
+              onChange={e => { setField('category', e.target.value); setField('sub_type', '') }}
+              className="field-input">
+              {PARTS_CATS.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </Field>
+        </div>
+
+        {/* Sub-type dropdown — shown when there are types for the selected category */}
+        {subTypes.length > 0 && (
+          <Field label="Type">
+            <select value={form.sub_type} onChange={e => setField('sub_type', e.target.value)} className="field-input">
+              <option value="">Select type...</option>
+              {subTypes.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </Field>
+        )}
+
+        {/* Stock tracking */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+          <Field label="Unit">
+            <select value={form.stock_unit} onChange={e => setField('stock_unit', e.target.value)} className="field-input">
+              {PART_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+            </select>
+          </Field>
+          <Field label="Current Stock">
+            <input type="number" step="any" min="0" value={form.current_stock_quantity}
+              onChange={e => setField('current_stock_quantity', e.target.value)} className="field-input" />
+          </Field>
+          <Field label="Reorder At" tooltip="Alert when stock falls to this level">
+            <input type="number" step="any" min="0" value={form.reorder_threshold}
+              onChange={e => setField('reorder_threshold', e.target.value)} placeholder="—" className="field-input" />
+          </Field>
+        </div>
+
+        {/* Notes */}
+        <Field label="Notes">
+          <textarea value={form.notes} onChange={e => setField('notes', e.target.value)}
+            rows={2} className="field-input resize-none"
+            placeholder="Storage location, usage notes, model number..." />
+        </Field>
+
+        {/* ── Collapsible Supplier Information ── */}
+        <div className="border border-gray-200 rounded-lg">
+          <button type="button" onClick={() => setShowSupSection(v => !v)}
+            className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium text-navy hover:bg-gray-50 rounded-lg transition-colors">
+            <span>Supplier Information <span className="text-xs font-normal text-gray-400">(optional)</span></span>
+            <span className="text-gray-400 text-xs">{showSupSection ? '▲' : '▼'}</span>
+          </button>
+          {showSupSection && (
+            <div className="px-3 pb-3 pt-1 border-t border-gray-100 space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Field label="Supplier Name">
+                  <input type="text" value={form.supplier_name}
+                    onChange={e => setField('supplier_name', e.target.value)}
+                    placeholder="e.g. McMaster-Carr" className="field-input" />
+                </Field>
+                <Field label="Contact Name">
+                  <input type="text" value={form.supplier_contact_name}
+                    onChange={e => setField('supplier_contact_name', e.target.value)}
+                    className="field-input" />
+                </Field>
+                <Field label="Phone">
+                  <input type="tel" value={form.supplier_phone}
+                    onChange={e => setField('supplier_phone', e.target.value)}
+                    className="field-input" />
+                </Field>
+                <Field label="Email">
+                  <input type="email" value={form.supplier_email}
+                    onChange={e => setField('supplier_email', e.target.value)}
+                    className="field-input" />
+                </Field>
+                <Field label="Website">
+                  <input type="url" value={form.supplier_website}
+                    onChange={e => setField('supplier_website', e.target.value)}
+                    placeholder="https://supplier.com" className="field-input" />
+                </Field>
+                <Field label="Account Number">
+                  <input type="text" value={form.supplier_account_number}
+                    onChange={e => setField('supplier_account_number', e.target.value)}
+                    className="field-input" />
+                </Field>
+                <Field label="Lead Time (days)">
+                  <input type="number" min="0" value={form.supplier_lead_time_days}
+                    onChange={e => setField('supplier_lead_time_days', e.target.value)}
+                    placeholder="e.g. 3" className="field-input" />
+                </Field>
+                <Field label="Min Order Qty">
+                  <input type="number" min="0" step="any" value={form.supplier_minimum_order_quantity}
+                    onChange={e => setField('supplier_minimum_order_quantity', e.target.value)}
+                    className="field-input" />
+                </Field>
+              </div>
+              <Field label="Supplier Notes">
+                <textarea value={form.supplier_notes}
+                  onChange={e => setField('supplier_notes', e.target.value)}
+                  rows={2} className="field-input resize-none"
+                  placeholder="Ordering instructions, preferred contact, lead time notes..." />
+              </Field>
+            </div>
+          )}
+        </div>
+
+        {error && <p className="text-sm text-danger">{error}</p>}
+
+        <div className="flex gap-3 pt-2">
+          <button type="submit" disabled={saving}
+            className="flex-1 bg-amber hover:bg-amber-dark text-white font-semibold py-3 rounded-lg text-sm transition-colors disabled:opacity-50">
+            {saving ? 'Saving...' : isEdit ? 'Save Changes' : 'Add Part / Supply'}
           </button>
           <button type="button" onClick={onClose}
             className="flex-1 border border-gray-300 text-gray-600 font-medium py-3 rounded-lg text-sm hover:bg-gray-50 transition-colors">
