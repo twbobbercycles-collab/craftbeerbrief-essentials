@@ -24,10 +24,16 @@ import { useReadOnly } from '../../hooks/useReadOnly'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const CATEGORIES = [
-  'Malt/Grain','Hops','Yeast','Adjunct','Fruit',
-  'Spice','Water Treatment','Packaging',
-  'Parts & Consumables','Lab & QC Supplies','Safety Supplies','Other',
+const INGREDIENT_CATEGORIES = [
+  'Malt/Grain',
+  'Hops',
+  'Yeast',
+  'Adjunct',
+  'Water Chemistry',
+  'Fining Agent',
+  'Nutrient',
+  'Flavoring/Additive',
+  'Other Ingredient',
 ]
 
 const STOCK_UNITS = [
@@ -764,7 +770,7 @@ function InventoryTab({
           className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber"
         >
           <option value="">All categories</option>
-          {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+          {INGREDIENT_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
         <select
           value={statusFilter}
@@ -1798,7 +1804,7 @@ function AddEditIngredientModal({ isOpen, ingredient, breweryId, onClose, onSave
               onChange={e => { setField('category', e.target.value); setField('sub_type', '') }}
               className="field-input">
               <option value="">Select category...</option>
-              {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+              {INGREDIENT_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </Field>
         </div>
@@ -2890,7 +2896,7 @@ function CreatePOModal({ isOpen, purchaseOrder, ingredients, breweryId, onClose,
                             onChange={e => setLineField(idx, 'new_category', e.target.value)}
                             className="field-input">
                             <option value="">Category...</option>
-                            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                            {INGREDIENT_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                           </select>
                         </Field>
                       </div>
