@@ -128,6 +128,139 @@ const CATEGORY_SUBTYPES = {
   'Safety Supplies':     SAFETY_TYPES,
 }
 
+// Master catalog for PO line item selection.
+// Sub-category keys match the category values stored in the DB so receive
+// logic can assign the right category when creating a new inventory record.
+const PO_MASTER_CATALOG = {
+  'Ingredients': {
+    'Malt/Grain': [
+      'Pale 2-Row Malt','Pale Ale Malt','Pilsner Malt','Munich Malt (Light)',
+      'Munich Malt (Dark)','Vienna Malt','Maris Otter','Golden Promise',
+      'Crystal 10L','Crystal 20L','Crystal 40L','Crystal 60L','Crystal 80L',
+      'Crystal 120L','Carapils/Carafoam','CaraMunich','CaraRed','CaraAroma',
+      'Chocolate Malt','Roasted Barley','Black Patent Malt','Midnight Wheat',
+      'Wheat Malt','White Wheat Malt','Rye Malt','Smoked Malt','Acid Malt',
+      'Oat Malt','Other Malt/Grain',
+    ],
+    'Adjunct': [
+      'Flaked Oats','Flaked Wheat','Flaked Barley','Flaked Corn','Flaked Rice',
+      'Corn Sugar (Dextrose)','Cane Sugar','Brown Sugar','Honey','Lactose',
+      'Rice Hulls','Torrified Wheat','Other Adjunct',
+    ],
+    'Hops': [
+      'Amarillo','Azacca','Bravo','Cascade','Centennial','Chinook','Citra',
+      'Columbus/CTZ','Crystal','El Dorado','Ekuanot','Fuggle','Galaxy',
+      'Hallertau','Idaho 7','Magnum','Mosaic','Motueka','Nugget','Saaz',
+      'Simcoe','Sorachi Ace','Sterling','Strata','Tettnang','Vic Secret',
+      'Willamette','Other Hop Variety',
+    ],
+    'Yeast': [
+      'US-05 (Dry)','S-04 (Dry)','S-23 Lager (Dry)','W-34/70 Lager (Dry)',
+      'Kveik (Dry)','WY1056 American Ale','WY1968 London ESB',
+      'WY2124 Bohemian Lager','WY3068 Weihenstephan Weizen',
+      'WY3711 French Saison','WY3787 Trappist High Gravity',
+      'WLP001 California Ale','WLP002 English Ale','WLP500 Monastery Ale',
+      'WLP530 Abbey Ale','WLP800 Pilsner Lager','Other Yeast Strain',
+    ],
+    'Water Chemistry': [
+      'Gypsum (CaSO4)','Calcium Chloride (CaCl2)','Epsom Salt (MgSO4)',
+      'Baking Soda (NaHCO3)','Chalk (CaCO3)','Lactic Acid 88%',
+      'Phosphoric Acid 10%','Potassium Metabisulfite','Other Water Chemical',
+    ],
+    'Fining Agent': [
+      'Irish Moss','Whirlfloc Tablet','Gelatin','Biofine Clear',
+      'Bentonite','Silica Gel','Other Fining Agent',
+    ],
+    'Nutrient': [
+      'Yeast Nutrient','Zinc Sulfate','DAP (Diammonium Phosphate)',
+      'Fermaid-O','Fermaid-K','Other Nutrient',
+    ],
+    'Flavoring/Additive': [
+      'Vanilla Extract/Beans','Cacao Nibs','Coffee','Fruit Puree',
+      'Spices','Oak Chips/Cubes/Spirals','Honey','Other Flavoring',
+    ],
+  },
+  'Packaging Materials': {
+    'Cans': [
+      '12oz Can (blank)','16oz Can / Tallboy (blank)',
+      '19.2oz Stovepipe Can (blank)','32oz Crowler Can (blank)','Can Lid',
+    ],
+    'Bottles': [
+      '12oz Bottle (blank)','22oz Bomber Bottle (blank)',
+      '750ml Bottle (blank)','Bottle Cap','Cork & Cage',
+    ],
+    'Labels': [
+      '12oz Can Label','16oz Can Label','19.2oz Can Label','32oz Crowler Label',
+      '12oz Bottle Label — Front','12oz Bottle Label — Back',
+      '22oz Bottle Label — Front','22oz Bottle Label — Back',
+      '750ml Bottle Label — Front','750ml Bottle Label — Back',
+      'Neck Label','Keg Collar',
+    ],
+    'Carriers & Boxes': [
+      '4-Pack Carrier (16oz cans)','6-Pack Carrier (12oz cans)',
+      '12-Pack Box','24-Pack Case Box','Shipper Box',
+    ],
+    'Kegs': [
+      'Half Barrel Keg (15.5 gal)','Quarter Barrel Keg (7.75 gal)',
+      'Sixth Barrel Keg (5.16 gal)','Slim Quarter Keg (7.75 gal)',
+      '50L European Keg',
+    ],
+    'Cleaning & Sanitation': [
+      'Caustic Cleaner (PBW/NaOH)','Acid Cleaner (Star San/Acid)',
+      'CIP Chemical','Keg Wash Chemical','Sanitizer (general)',
+      'CO2 Gas Cylinder','Nitrogen Gas Cylinder','Mixed Gas Cylinder (CO2/N2)',
+    ],
+    'Other Packaging Supplies': [
+      'Oxygen Barrier Caps','Shrink Sleeve','Tamper Evident Seal',
+      'Wax Dip','Printed Carton','Other Packaging Supply',
+    ],
+  },
+  'Parts & Supplies': {
+    'Parts & Consumables': [
+      'Tri-Clamp Gasket','O-Ring','Pump Seal','Valve Seat/Diaphragm',
+      'Silicone Tubing','Vinyl Tubing','Reinforced Hose','Gas Line Tubing',
+      'Tri-Clamp Fitting','Hose Clamp','Quick Disconnect Fitting',
+      'Barbed Fitting','Filter Cartridge','Filter Sheet','Spray Ball (CIP)',
+      'Thermometer Probe/Sensor','Sight Glass Tube','Sample Cock/Petcock',
+      'CO2/Gas Line Component','Pump Impeller','Other Part/Consumable',
+    ],
+    'Lab & QC Supplies': [
+      'pH Probe/Electrode','Hydrometer','Refractometer',
+      'Dissolved Oxygen Test Kit','Turbidity Test Kit','Culture Media',
+      'Petri Dish/Swab Kit','Yeast Counting Equipment','Other Lab Supply',
+    ],
+    'Safety Supplies': [
+      'Nitrile Gloves','Safety Goggles','Rubber Boots/Footwear',
+      'Chemical Resistant Apron','CO2 Monitor/Sensor','First Aid Kit Restock',
+      'Fire Extinguisher Service','Eye Wash Solution','Other Safety Supply',
+    ],
+  },
+}
+
+// Units offered in PO line items
+const PO_UNITS = ['lb','oz','kg','g','each','case','box','gallon','liter','L','ml','packet','bag','other']
+
+// Reverse-lookup: given a main_category and item name, returns the sub_category
+// Used when creating a new inventory record on PO receive
+function findCategoryFromCatalog(mainCategory, itemName) {
+  const section = PO_MASTER_CATALOG[mainCategory]
+  if (!section) return null
+  for (const [subCat, items] of Object.entries(section))
+    if (items.includes(itemName)) return subCat
+  return null
+}
+
+// Default unit per sub-category for PO line items
+const PO_SUBCAT_UNIT = {
+  'Malt/Grain': 'lb', 'Adjunct': 'lb', 'Hops': 'oz', 'Yeast': 'packet',
+  'Water Chemistry': 'lb', 'Fining Agent': 'each', 'Nutrient': 'lb',
+  'Flavoring/Additive': 'lb', 'Cans': 'each', 'Bottles': 'each',
+  'Labels': 'each', 'Carriers & Boxes': 'each', 'Kegs': 'each',
+  'Cleaning & Sanitation': 'gallon', 'Other Packaging Supplies': 'each',
+  'Parts & Consumables': 'each', 'Lab & QC Supplies': 'each',
+  'Safety Supplies': 'each',
+}
+
 // Days from today at which stock expiry becomes a warning vs. danger
 const EXPIRY_WARN_DAYS  = 90
 const EXPIRY_ALERT_DAYS = 30
@@ -2359,44 +2492,88 @@ function ReceiveStockModal({ isOpen, purchaseOrder, ingredients, packagingMateri
 
     setSaving(true); setError('')
 
-    const shipping     = parseFloat(shippingCost) || 0
-    const itemsTotal   = validLines.reduce((s, l) =>
+    const shipping   = parseFloat(shippingCost) || 0
+    const itemsTotal = validLines.reduce((s, l) =>
       s + (parseFloat(l.quantity)||0) * (parseFloat(l.unit_cost)||0), 0)
+
+    let updatedCount = 0
+    let createdCount = 0
 
     await Promise.all(validLines.map(async line => {
       const qty      = parseFloat(line.quantity)
       const unitCost = parseFloat(line.unit_cost) || 0
       const lineValue = qty * unitCost
-      // Prorate shipping across lines by their share of total items value
       const proratedShipping = itemsTotal > 0 ? shipping * (lineValue / itemsTotal) : 0
       const landedUnitCost   = unitCost + (qty > 0 ? proratedShipping / qty : 0)
 
-      if (line.item_type === 'packaging_material' && line.packaging_material_id) {
-        // ── Packaging material receive ────────────────────────────────────────
-        // Record the stock movement in packaging_material_transactions
-        await supabase.from('packaging_material_transactions').insert({
-          brewery_id:       breweryId,
-          material_id:      line.packaging_material_id,
-          transaction_type: 'received',
-          quantity:         qty,
-          notes:            notes || null,
-          transaction_date: deliveryDate,
-          reference_type:   purchaseOrder ? 'purchase_order' : 'manual',
-          reference_id:     purchaseOrder?.id ?? null,
-        })
-        // Update the packaging material's stock quantity
-        const mat      = (packagingMaterials ?? []).find(m => m.id === line.packaging_material_id)
-        const newStock = (parseFloat(mat?.current_stock_quantity) || 0) + qty
-        await supabase.from('packaging_materials').update({
-          current_stock_quantity: newStock,
-          updated_at:             new Date().toISOString(),
-        }).eq('id', line.packaging_material_id)
+      if (line.item_type === 'packaging_material') {
+        // ── Packaging material — find existing or create new ──────────────────
+        let matId  = line.packaging_material_id || null
+        let isNew  = false
+
+        if (!matId) {
+          const { data: rows } = await supabase
+            .from('packaging_materials').select('id,current_stock_quantity')
+            .eq('brewery_id', breweryId).ilike('name', line.ingredient_name.trim()).limit(1)
+          if (rows?.[0]) {
+            matId = rows[0].id
+          } else {
+            const cat = findCategoryFromCatalog('Packaging Materials', line.ingredient_name.trim())
+              ?? 'Other Packaging Supplies'
+            const { data: newMat } = await supabase.from('packaging_materials').insert({
+              brewery_id: breweryId, name: line.ingredient_name.trim(),
+              category: cat, stock_unit: line.unit, current_stock_quantity: 0, is_active: true,
+            }).select('id').single()
+            matId = newMat?.id ?? null
+            isNew = true
+          }
+        }
+
+        if (matId) {
+          await supabase.from('packaging_material_transactions').insert({
+            brewery_id: breweryId, material_id: matId,
+            transaction_type: 'received', quantity: qty,
+            notes: notes || null, transaction_date: deliveryDate,
+            reference_type: purchaseOrder ? 'purchase_order' : 'manual',
+            reference_id:   purchaseOrder?.id ?? null,
+          })
+          const { data: mat } = await supabase.from('packaging_materials')
+            .select('current_stock_quantity').eq('id', matId).single()
+          await supabase.from('packaging_materials').update({
+            current_stock_quantity: (parseFloat(mat?.current_stock_quantity) || 0) + qty,
+            updated_at: new Date().toISOString(),
+          }).eq('id', matId)
+          isNew ? createdCount++ : updatedCount++
+        }
 
       } else {
-        // ── Ingredient / part receive (both in ingredients table) ─────────────
+        // ── Ingredient / part — find existing or create new ───────────────────
+        let ingId = line.ingredient_id || null
+        let isNew = false
+
+        if (!ingId) {
+          const { data: rows } = await supabase
+            .from('ingredients').select('id,current_stock_quantity,ingredient_suppliers(*)')
+            .eq('brewery_id', breweryId).ilike('name', line.ingredient_name.trim()).limit(1)
+          if (rows?.[0]) {
+            ingId = rows[0].id
+          } else {
+            const mainCat = line.item_type === 'part' ? 'Parts & Supplies' : 'Ingredients'
+            const cat     = findCategoryFromCatalog(mainCat, line.ingredient_name.trim())
+              ?? (line.item_type === 'part' ? 'Parts & Consumables' : 'Other Ingredient')
+            const { data: newIng } = await supabase.from('ingredients').insert({
+              brewery_id: breweryId, name: line.ingredient_name.trim(),
+              category: cat, unit: line.unit, stock_unit: line.unit,
+              current_stock_quantity: 0, is_active: true,
+            }).select('id').single()
+            ingId = newIng?.id ?? null
+            isNew = true
+          }
+        }
+
         await supabase.from('inventory_transactions').insert({
           brewery_id:       breweryId,
-          ingredient_id:    line.ingredient_id || null,
+          ingredient_id:    ingId,
           transaction_type: 'received',
           quantity:         qty,
           unit:             line.unit,
@@ -2410,35 +2587,36 @@ function ReceiveStockModal({ isOpen, purchaseOrder, ingredients, packagingMateri
           reference_name:   supplier || null,
         })
 
-        if (line.ingredient_id) {
-          const ing      = ingredients.find(i => i.id === line.ingredient_id)
-          const newStock = (parseFloat(ing?.current_stock_quantity) || 0) + qty
-
-          // Always update ingredient with landed cost — no prompt needed
+        if (ingId) {
+          const { data: ing } = await supabase.from('ingredients')
+            .select('current_stock_quantity,ingredient_suppliers(*)').eq('id', ingId).single()
           await supabase.from('ingredients').update({
-            current_stock_quantity:  newStock,
-            current_price_per_unit:  landedUnitCost || null,
-            last_received_date:      deliveryDate,
-            last_received_quantity:  qty,
-            last_received_price:     landedUnitCost || null,
-            lot_number:              line.lot_number || null,
-            expiration_date:         line.expiration_date || null,
-          }).eq('id', line.ingredient_id)
-
-          // Keep preferred supplier price in sync with landed cost
+            current_stock_quantity: (parseFloat(ing?.current_stock_quantity) || 0) + qty,
+            current_price_per_unit: landedUnitCost || null,
+            last_received_date:     deliveryDate,
+            last_received_quantity: qty,
+            last_received_price:    landedUnitCost || null,
+            lot_number:             line.lot_number || null,
+            expiration_date:        line.expiration_date || null,
+          }).eq('id', ingId)
           const preferred = ing?.ingredient_suppliers?.find(s => s.is_preferred)
           if (preferred && landedUnitCost > 0) {
             await supabase.from('ingredient_suppliers').update({
-              price_per_unit:     landedUnitCost,
-              last_ordered_date:  deliveryDate,
+              price_per_unit: landedUnitCost, last_ordered_date: deliveryDate,
               last_ordered_price: landedUnitCost,
             }).eq('id', preferred.id)
           }
+          isNew ? createdCount++ : updatedCount++
         }
       }
     }))
 
-    let successMsg = 'Stock received successfully.'
+    // Build result summary
+    const parts = []
+    if (updatedCount > 0) parts.push(`${updatedCount} item${updatedCount !== 1 ? 's' : ''} updated`)
+    if (createdCount > 0) parts.push(`${createdCount} new item${createdCount !== 1 ? 's' : ''} added to inventory`)
+    let successMsg = parts.length > 0 ? parts.join(', ') + '.' : 'Stock received.'
+
     if (purchaseOrder) {
       // Determine if all ordered items are fully received
       const allFullyReceived = validLines.every(l => {
@@ -2450,7 +2628,7 @@ function ReceiveStockModal({ isOpen, purchaseOrder, ingredients, packagingMateri
         .update({ status: newStatus, actual_delivery_date: deliveryDate })
         .eq('id', purchaseOrder.id)
       const statusLabel = allFullyReceived ? 'received' : 'partially received'
-      successMsg = `Stock received. Purchase Order "${purchaseOrder.supplier_name} — ${purchaseOrder.order_date}" has been marked as ${statusLabel}.`
+      successMsg += ` PO "${purchaseOrder.supplier_name} — ${purchaseOrder.order_date}" marked as ${statusLabel}.`
     }
 
     clearDraft()
@@ -2597,12 +2775,17 @@ function ReceiveStockModal({ isOpen, purchaseOrder, ingredients, packagingMateri
 // ─── Modal: Create Purchase Order ─────────────────────────────────────────────
 
 // total_cost is what the brewery actually paid for the whole line (e.g. $150 for a sack of malt).
-// unit_cost is calculated automatically as total_cost / quantity_ordered.
-// item_type: 'ingredient' | 'packaging_material' | 'part'
+// Each PO line is catalog-driven: category → sub_category → item name.
+// ingredient_id / packaging_material_id are resolved at receive time (find-or-create).
 const EMPTY_PO_LINE = {
-  ingredient_id: '', packaging_material_id: '', item_type: 'ingredient',
-  ingredient_name: '', quantity_ordered: '', unit: 'lb',
-  total_cost: '', is_new: false, new_category: '',
+  main_category:       'Ingredients',
+  sub_category:        '',
+  item_name:           '',
+  is_custom:           false,
+  custom_item_name:    '',
+  quantity_ordered:    '',
+  unit:                'lb',
+  estimated_unit_cost: '',
 }
 
 const EMPTY_SUPPLIER_DETAILS = {
@@ -2672,47 +2855,7 @@ function CreatePOModal({ isOpen, purchaseOrder, ingredients, packagingMaterials,
     return [...map.values()]
   }, [ingredients, packagingMaterials])
 
-  // All inventory items grouped into three sections for the PO line item select:
-  //   INGREDIENTS  — brewing ingredients (not in PARTS_CATS), grouped by category
-  //   PACKAGING MATERIALS — all active packaging materials
-  //   PARTS & SUPPLIES    — items in PARTS_CATS categories
-  const allItemsGrouped = useMemo(() => {
-    const groups = []
-
-    // INGREDIENTS — one optgroup per category
-    const ingItems = ingredients.filter(i => i.is_active !== false && !PARTS_CATS.includes(i.category))
-    const catMap = new Map()
-    for (const ing of ingItems) {
-      const cat = ing.category || 'Other'
-      if (!catMap.has(cat)) catMap.set(cat, [])
-      catMap.get(cat).push(ing)
-    }
-    for (const [cat, items] of catMap) {
-      groups.push({ label: `INGREDIENTS — ${cat}`, items, isIngCat: cat })
-    }
-
-    // PACKAGING MATERIALS
-    const pkgItems = (packagingMaterials ?? []).filter(m => m.is_active !== false)
-    if (pkgItems.length > 0) {
-      groups.push({
-        label: 'PACKAGING MATERIALS',
-        items: pkgItems.map(m => ({ ...m, _type: 'packaging_material' })),
-        isIngCat: null,
-      })
-    }
-
-    // PARTS & SUPPLIES
-    const partsItems = ingredients.filter(i => i.is_active !== false && PARTS_CATS.includes(i.category))
-    if (partsItems.length > 0) {
-      groups.push({
-        label: 'PARTS & SUPPLIES',
-        items: partsItems,
-        isIngCat: null,
-      })
-    }
-
-    return groups
-  }, [ingredients, packagingMaterials])
+  // (allItemsGrouped removed — PO now uses PO_MASTER_CATALOG, not live inventory)
 
   const acResults = useMemo(() => {
     if (!supplier.trim()) return knownSuppliers
@@ -2737,17 +2880,19 @@ function CreatePOModal({ isOpen, purchaseOrder, ingredients, packagingMaterials,
       setSupplierDetails({ ...EMPTY_SUPPLIER_DETAILS })
       if (purchaseOrder.purchase_order_items?.length > 0) {
         setLines(purchaseOrder.purchase_order_items.map(i => {
-          const qty   = parseFloat(i.quantity_ordered) || 0
-          const uCost = parseFloat(i.unit_cost) || 0
-          const total = qty > 0 ? qty * uCost : 0
+          // Map item_type → main_category; sub_category not stored — user can edit
+          const mainCat = i.item_type === 'packaging_material' ? 'Packaging Materials'
+                        : i.item_type === 'part'               ? 'Parts & Supplies'
+                        :                                        'Ingredients'
           return {
-            ingredient_id:    i.ingredient_id ?? '',
-            ingredient_name:  i.ingredient_name,
-            quantity_ordered: String(i.quantity_ordered),
-            unit:             i.unit,
-            total_cost:       total > 0 ? String(total.toFixed(2)) : '',
-            is_new:           false,
-            new_category:     '',
+            main_category:       mainCat,
+            sub_category:        '',
+            item_name:           '',
+            is_custom:           true,
+            custom_item_name:    i.ingredient_name ?? '',
+            quantity_ordered:    String(i.quantity_ordered),
+            unit:                i.unit ?? 'each',
+            estimated_unit_cost: parseFloat(i.unit_cost) > 0 ? String(parseFloat(i.unit_cost).toFixed(4)) : '',
           }
         }))
       } else {
@@ -2763,7 +2908,12 @@ function CreatePOModal({ isOpen, purchaseOrder, ingredients, packagingMaterials,
         setShippingCost(draft.shippingCost ?? '0')
         setNotes(draft.notes ?? '')
         setSupplierDetails(draft.supplierDetails ?? { ...EMPTY_SUPPLIER_DETAILS })
-        setLines(draft.lines ?? [{ ...EMPTY_PO_LINE }])
+        // Only restore lines that use the new catalog format; discard old-format drafts
+        const draftLines = draft.lines
+        setLines(draftLines?.length > 0 && 'main_category' in (draftLines[0] ?? {})
+          ? draftLines
+          : [{ ...EMPTY_PO_LINE }]
+        )
       } else {
         setSupplier('')
         setOrderDate(new Date().toISOString().split('T')[0])
@@ -2782,49 +2932,45 @@ function CreatePOModal({ isOpen, purchaseOrder, ingredients, packagingMaterials,
     saveDraft({ supplier, orderDate, deliveryDate, shippingCost, notes, supplierDetails, lines })
   }, [supplier, orderDate, deliveryDate, shippingCost, notes, supplierDetails, lines])
 
-  const isDirty = !purchaseOrder && (!!supplier || lines.some(l => l.ingredient_name || l.total_cost))
+  const isDirty = !purchaseOrder && (!!supplier || lines.some(l => l.item_name || l.custom_item_name || l.quantity_ordered))
 
   function setLineField(idx, key, val) {
     setLines(prev => prev.map((l, i) => i === idx ? { ...l, [key]: val } : l))
   }
 
-  // Handle item selection in a PO line — value is one of:
-  //   'other_<category>'  → new inline ingredient for that category
-  //   'pkg_<uuid>'        → packaging material (stored in packaging_materials table)
-  //   '<uuid>'            → ingredient or part (both stored in ingredients table)
-  function handleIngSelect(idx, val) {
-    if (!val) return
+  // Reset sub_category + item when main category changes
+  function handleCategoryChange(idx, cat) {
+    setLines(prev => prev.map((l, i) => i === idx ? {
+      ...l,
+      main_category:    cat,
+      sub_category:     '',
+      item_name:        '',
+      is_custom:        false,
+      custom_item_name: '',
+      unit:             cat === 'Ingredients' ? 'lb' : 'each',
+    } : l))
+  }
 
-    if (val.startsWith('other_')) {
-      const cat = val.slice(6)
+  // Reset item name and auto-set unit when sub-category changes
+  function handleSubCategoryChange(idx, sc) {
+    setLines(prev => prev.map((l, i) => i === idx ? {
+      ...l,
+      sub_category:     sc,
+      item_name:        '',
+      is_custom:        false,
+      custom_item_name: '',
+      unit:             PO_SUBCAT_UNIT[sc] ?? l.unit,
+    } : l))
+  }
+
+  // Handle item name selection — '__custom__' triggers the free-text input
+  function handleItemNameChange(idx, name) {
+    if (name === '__custom__') {
       setLines(prev => prev.map((l, i) => i === idx
-        ? { ...l, ingredient_id: '', packaging_material_id: '', ingredient_name: '', unit: 'lb', is_new: true, new_category: cat, item_type: 'ingredient' }
-        : l
-      ))
-      return
-    }
-
-    // Packaging material — prefixed with 'pkg_'
-    if (val.startsWith('pkg_')) {
-      const pkgId = val.slice(4)
-      const mat = (packagingMaterials ?? []).find(m => m.id === pkgId)
-      if (mat) {
-        setLines(prev => prev.map((l, i) => i === idx
-          ? { ...l, ingredient_id: '', packaging_material_id: pkgId, ingredient_name: mat.name, unit: mat.stock_unit ?? 'units', is_new: false, new_category: '', item_type: 'packaging_material' }
-          : l
-        ))
-      }
-      return
-    }
-
-    // Ingredient or part (both in ingredients table)
-    const ing = ingredients.find(i => i.id === val)
-    if (ing) {
-      const itemType = PARTS_CATS.includes(ing.category) ? 'part' : 'ingredient'
+        ? { ...l, is_custom: true, item_name: '' } : l))
+    } else {
       setLines(prev => prev.map((l, i) => i === idx
-        ? { ...l, ingredient_id: val, packaging_material_id: '', ingredient_name: ing.name, unit: ing.stock_unit ?? ing.unit ?? 'lb', is_new: false, new_category: '', item_type: itemType }
-        : l
-      ))
+        ? { ...l, item_name: name, is_custom: false, custom_item_name: '' } : l))
     }
   }
 
@@ -2840,37 +2986,23 @@ function CreatePOModal({ isOpen, purchaseOrder, ingredients, packagingMaterials,
     setAcOpen(false)
   }
 
-  // Items total is the sum of each line's total_cost (what the brewery paid per ingredient)
-  const itemsTotal = lines.reduce((sum, l) => sum + (parseFloat(l.total_cost) || 0), 0)
+  // Items total = sum of (estimated_unit_cost × quantity_ordered) per line
+  const itemsTotal = lines.reduce((sum, l) =>
+    sum + (parseFloat(l.estimated_unit_cost) || 0) * (parseFloat(l.quantity_ordered) || 0), 0)
   const orderTotal = itemsTotal + (parseFloat(shippingCost) || 0)
 
   async function handleSave(status) {
     if (!supplier.trim()) { setError('Supplier name is required.'); return }
-    const validLines = lines.filter(l =>
-      (l.ingredient_id || (l.is_new && l.ingredient_name.trim())) && parseFloat(l.quantity_ordered) > 0
-    )
-    if (validLines.length === 0) { setError('Add at least one item with a quantity.'); return }
-    const missingCost = validLines.find(l => !parseFloat(l.total_cost))
-    if (missingCost) { setError(`Enter the total cost for "${missingCost.ingredient_name}".`); return }
-    const missingNewCat = validLines.find(l => l.is_new && !l.ingredient_name.trim())
-    if (missingNewCat) { setError('Enter a name for all new ingredients.'); return }
+    const validLines = lines.filter(l => {
+      const name = l.is_custom ? l.custom_item_name.trim() : l.item_name
+      return name && parseFloat(l.quantity_ordered) > 0
+    })
+    if (validLines.length === 0) { setError('Add at least one item with a name and quantity.'); return }
 
     setSaving(true); setError('')
 
-    // Create any new ingredients before inserting PO items
-    const processedLines = await Promise.all(validLines.map(async l => {
-      if (!l.is_new) return l
-      const { data: newIng } = await supabase.from('ingredients').insert({
-        brewery_id:             breweryId,
-        name:                   l.ingredient_name.trim(),
-        category:               l.new_category || 'Other',
-        unit:                   l.unit,
-        stock_unit:             l.unit,
-        current_stock_quantity: 0,
-        is_active:              true,
-      }).select('id').single()
-      return newIng ? { ...l, ingredient_id: newIng.id, is_new: false } : l
-    }))
+    // No ingredients are created at PO creation time — items are resolved on receive (find-or-create)
+    const processedLines = validLines
 
     let po, poErr
     if (purchaseOrder) {
@@ -2908,29 +3040,26 @@ function CreatePOModal({ isOpen, purchaseOrder, ingredients, packagingMaterials,
     if (poErr) { setSaving(false); setError(poErr.message); return }
 
     // Build line-item rows.
-    // IMPORTANT: total_cost is a GENERATED ALWAYS AS (quantity_ordered * unit_cost) STORED column
-    // in purchase_order_items — PostgreSQL will reject the insert if we include it.
-    // Only send the columns we control; the DB computes total_cost automatically.
+    // ingredient_id / packaging_material_id are left null — they are resolved at receive time
+    // via find-or-create logic in ReceiveStockModal.
+    // total_cost is a GENERATED ALWAYS AS column — never send it to Postgres.
     const itemRows = processedLines.map(l => {
+      const name     = (l.is_custom ? l.custom_item_name.trim() : l.item_name) || ''
       const qty      = parseFloat(l.quantity_ordered)
-      const total    = parseFloat(l.total_cost) || 0
-      const unitCost = qty > 0 ? total / qty : 0
-      // Resolve display name from whichever table the item belongs to
-      const name     = l.ingredient_name?.trim()
-                     || ingredients.find(i => i.id === l.ingredient_id)?.name
-                     || (packagingMaterials ?? []).find(m => m.id === l.packaging_material_id)?.name
-                     || ''
+      const unitCost = parseFloat(l.estimated_unit_cost) || 0
+      const itemType = l.main_category === 'Packaging Materials' ? 'packaging_material'
+                     : l.main_category === 'Parts & Supplies'    ? 'part'
+                     :                                             'ingredient'
       return {
         purchase_order_id:     po.id,
         brewery_id:            breweryId,
-        ingredient_id:         l.ingredient_id         || null,
-        packaging_material_id: l.packaging_material_id || null,
-        item_type:             l.item_type             || 'ingredient',
+        ingredient_id:         null,
+        packaging_material_id: null,
+        item_type:             itemType,
         ingredient_name:       name,
         quantity_ordered:      qty,
         unit:                  l.unit,
         unit_cost:             unitCost,
-        // total_cost intentionally omitted — it is a generated column
       }
     })
 
@@ -2948,48 +3077,6 @@ function CreatePOModal({ isOpen, purchaseOrder, ingredients, packagingMaterials,
       setError(`Failed to save line items: ${itemsErr.message}`)
       return
     }
-
-    // Upsert supplier contact info for each ingredient line with a known ingredient_id
-    const supName = supplier.trim()
-    const hasDetails = Object.values(supplierDetails).some(v => v.trim())
-    await Promise.all(
-      processedLines
-        .filter(l => l.ingredient_id)
-        .map(async l => {
-          const qty      = parseFloat(l.quantity_ordered)
-          const total    = parseFloat(l.total_cost) || 0
-          const unitCost = qty > 0 ? total / qty : 0
-
-          const { data: existing } = await supabase
-            .from('ingredient_suppliers')
-            .select('id')
-            .eq('brewery_id', breweryId)
-            .eq('ingredient_id', l.ingredient_id)
-            .eq('supplier_name', supName)
-            .maybeSingle()
-
-          const payload = {
-            brewery_id:     breweryId,
-            ingredient_id:  l.ingredient_id,
-            supplier_name:  supName,
-            last_ordered_date:  orderDate,
-            last_ordered_price: unitCost || null,
-            ...(hasDetails ? {
-              contact_name:   supplierDetails.contact_name  || null,
-              contact_email:  supplierDetails.contact_email || null,
-              contact_phone:  supplierDetails.contact_phone || null,
-              website_url:    supplierDetails.website_url   || null,
-              account_number: supplierDetails.account_number || null,
-            } : {}),
-          }
-
-          if (existing) {
-            await supabase.from('ingredient_suppliers').update(payload).eq('id', existing.id)
-          } else {
-            await supabase.from('ingredient_suppliers').insert(payload)
-          }
-        })
-    )
 
     // Re-fetch PO with items
     const { data: full } = await supabase
@@ -3091,115 +3178,122 @@ function CreatePOModal({ isOpen, purchaseOrder, ingredients, packagingMaterials,
           )}
         </div>
 
-        {/* Items — user enters total cost paid; unit cost is calculated automatically */}
+        {/* Items — catalog-driven: main category → sub-category → item name */}
         <div>
           <p className="text-sm font-semibold text-navy mb-2">Items</p>
           <div className="space-y-3">
             {lines.map((line, idx) => {
-              const qty      = parseFloat(line.quantity_ordered) || 0
-              const total    = parseFloat(line.total_cost) || 0
-              const unitCost = qty > 0 && total > 0 ? total / qty : null
+              const effectiveName = line.is_custom ? line.custom_item_name : line.item_name
+              const lineTotal = (parseFloat(line.estimated_unit_cost) || 0) * (parseFloat(line.quantity_ordered) || 0)
+              const catalogItems = PO_MASTER_CATALOG[line.main_category]?.[line.sub_category] ?? []
+              const itemTypeBadge = line.main_category === 'Packaging Materials' ? { label: 'Packaging', cls: 'bg-navy/10 text-navy' }
+                                  : line.main_category === 'Parts & Supplies'    ? { label: 'Part/Supply', cls: 'bg-amber/10 text-amber-dark' }
+                                  :                                                 { label: 'Ingredient', cls: 'bg-green-50 text-success' }
               return (
                 <div key={idx} className="border border-gray-100 rounded-lg p-3 space-y-2">
-                  {/* Row 1: ingredient, qty, unit — flat grid so all inputs stay on one baseline */}
-                  <div className="grid grid-cols-[1fr_80px_80px_24px] gap-2 items-end">
-                    {line.is_new ? (
-                      // Two sub-columns (name + category) inside the first grid cell, no extra height
-                      <div className="grid grid-cols-2 gap-2">
-                        <Field label={idx === 0 ? 'New ingredient name *' : undefined}>
-                          <input type="text" value={line.ingredient_name}
-                            onChange={e => setLineField(idx, 'ingredient_name', e.target.value)}
-                            placeholder="Ingredient name" className="field-input" autoFocus />
-                        </Field>
-                        <Field label={idx === 0 ? 'Category *' : undefined}>
-                          <select value={line.new_category}
-                            onChange={e => setLineField(idx, 'new_category', e.target.value)}
-                            className="field-input">
-                            <option value="">Category...</option>
-                            {INGREDIENT_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                          </select>
-                        </Field>
+                  {/* Row 1: main category + sub-category */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label={idx === 0 ? 'Category *' : undefined}>
+                      <select
+                        value={line.main_category}
+                        onChange={e => handleCategoryChange(idx, e.target.value)}
+                        className="field-input"
+                      >
+                        <option value="Ingredients">Ingredients</option>
+                        <option value="Packaging Materials">Packaging Materials</option>
+                        <option value="Parts &amp; Supplies">Parts &amp; Supplies</option>
+                      </select>
+                    </Field>
+                    <Field label={idx === 0 ? 'Sub-category *' : undefined}>
+                      <select
+                        value={line.sub_category}
+                        onChange={e => handleSubCategoryChange(idx, e.target.value)}
+                        className="field-input"
+                      >
+                        <option value="">Sub-category…</option>
+                        {Object.keys(PO_MASTER_CATALOG[line.main_category] ?? {}).map(sc => (
+                          <option key={sc} value={sc}>{sc}</option>
+                        ))}
+                      </select>
+                    </Field>
+                  </div>
+
+                  {/* Row 2: item name (catalog select or free-text) + type badge */}
+                  <Field label={idx === 0 ? 'Item *' : undefined}>
+                    {line.is_custom ? (
+                      <div className="flex gap-2 items-center">
+                        <input
+                          type="text"
+                          value={line.custom_item_name}
+                          onChange={e => setLineField(idx, 'custom_item_name', e.target.value)}
+                          placeholder="Enter item name…"
+                          className="field-input flex-1"
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setLines(prev => prev.map((l, i) =>
+                            i === idx ? { ...l, is_custom: false, custom_item_name: '', item_name: '' } : l
+                          ))}
+                          className="text-xs text-gray-400 hover:text-navy whitespace-nowrap shrink-0"
+                        >
+                          ← List
+                        </button>
                       </div>
                     ) : (
-                      <Field label={idx === 0 ? 'Item *' : undefined}>
-                        {/* Compute a compound select value: pkg materials use 'pkg_<id>' prefix */}
-                        <select
-                          value={
-                            line.packaging_material_id
-                              ? `pkg_${line.packaging_material_id}`
-                              : (line.ingredient_id || '')
-                          }
-                          onChange={e => handleIngSelect(idx, e.target.value)}
-                          className="field-input"
-                        >
-                          <option value="">Select item…</option>
-                          {allItemsGrouped.map(({ label, items, isIngCat }) => (
-                            <optgroup key={label} label={label}>
-                              {items.map(item => {
-                                // Packaging materials get a 'pkg_' prefix so we know which table they're from
-                                const val = item._type === 'packaging_material' ? `pkg_${item.id}` : item.id
-                                return <option key={val} value={val}>{item.name}</option>
-                              })}
-                              {/* "Other — new ingredient" only applies to ingredient groups */}
-                              {isIngCat && (
-                                <option value={`other_${isIngCat}`}>Other — new ingredient</option>
-                              )}
-                            </optgroup>
-                          ))}
-                        </select>
-                        {/* Item type badge — shows which inventory type was selected */}
-                        {line.ingredient_id || line.packaging_material_id ? (
-                          <span className={`mt-0.5 inline-block text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
-                            line.item_type === 'packaging_material' ? 'bg-navy/10 text-navy' :
-                            line.item_type === 'part'               ? 'bg-amber/10 text-amber-dark' :
-                                                                      'bg-green-50 text-success'
-                          }`}>
-                            {line.item_type === 'packaging_material' ? 'Packaging' :
-                             line.item_type === 'part'               ? 'Part/Supply' :
-                                                                       'Ingredient'}
-                          </span>
-                        ) : null}
-                      </Field>
+                      <select
+                        value={line.item_name}
+                        onChange={e => handleItemNameChange(idx, e.target.value)}
+                        disabled={!line.sub_category}
+                        className="field-input disabled:bg-gray-50 disabled:text-gray-400"
+                      >
+                        <option value="">
+                          {line.sub_category ? 'Select item…' : 'Select sub-category first'}
+                        </option>
+                        {catalogItems.map(name => (
+                          <option key={name} value={name}>{name}</option>
+                        ))}
+                        {line.sub_category && (
+                          <option value="__custom__">Other (specify)…</option>
+                        )}
+                      </select>
                     )}
+                  </Field>
+
+                  {/* Item type badge */}
+                  {effectiveName && (
+                    <span className={`inline-block text-[10px] font-medium px-1.5 py-0.5 rounded-full ${itemTypeBadge.cls}`}>
+                      {itemTypeBadge.label}
+                    </span>
+                  )}
+
+                  {/* Row 3: qty + unit + estimated unit cost + remove */}
+                  <div className="grid grid-cols-[1fr_80px_110px_24px] gap-2 items-end">
                     <Field label={idx === 0 ? 'Qty *' : undefined}>
                       <input type="number" step="any" min="0" value={line.quantity_ordered}
                         onChange={e => setLineField(idx, 'quantity_ordered', e.target.value)}
                         placeholder="e.g. 55" className="field-input" />
                     </Field>
-                    <Field label={idx === 0 ? 'Unit *' : undefined}>
+                    <Field label={idx === 0 ? 'Unit' : undefined}>
                       <select value={line.unit} onChange={e => setLineField(idx, 'unit', e.target.value)} className="field-input">
-                        {STOCK_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                        {PO_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
                       </select>
+                    </Field>
+                    <Field label={idx === 0 ? 'Est. Unit Cost ($)' : undefined}>
+                      <input type="number" step="any" min="0" value={line.estimated_unit_cost}
+                        onChange={e => setLineField(idx, 'estimated_unit_cost', e.target.value)}
+                        placeholder="0.00" className="field-input" />
                     </Field>
                     <button type="button" onClick={() => setLines(prev => prev.filter((_, i) => i !== idx))}
                       className="text-gray-300 hover:text-danger pb-1 text-sm">✕</button>
                   </div>
-                  {/* Back-to-list link — outside the grid so it never affects row height above */}
-                  {line.is_new && (
-                    <button type="button"
-                      onClick={() => setLines(prev => prev.map((l, i) => i === idx
-                        ? { ...l, is_new: false, ingredient_name: '', ingredient_id: '', new_category: '' }
-                        : l
-                      ))}
-                      className="text-xs text-gray-400 hover:text-navy">
-                      ← Back to ingredient list
-                    </button>
+
+                  {/* Estimated line total */}
+                  {lineTotal > 0 && (
+                    <p className="text-xs text-right text-gray-400">
+                      Est. line total: <span className="font-semibold text-navy">${lineTotal.toFixed(2)}</span>
+                    </p>
                   )}
-                  {/* Row 2: total cost (user enters) + calculated unit cost */}
-                  <div className="grid grid-cols-[1fr_auto] gap-3 items-end">
-                    <Field label={idx === 0 ? 'Total cost for this line ($) *' : 'Total cost ($) *'}
-                      tooltip="The total amount your brewery paid for this ingredient in this order — e.g. $150 for a sack of malt.">
-                      <input type="number" step="0.01" min="0" value={line.total_cost}
-                        onChange={e => setLineField(idx, 'total_cost', e.target.value)}
-                        placeholder="e.g. 150.00" className="field-input" />
-                    </Field>
-                    <div className="pb-1 text-right shrink-0">
-                      <p className="text-xs text-gray-400">Unit cost</p>
-                      <p className="text-sm font-semibold text-navy">
-                        {unitCost != null ? `$${unitCost.toFixed(4)}/${line.unit}` : '—'}
-                      </p>
-                    </div>
-                  </div>
                 </div>
               )
             })}
@@ -3331,7 +3425,7 @@ function PODetailModal({ isOpen, purchaseOrder: po, onClose, onReceive, onEdit }
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 uppercase">
-                <th className="text-left px-3 py-2">Ingredient</th>
+                <th className="text-left px-3 py-2">Item</th>
                 <th className="text-right px-3 py-2">Ordered</th>
                 <th className="text-right px-3 py-2">Received</th>
                 <th className="text-right px-3 py-2">Unit Cost</th>
@@ -3358,15 +3452,29 @@ function PODetailModal({ isOpen, purchaseOrder: po, onClose, onReceive, onEdit }
                   </td>
                 </tr>
               ) : (
-                items.map(item => (
-                  <tr key={item.id}>
-                    <td className="px-3 py-2 font-medium text-navy">{item.ingredient_name}</td>
-                    <td className="px-3 py-2 text-right text-gray-600">{parseFloat(item.quantity_ordered).toFixed(2)} {item.unit}</td>
-                    <td className="px-3 py-2 text-right text-gray-600">{parseFloat(item.quantity_received ?? 0).toFixed(2)} {item.unit}</td>
-                    <td className="px-3 py-2 text-right text-gray-600">${parseFloat(item.unit_cost || 0).toFixed(4)}</td>
-                    <td className="px-3 py-2 text-right font-medium text-navy">${parseFloat(item.total_cost || 0).toFixed(2)}</td>
-                  </tr>
-                ))
+                items.map(item => {
+                  const badge = item.item_type === 'packaging_material'
+                    ? { label: 'Packaging', cls: 'bg-navy/10 text-navy' }
+                    : item.item_type === 'part'
+                    ? { label: 'Part', cls: 'bg-amber/10 text-amber-dark' }
+                    : null
+                  return (
+                    <tr key={item.id}>
+                      <td className="px-3 py-2">
+                        <span className="font-medium text-navy">{item.ingredient_name}</span>
+                        {badge && (
+                          <span className={`ml-1.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${badge.cls}`}>
+                            {badge.label}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right text-gray-600">{parseFloat(item.quantity_ordered).toFixed(2)} {item.unit}</td>
+                      <td className="px-3 py-2 text-right text-gray-600">{parseFloat(item.quantity_received ?? 0).toFixed(2)} {item.unit}</td>
+                      <td className="px-3 py-2 text-right text-gray-600">${parseFloat(item.unit_cost || 0).toFixed(4)}</td>
+                      <td className="px-3 py-2 text-right font-medium text-navy">${parseFloat(item.total_cost || 0).toFixed(2)}</td>
+                    </tr>
+                  )
+                })
               )}
               {!loadingItems && !itemsError && (
                 <>
