@@ -98,6 +98,37 @@ function safeParse(val, fallback) {
   return isNaN(n) ? fallback : n
 }
 
+// ─── Unit cost conversion when switching units ────────────────────────────────
+// Returns { cost: number, warning: boolean } or the original cost string if no conversion is possible.
+function convertCostPerUnit(cost, fromUnit, toUnit) {
+  if (!cost || fromUnit === toUnit || !fromUnit || !toUnit) return cost
+  const numCost = parseFloat(cost)
+  if (isNaN(numCost) || numCost === 0) return cost
+
+  const weightToGrams = { 'g': 1, 'oz': 28.3495, 'lb': 453.592, 'kg': 1000 }
+  const volumeToMl = {
+    'ml': 1, 'fl oz': 29.5735, 'qt': 946.353, 'quart': 946.353,
+    'pint': 473.176, 'L': 1000, 'liter': 1000,
+    'Gallon': 3785.41, 'gallon': 3785.41,
+    'Barrel': 117347, 'bbl': 117347,
+    'cup': 236.588, 'tsp': 4.929, 'tbsp': 14.787,
+  }
+  const countUnits = ['each', 'packet', 'unit', 'tablet', 'bag', 'box', 'case', 'bundle', 'sheet', 'roll', 'other', 'pinch']
+
+  if (countUnits.includes(fromUnit) || countUnits.includes(toUnit)) {
+    return { cost: numCost, warning: true }
+  }
+  if (weightToGrams[fromUnit] !== undefined && weightToGrams[toUnit] !== undefined) {
+    const costPerGram = numCost / weightToGrams[fromUnit]
+    return { cost: parseFloat((costPerGram * weightToGrams[toUnit]).toFixed(6)), warning: false }
+  }
+  if (volumeToMl[fromUnit] !== undefined && volumeToMl[toUnit] !== undefined) {
+    const costPerMl = numCost / volumeToMl[fromUnit]
+    return { cost: parseFloat((costPerMl * volumeToMl[toUnit]).toFixed(6)), warning: false }
+  }
+  return { cost: numCost, warning: true }
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function RecipeDetailPage() {
@@ -179,6 +210,12 @@ export default function RecipeDetailPage() {
   const [newLineForm, setNewLineForm]    = useState(emptyNewLine('Mash'))
   const [newLineError, setNewLineError] = useState('')
   const [newLineSaving, setNewLineSaving] = useState(false)
+
+  // Edit ingredient modal state
+  const [editIngredientTarget, setEditIngredientTarget] = useState(null)
+  const [editLineForm, setEditLineForm]                 = useState(null)
+  const [editLineSaving, setEditLineSaving]             = useState(false)
+  const [editLineError, setEditLineError]               = useState('')
 
   // ── Load ──────────────────────────────────────────────────────────────────────
 
@@ -387,7 +424,7 @@ export default function RecipeDetailPage() {
       ...breakdown, utilitiesBreakdown,
       costPerBarrel, costPerPint, exciseTaxBatchTotal, exciseTaxPerPint, trueCostPerPint,
       suggestedRetail, taxInclusivePrice,
-      grossMargin, batchBarrels, unitsProduced, lineCosts, splitOutputs,
+      grossMargin, batchBarrels, totalPints, unitsProduced, lineCosts, splitOutputs,
     }
   }, [
     lines, recipe, batchSize,
@@ -806,6 +843,44 @@ export default function RecipeDetailPage() {
     setAddingTo(null)
   }
 
+  // ── Edit existing ingredient line ─────────────────────────────────────────────
+
+  async function handleSaveEditLine(e) {
+    e.preventDefault()
+    if (!editIngredientTarget || !editLineForm) return
+    if (!editLineForm.ingredient_name?.trim()) { setEditLineError('Ingredient name is required.'); return }
+    if (!editLineForm.amount) { setEditLineError('Amount is required.'); return }
+
+    setEditLineSaving(true); setEditLineError('')
+
+    const match = library.find(i => i.name.toLowerCase() === editLineForm.ingredient_name.toLowerCase())
+    const preferred = match?.ingredient_suppliers?.find(s => s.is_preferred)
+    const enteredPrice = parseFloat(editLineForm.price_per_unit) || 0
+
+    const { data, error: e2 } = await supabase.from('recipe_ingredients')
+      .update({
+        ingredient_id:    match?.id ?? null,
+        ingredient_name:  editLineForm.ingredient_name.trim(),
+        amount:           parseFloat(editLineForm.amount),
+        unit:             editLineForm.unit,
+        scale_with_batch: editLineForm.scale_with_batch,
+        addition_type:    editLineForm.addition_type,
+        addition_time:    editLineForm.addition_time || null,
+        notes:            editLineForm.notes || null,
+        supplier_id:      preferred?.id ?? null,
+      })
+      .eq('id', editIngredientTarget.id)
+      .select('*, ingredient:ingredients(id,name,category,unit,current_price_per_unit,ingredient_suppliers(*)), supplier:ingredient_suppliers(id,supplier_name,price_per_unit,is_preferred)')
+      .single()
+
+    setEditLineSaving(false)
+    if (e2) { setEditLineError(e2.message); return }
+
+    const lineWithPrice = !match && enteredPrice > 0 ? { ...data, _priceOverride: enteredPrice } : data
+    setLines(prev => prev.map(l => l.id === editIngredientTarget.id ? lineWithPrice : l))
+    setEditIngredientTarget(null)
+  }
+
   // ── Remove ingredient line ────────────────────────────────────────────────────
 
   async function handleRemoveLine(lineId) {
@@ -1185,6 +1260,21 @@ export default function RecipeDetailPage() {
                 onMoveLine={moveLine}
                 // Opens the AddIngredientModal for this section
                 onStartAdding={startAddingLine}
+                // Opens the edit modal pre-populated with the ingredient's data
+                onEditLine={line => {
+                  setEditLineError('')
+                  setEditLineForm({
+                    ingredient_name: line.ingredient_name,
+                    amount:          String(line.amount ?? ''),
+                    unit:            line.unit ?? 'lb',
+                    scale_with_batch: line.scale_with_batch ?? true,
+                    addition_time:   line.addition_time ?? '',
+                    notes:           line.notes ?? '',
+                    addition_type:   line.addition_type,
+                    price_per_unit:  String(line._priceOverride ?? ''),
+                  })
+                  setEditIngredientTarget(line)
+                }}
               />
             )
           })}
@@ -1415,6 +1505,25 @@ export default function RecipeDetailPage() {
         onChange={(field, val) => setNewLineForm(p => ({ ...p, [field]: val }))}
         onSubmit={handleSaveNewLine}
         onClose={cancelAddLine}
+        totalPints={costs.totalPints ?? 0}
+        lines={lines}
+      />
+
+      {/* Edit Ingredient modal — opens when the pencil button on an ingredient row is clicked */}
+      <AddIngredientModal
+        isOpen={editIngredientTarget !== null}
+        addType={editIngredientTarget?.addition_type}
+        library={library}
+        form={editLineForm ?? emptyNewLine('Mash')}
+        error={editLineError}
+        saving={editLineSaving}
+        onChange={(field, val) => setEditLineForm(p => ({ ...p, [field]: val }))}
+        onSubmit={handleSaveEditLine}
+        onClose={() => { setEditIngredientTarget(null); setEditLineError('') }}
+        isEditMode={true}
+        editTarget={editIngredientTarget}
+        totalPints={costs.totalPints ?? 0}
+        lines={lines}
       />
     </div>
   )
@@ -1507,7 +1616,7 @@ function AdditionSection({
   isReadOnly, ReadOnlyTooltip,
   acLineId, acResults, onIngNameInput, onAcSelect, onAcClose,
   onUpdateLine, onSaveLineField, onRemoveLine, onMoveLine,
-  onStartAdding,
+  onStartAdding, onEditLine,
 }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -1542,6 +1651,7 @@ function AdditionSection({
           onSaveLineField={onSaveLineField}
           onRemoveLine={onRemoveLine}
           onMoveLine={onMoveLine}
+          onEditLine={onEditLine}
         />
       ))}
 
@@ -1568,7 +1678,7 @@ function IngredientRow({
   line, sectionLines, idx, library, batchSize, baseBatchSize,
   isReadOnly, ReadOnlyTooltip,
   isAcOpen, acResults, onIngNameInput, onAcSelect, onAcClose,
-  onUpdateLine, onSaveLineField, onRemoveLine, onMoveLine,
+  onUpdateLine, onSaveLineField, onRemoveLine, onMoveLine, onEditLine,
 }) {
   const pricePerUnit   = parseFloat(line.supplier?.price_per_unit ?? line.ingredient?.current_price_per_unit ?? line._priceOverride ?? 0)
   const scaledAmount   = calculateScaledAmount(line.amount, baseBatchSize, batchSize, line.scale_with_batch)
@@ -1732,6 +1842,17 @@ function IngredientRow({
             title="Move down"
           >▼</button>
         </div>
+
+        {/* Edit */}
+        <ReadOnlyTooltip isReadOnly={isReadOnly}>
+          <button
+            onClick={() => onEditLine(line)}
+            disabled={isReadOnly}
+            className="text-[11px] text-amber/70 hover:text-amber font-medium px-1 disabled:opacity-30 transition-colors"
+          >
+            ✏ Edit
+          </button>
+        </ReadOnlyTooltip>
 
         {/* Remove */}
         <ReadOnlyTooltip isReadOnly={isReadOnly}>
@@ -2422,16 +2543,23 @@ function UnitSelect({ value, onChange, disabled, className }) {
 // Ingredients are selected from a dropdown of the brewery's inventory,
 // grouped by category. An "Other" option lets the brewer type a free name.
 
-function AddIngredientModal({ isOpen, addType, library, form, error, saving, onChange, onSubmit, onClose }) {
+function AddIngredientModal({
+  isOpen, addType, library, form, error, saving, onChange, onSubmit, onClose,
+  isEditMode = false, editTarget = null, totalPints = 0, lines = [],
+}) {
   const { loadDraft, saveDraft, clearDraft, draftRestored, dismissDraftBanner } =
     useModalDraft('modal_draft_recipe_add_ingredient')
 
   // 'inventory' = using dropdown, 'other' = typing a free name
   const [mode, setMode] = useState('inventory')
 
-  // Restore / save draft
+  // Unit conversion feedback
+  const [unitConversionWarning, setUnitConversionWarning] = useState(false)
+  const [unitConversionMsg, setUnitConversionMsg]         = useState(null)
+
+  // Restore / save draft (add mode only)
   useEffect(() => {
-    if (!isOpen) return
+    if (!isOpen || isEditMode) return
     const draft = loadDraft()
     if (draft) {
       Object.entries(draft).forEach(([k, v]) => onChange(k, v))
@@ -2440,14 +2568,22 @@ function AddIngredientModal({ isOpen, addType, library, form, error, saving, onC
   }, [isOpen])
 
   useEffect(() => {
-    if (!isOpen) return
+    if (!isOpen || isEditMode) return
     saveDraft(form)
   }, [form])
 
-  // Reset mode when modal opens fresh
+  // Set mode when opening — inventory vs other, and respect edit pre-population
   useEffect(() => {
-    if (isOpen) setMode('inventory')
-  }, [addType])
+    if (!isOpen) return
+    if (isEditMode && editTarget) {
+      const inLibrary = library.some(i => i.name === editTarget.ingredient_name)
+      setMode(inLibrary ? 'inventory' : 'other')
+    } else {
+      setMode('inventory')
+    }
+    setUnitConversionWarning(false)
+    setUnitConversionMsg(null)
+  }, [isOpen, isEditMode, editTarget?.id])
 
   const isDirty = !!form.ingredient_name || !!form.amount
 
@@ -2486,10 +2622,46 @@ function AddIngredientModal({ isOpen, addType, library, form, error, saving, onC
     ? parseFloat(selectedIng.ingredient_suppliers?.find(s => s.is_preferred)?.price_per_unit ?? selectedIng.current_price_per_unit ?? 0)
     : null
 
+  // Unit change with cost conversion for "other" mode items
+  function handleUnitChange(newUnit) {
+    const fromUnit = form.unit
+    if (mode === 'other' && form.price_per_unit) {
+      const result = convertCostPerUnit(form.price_per_unit, fromUnit, newUnit)
+      if (typeof result === 'object') {
+        onChange('unit', newUnit)
+        onChange('price_per_unit', result.warning ? form.price_per_unit : String(result.cost))
+        setUnitConversionWarning(result.warning)
+        setUnitConversionMsg(result.warning ? null : `✓ Cost converted from ${fromUnit} to ${newUnit}`)
+      } else {
+        onChange('unit', newUnit)
+        setUnitConversionWarning(false)
+        setUnitConversionMsg(null)
+      }
+    } else {
+      onChange('unit', newUnit)
+      setUnitConversionWarning(false)
+      setUnitConversionMsg(null)
+    }
+  }
+
+  // Cost impact calculations — shown live as the brewer fills in the form
+  const effectiveCostPerUnit = mode === 'inventory' && selectedIng
+    ? (inventoryPrice ?? 0)
+    : parseFloat(form.price_per_unit) || 0
+  const ingredientBatchCost = (parseFloat(form.amount) || 0) * effectiveCostPerUnit
+  const currentTotalIngredientCost = lines.reduce((sum, line) => {
+    if (editTarget && line.id === editTarget.id) return sum  // exclude line being replaced
+    const lPrice = parseFloat(line.supplier?.price_per_unit ?? line.ingredient?.current_price_per_unit ?? line._priceOverride ?? 0)
+    return sum + ((parseFloat(line.amount) || 0) * lPrice)
+  }, 0)
+  const newTotalWithThis  = currentTotalIngredientCost + ingredientBatchCost
+  const percentOfTotal    = newTotalWithThis > 0 ? (ingredientBatchCost / newTotalWithThis) * 100 : 0
+  const ingredientCostPerPint = totalPints > 0 ? ingredientBatchCost / totalPints : 0
+
   const showAdditionTime = TIMED_ADDITION_TYPES.includes(form.addition_type)
 
   function handleSubmit(e) {
-    clearDraft()
+    if (!isEditMode) clearDraft()
     onSubmit(e)
   }
 
@@ -2497,7 +2669,7 @@ function AddIngredientModal({ isOpen, addType, library, form, error, saving, onC
     <ModalShell
       isOpen={isOpen}
       onClose={onClose}
-      title={`Add Ingredient — ${addType ?? ''}`}
+      title={isEditMode ? `Edit Ingredient — ${editTarget?.ingredient_name ?? ''}` : `Add Ingredient — ${addType ?? ''}`}
       maxWidth="max-w-lg"
       isDirty={isDirty}
       draftRestored={draftRestored}
@@ -2570,7 +2742,7 @@ function AddIngredientModal({ isOpen, addType, library, form, error, saving, onC
             <label className="text-xs font-medium text-gray-600">Unit *</label>
             <UnitSelect
               value={form.unit}
-              onChange={e => onChange('unit', e.target.value)}
+              onChange={e => handleUnitChange(e.target.value)}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber"
             />
           </div>
@@ -2633,12 +2805,43 @@ function AddIngredientModal({ isOpen, addType, library, form, error, saving, onC
               placeholder="e.g. 2.50"
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber"
             />
-            <p className="text-[11px] text-gray-400">
-              To track costs automatically, add this ingredient in the{' '}
-              <span className="text-amber font-medium">Inventory module</span> first.
-            </p>
+            {unitConversionWarning && (
+              <p className="text-[11px] text-amber font-medium">
+                ⚠ Unit type changed — please verify the cost per unit is correct for the new unit.
+              </p>
+            )}
+            {unitConversionMsg && !unitConversionWarning && (
+              <p className="text-[11px] text-success font-medium">{unitConversionMsg}</p>
+            )}
+            {!isEditMode && (
+              <p className="text-[11px] text-gray-400">
+                To track costs automatically, add this ingredient in the{' '}
+                <span className="text-amber font-medium">Inventory module</span> first.
+              </p>
+            )}
           </div>
         ) : null}
+
+        {/* Cost impact panel — shown when amount and cost are both entered */}
+        {ingredientBatchCost > 0 && (
+          <div className="bg-navy/5 border border-navy/10 rounded-lg p-3">
+            <p className="text-xs font-semibold text-navy mb-2">Cost Impact for This Batch</p>
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <p className="text-xs text-gray-500">Batch cost</p>
+                <p className="text-sm font-bold text-navy">${ingredientBatchCost.toFixed(2)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Per pint</p>
+                <p className="text-sm font-bold text-navy">${ingredientCostPerPint.toFixed(4)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">% of recipe</p>
+                <p className="text-sm font-bold text-navy">{percentOfTotal.toFixed(1)}%</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Notes */}
         <div className="space-y-1">
@@ -2656,7 +2859,7 @@ function AddIngredientModal({ isOpen, addType, library, form, error, saving, onC
         <div className="flex gap-3 pt-2">
           <button type="submit" disabled={saving}
             className="flex-1 bg-amber hover:bg-amber-dark text-white font-semibold py-3 rounded-lg text-sm transition-colors disabled:opacity-50">
-            {saving ? 'Saving...' : 'Add Ingredient'}
+            {saving ? 'Saving...' : (isEditMode ? 'Save Changes' : 'Add Ingredient')}
           </button>
           <button type="button" onClick={onClose}
             className="flex-1 border border-gray-300 text-gray-600 font-medium py-3 rounded-lg text-sm hover:bg-gray-50 transition-colors">
