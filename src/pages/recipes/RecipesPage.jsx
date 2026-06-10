@@ -140,6 +140,11 @@ export default function RecipesPage() {
   const [versionSaving, setVersionSaving]           = useState(false)
   const [versionError, setVersionError]             = useState('')
 
+  // Delete confirmation
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleting, setDeleting]         = useState(false)
+  const [deleteError, setDeleteError]   = useState('')
+
   // ── Load recipes ────────────────────────────────────────────────────────────
 
   const loadRecipes = useCallback(async () => {
@@ -157,6 +162,11 @@ export default function RecipesPage() {
     const recipeRows = recipeRes.data
     // Set of recipe IDs that have at least one brew day linked
     const brewedSet  = new Set((brewedRes.data ?? []).map(b => b.recipe_id))
+    // Count brew days per recipe for the delete warning
+    const brewDayCountByRecipe = {}
+    for (const b of (brewedRes.data ?? [])) {
+      if (b.recipe_id) brewDayCountByRecipe[b.recipe_id] = (brewDayCountByRecipe[b.recipe_id] ?? 0) + 1
+    }
 
     // Compute version family sizes so cards can show version badges and history links.
     // Family root = parent_recipe_id if present, otherwise the recipe's own id.
@@ -199,6 +209,7 @@ export default function RecipesPage() {
         _ingredientCount:   lines.length,
         _costPerPint:       cpp,
         _hasBrewed:         brewedSet.has(r.id),
+        _brewDayCount:      brewDayCountByRecipe[r.id] ?? 0,
         _versionFamilySize: rootCount[root] ?? 1,
       }
     })
@@ -282,6 +293,31 @@ export default function RecipesPage() {
     const next = !recipe.is_archived
     await supabase.from('recipes').update({ is_archived: next }).eq('id', recipe.id)
     setRecipes(prev => prev.map(r => r.id === recipe.id ? { ...r, is_archived: next } : r))
+  }
+
+  async function handleDeleteConfirm() {
+    if (!deleteTarget) return
+    setDeleting(true)
+    setDeleteError('')
+
+    // Sever brew day links so logs are preserved but lose their recipe reference
+    if (deleteTarget._brewDayCount > 0) {
+      await supabase.from('brew_days').update({ recipe_id: null, recipe_name: deleteTarget.name }).eq('recipe_id', deleteTarget.id)
+    }
+
+    // Remove ingredient lines first (avoids FK issues if cascade isn't set)
+    await supabase.from('recipe_ingredients').delete().eq('recipe_id', deleteTarget.id)
+
+    const { error } = await supabase.from('recipes').delete().eq('id', deleteTarget.id)
+    if (error) {
+      setDeleteError(error.message)
+      setDeleting(false)
+      return
+    }
+
+    setRecipes(prev => prev.filter(r => r.id !== deleteTarget.id))
+    setDeleteTarget(null)
+    setDeleting(false)
   }
 
   async function handleDuplicate(recipe) {
@@ -543,6 +579,7 @@ export default function RecipesPage() {
               onDuplicate={() => handleDuplicate(r)}
               onSaveNewVersion={() => openVersionModal(r)}
               onViewVersionHistory={() => navigate(`/recipes/${r.parent_recipe_id ?? r.id}?versions=1`)}
+              onDelete={() => { setDeleteError(''); setDeleteTarget(r) }}
               isReadOnly={isReadOnly}
               ReadOnlyTooltip={ReadOnlyTooltip}
             />
@@ -768,6 +805,59 @@ export default function RecipesPage() {
         </form>
       </ModalShell>
 
+      {/* ── Delete confirmation modal ── */}
+      <ModalShell
+        isOpen={deleteTarget !== null}
+        onClose={() => { setDeleteTarget(null); setDeleteError('') }}
+        title="Delete Recipe"
+        maxWidth="max-w-md"
+      >
+        {deleteTarget && (
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 bg-red-50 border border-danger rounded-lg px-4 py-3">
+              <span className="shrink-0 text-danger mt-0.5">⚠</span>
+              <div className="min-w-0">
+                <p className="font-semibold text-danger text-sm">This cannot be undone</p>
+                <p className="text-sm text-gray-700 mt-1">
+                  <strong>{deleteTarget.name}</strong> and all its ingredient lines will be permanently deleted.
+                </p>
+              </div>
+            </div>
+
+            {deleteTarget._brewDayCount > 0 && (
+              <div className="bg-amber/10 border border-amber/30 rounded-lg px-4 py-3 text-sm text-gray-700">
+                <p className="font-semibold text-amber mb-1">
+                  {deleteTarget._brewDayCount} brew day log{deleteTarget._brewDayCount !== 1 ? 's' : ''} linked to this recipe
+                </p>
+                <p>
+                  The brew day logs will <strong>not</strong> be deleted, but they will lose their recipe link and show the recipe name as a text reference only.
+                </p>
+              </div>
+            )}
+
+            {deleteError && (
+              <p className="text-sm text-danger bg-red-50 border border-danger rounded-lg px-3 py-2">{deleteError}</p>
+            )}
+
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={handleDeleteConfirm}
+                disabled={deleting}
+                className="flex-1 bg-danger hover:bg-red-700 text-white font-semibold py-3 rounded-lg text-sm transition-colors disabled:opacity-50"
+              >
+                {deleting ? 'Deleting...' : 'Delete Permanently'}
+              </button>
+              <button
+                onClick={() => { setDeleteTarget(null); setDeleteError('') }}
+                className="flex-1 border border-gray-300 text-gray-600 font-medium py-3 rounded-lg text-sm hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </ModalShell>
+
     </>
   )
 }
@@ -785,7 +875,7 @@ function recipeIncompleteCount(recipe) {
   return count
 }
 
-function RecipeCard({ recipe, onEdit, onArchive, onDuplicate, onSaveNewVersion, onViewVersionHistory, isReadOnly, ReadOnlyTooltip }) {
+function RecipeCard({ recipe, onEdit, onArchive, onDuplicate, onSaveNewVersion, onViewVersionHistory, onDelete, isReadOnly, ReadOnlyTooltip }) {
   const hasIngredients  = recipe._ingredientCount > 0
   const cpp             = recipe._costPerPint
   const incompleteCount = recipeIncompleteCount(recipe)
@@ -910,6 +1000,16 @@ function RecipeCard({ recipe, onEdit, onArchive, onDuplicate, onSaveNewVersion, 
             title={recipe.is_archived ? 'Unarchive' : 'Archive'}
           >
             {recipe.is_archived ? '📂' : '🗄️'}
+          </button>
+        </ReadOnlyTooltip>
+        <ReadOnlyTooltip isReadOnly={isReadOnly}>
+          <button
+            onClick={onDelete}
+            disabled={isReadOnly}
+            className="text-sm text-danger/60 hover:text-danger border border-gray-200 hover:border-danger/40 px-3 py-2 rounded-lg transition-colors disabled:opacity-40"
+            title="Delete recipe permanently"
+          >
+            🗑
           </button>
         </ReadOnlyTooltip>
       </div>
