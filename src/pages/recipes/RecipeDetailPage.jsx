@@ -1328,7 +1328,7 @@ export default function RecipeDetailPage() {
         </div>
 
         {/* Right: Cost panel — sticky sidebar, hidden on mobile (shown as bottom sheet) */}
-        <div className="hidden lg:block w-80 flex-shrink-0 sticky top-6">
+        <div className="hidden lg:block w-[580px] flex-shrink-0 sticky top-6">
           <CostPanel
             costs={costs}
             batchBarrels={costs.batchBarrels}
@@ -1946,22 +1946,22 @@ function PintGlassVisualization({ costs }) {
 
   if (!suggestedRetail || suggestedRetail <= 0 || allLayers.length === 0) {
     return (
-      <div className="border-t border-gray-100 px-4 py-4 text-center text-xs text-gray-400">
+      <div className="px-4 py-8 text-center text-xs text-gray-400">
         Add ingredients and set a target margin to see your pint breakdown.
       </div>
     )
   }
 
-  // SVG coordinate constants
-  const VW = 300, VH = 260
-  const GT = 25, GB = 245       // glass top / bottom y
-  const GH = GB - GT            // 220
-  const CX = 150                // center x
-  const HWT = 62, HWB = 40      // half-widths at top / bottom
+  // SVG coordinate constants — large glass for side-by-side column layout
+  const VW = 500, VH = 480
+  const GT = 30, GB = 450       // glass top / bottom y
+  const GH = GB - GT            // 420
+  const CX = 250                // center x
+  const HWT = 100, HWB = 65     // half-widths at top / bottom → 200px top width, 130px bottom width
 
-  const FOAM_H = 22
-  const BT = GT + FOAM_H        // beer top y = 47
-  const BH = GB - BT            // beer height = 198
+  const FOAM_H = 40
+  const BT = GT + FOAM_H        // beer top y = 70
+  const BH = GB - BT            // beer height = 380
 
   function gLeft(y)  { return CX - HWT + (HWT - HWB) * (y - GT) / GH }
   function gRight(y) { return CX + HWT - (HWT - HWB) * (y - GT) / GH }
@@ -1969,8 +1969,8 @@ function PintGlassVisualization({ costs }) {
   const glassPath = `M${CX - HWT},${GT} L${CX + HWT},${GT} L${CX + HWB},${GB} Q${CX},${GB + 12} ${CX - HWB},${GB} Z`
   const foamPath  = [
     `M${gLeft(BT)},${BT}`,
-    `Q${CX - 22},${BT - 11} ${CX},${BT - 9}`,
-    `Q${CX + 22},${BT - 7} ${gRight(BT)},${BT}`,
+    `Q${CX - 50},${BT - 28} ${CX},${BT - 24}`,
+    `Q${CX + 50},${BT - 20} ${gRight(BT)},${BT}`,
     `L${CX + HWT},${GT} L${CX - HWT},${GT} Z`,
   ].join(' ')
 
@@ -1985,9 +1985,9 @@ function PintGlassVisualization({ costs }) {
     return { ...layer, topY, h: actualH, midY }
   }).reverse()
 
-  // Spread label Y positions to prevent overlap
-  const MIN_GAP = 13
-  const naturalYs = layerRects.map(lr => Math.min(Math.max(lr.midY, GT + 6), GB - 6))
+  // Spread label Y positions to prevent overlap (22px minimum gap)
+  const MIN_GAP = 22
+  const naturalYs = layerRects.map(lr => Math.min(Math.max(lr.midY, GT + 10), GB - 10))
 
   function spreadPositions(ys) {
     const pts = ys.map((y, i) => ({ y, i })).sort((a, b) => a.y - b.y)
@@ -2003,16 +2003,16 @@ function PintGlassVisualization({ costs }) {
   }
 
   const labelYs = spreadPositions(naturalYs)
-  const LLEFT = 82    // right edge of left labels
-  const RLEFT = 220   // left edge of right labels
+  const LLEFT = 143   // right-aligned left labels (glass left edge at top = 150)
+  const RLEFT = 357   // left-aligned right labels (glass right edge at top = 350)
 
   return (
-    <div className="border-t border-gray-100">
-      <div className="px-4 pt-3 pb-1 flex items-baseline justify-between">
-        <p className="text-xs font-bold text-navy">What's in Your Pint?</p>
-        <p className="text-[10px] text-gray-400">Retail ${suggestedRetail.toFixed(2)}</p>
+    <div>
+      <div className="px-4 pt-3 pb-1 flex items-baseline justify-between border-b border-gray-100">
+        <p className="text-sm font-bold text-navy">What's in Your Pint?</p>
+        <p className="text-xs text-gray-400">Retail ${suggestedRetail.toFixed(2)}</p>
       </div>
-      <svg viewBox={`0 0 ${VW} ${VH}`} className="w-full" style={{ maxHeight: 230 }}>
+      <svg viewBox={`0 0 ${VW} ${VH}`} className="w-full">
         <defs>
           <clipPath id="pint-clip">
             <path d={glassPath} />
@@ -2025,20 +2025,20 @@ function PintGlassVisualization({ costs }) {
         {/* Beer layers — clipped to glass */}
         <g clipPath="url(#pint-clip)">
           {layerRects.map(lr => (
-            <rect key={lr.label} x="80" y={lr.topY} width="140" height={lr.h} fill={lr.color} opacity="0.88" />
+            <rect key={lr.label} x="140" y={lr.topY} width="220" height={lr.h} fill={lr.color} opacity="0.88" />
           ))}
           <path d={foamPath} fill="#FFF8E7" />
         </g>
 
         {/* Glass outline */}
-        <path d={glassPath} fill="none" stroke="#94A3B8" strokeWidth="1.5" />
+        <path d={glassPath} fill="none" stroke="#94A3B8" strokeWidth="2" />
 
         {/* Shine */}
-        <line x1={gLeft(GT) + 7} y1={GT + 8} x2={gLeft(GB) + 6} y2={GB - 12}
-          stroke="white" strokeWidth="4" opacity="0.35" clipPath="url(#pint-clip)" />
+        <line x1={gLeft(GT) + 12} y1={GT + 12} x2={gLeft(GB) + 10} y2={GB - 20}
+          stroke="white" strokeWidth="6" opacity="0.35" clipPath="url(#pint-clip)" />
 
         {/* Foam label */}
-        <text x={CX} y={BT - 3} textAnchor="middle" fontSize="7.5" fill="#92400E" fontWeight="500">Foam</text>
+        <text x={CX} y={BT - 6} textAnchor="middle" fontSize="12" fill="#92400E" fontWeight="500">Foam</text>
 
         {/* Layer callout labels */}
         {layerRects.map((lr, i) => {
@@ -2048,13 +2048,13 @@ function PintGlassVisualization({ costs }) {
           const pct = suggestedRetail > 0 ? (lr.cost / suggestedRetail * 100).toFixed(0) : '0'
           return (
             <g key={lr.label}>
-              <line x1={LLEFT + 2} y1={lY} x2={eL - 3} y2={lr.midY}
-                stroke="#CBD5E1" strokeWidth="0.7" strokeDasharray="2,2" />
-              <text x={LLEFT} y={lY + 3} textAnchor="end" fontSize="8.5" fill="#374151">{lr.label}</text>
-              <line x1={eR + 3} y1={lr.midY} x2={RLEFT - 2} y2={lY}
-                stroke="#CBD5E1" strokeWidth="0.7" strokeDasharray="2,2" />
-              <text x={RLEFT} y={lY} fontSize="8.5" fill="#1A2744" fontWeight="600">${lr.cost.toFixed(3)}</text>
-              <text x={RLEFT} y={lY + 9} fontSize="7.5" fill="#6B7280">{pct}%</text>
+              <line x1={LLEFT + 3} y1={lY} x2={eL - 4} y2={lr.midY}
+                stroke="#CBD5E1" strokeWidth="1" strokeDasharray="3,3" />
+              <text x={LLEFT} y={lY + 4} textAnchor="end" fontSize="14" fill="#374151">{lr.label}</text>
+              <line x1={eR + 4} y1={lr.midY} x2={RLEFT - 3} y2={lY}
+                stroke="#CBD5E1" strokeWidth="1" strokeDasharray="3,3" />
+              <text x={RLEFT} y={lY} fontSize="14" fill="#1A2744" fontWeight="600">${lr.cost.toFixed(3)}</text>
+              <text x={RLEFT} y={lY + 15} fontSize="12" fill="#6B7280">{pct}%</text>
             </g>
           )
         })}
@@ -2062,11 +2062,11 @@ function PintGlassVisualization({ costs }) {
 
       {/* Color legend */}
       <div className="px-4 pb-3">
-        <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+        <div className="grid grid-cols-2 gap-x-3 gap-y-1">
           {allLayers.map(l => (
             <div key={l.label} className="flex items-center gap-1.5">
-              <div className="w-2 h-2 rounded-sm shrink-0" style={{ backgroundColor: l.color }} />
-              <span className="text-[9px] text-gray-500 leading-tight">{l.label}</span>
+              <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: l.color }} />
+              <span className="text-[10px] text-gray-500 leading-tight">{l.label}</span>
             </div>
           ))}
         </div>
@@ -2109,7 +2109,10 @@ function CostPanel({
     ? (retailPerUnit - costPerUnit) * unitsProduced : null
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden divide-y divide-gray-100 text-xs">
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden text-xs">
+      <div className="flex flex-col lg:flex-row items-start">
+        {/* ── Left column: all cost inputs, summary, pricing ── */}
+        <div className="w-full lg:w-[55%] divide-y divide-gray-100 lg:border-r border-gray-200">
       <div className="px-4 py-3">
         <h3 className="font-bold text-navy text-sm">Cost Calculator</h3>
       </div>
@@ -2365,7 +2368,13 @@ function CostPanel({
           </div>
         )
       )}
-      <PintGlassVisualization costs={costs} />
+        </div>{/* end left column */}
+
+        {/* ── Right column: pint glass visualization ── */}
+        <div className="w-full lg:w-[45%] self-start border-t border-gray-200 lg:border-t-0">
+          <PintGlassVisualization costs={costs} />
+        </div>
+      </div>{/* end flex row */}
     </div>
   )
 }
@@ -2828,25 +2837,32 @@ function AddIngredientModal({
     ? parseFloat(selectedIng.ingredient_suppliers?.find(s => s.is_preferred)?.price_per_unit ?? selectedIng.current_price_per_unit ?? 0)
     : null
 
-  // Unit change — converts both amount and cost per unit proportionally
+  // Unit change — preserves exact batch total by back-calculating new cost per unit
+  // Guarantee: old_amount × old_cost = new_amount × new_cost (no rounding drift)
   function handleUnitChange(newUnit) {
-    const fromUnit = form.unit
+    const fromUnit     = form.unit
+    const currentAmt   = parseFloat(form.amount) || 0
+    const currentCost  = mode === 'other' ? parseFloat(form.price_per_unit) || 0 : 0
+    const batchTotal   = currentAmt * currentCost  // preserve this exactly
+
     const amtResult = convertAmount(form.amount, fromUnit, newUnit)
 
-    if (mode === 'other' && form.price_per_unit) {
-      const costResult = convertCostPerUnit(form.price_per_unit, fromUnit, newUnit)
-      const costObj = typeof costResult === 'object' ? costResult : { cost: parseFloat(form.price_per_unit) || 0, warning: true }
-      const warn = costObj.warning || amtResult.warning
+    if (!amtResult.warning && amtResult.amount > 0) {
       onChange('unit', newUnit)
-      if (!amtResult.warning) onChange('amount', String(amtResult.amount))
-      if (!costObj.warning) onChange('price_per_unit', String(costObj.cost))
-      setUnitConversionWarning(warn)
-      setUnitConversionMsg(warn ? null : `✓ Amount and cost converted: ${fromUnit} → ${newUnit}`)
+      onChange('amount', String(amtResult.amount))
+      if (mode === 'other' && currentCost > 0) {
+        // Back-calculate cost to maintain identical batch total
+        const newCostPerUnit = parseFloat((batchTotal / amtResult.amount).toFixed(6))
+        onChange('price_per_unit', String(newCostPerUnit))
+        setUnitConversionMsg(`✓ Amount and cost converted: ${fromUnit} → ${newUnit} (batch total preserved)`)
+      } else {
+        setUnitConversionMsg(`✓ Amount converted: ${fromUnit} → ${newUnit}`)
+      }
+      setUnitConversionWarning(false)
     } else {
       onChange('unit', newUnit)
-      if (!amtResult.warning) onChange('amount', String(amtResult.amount))
-      setUnitConversionWarning(amtResult.warning)
-      setUnitConversionMsg(amtResult.warning ? null : `✓ Amount converted: ${fromUnit} → ${newUnit}`)
+      setUnitConversionWarning(true)
+      setUnitConversionMsg(null)
     }
   }
 
