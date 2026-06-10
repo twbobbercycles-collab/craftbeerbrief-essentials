@@ -207,11 +207,8 @@ export default function RecipeDetailPage() {
   // Auto-save status indicator — 'saving' | 'saved' | 'error'
   const [autoSaveStatus, setAutoSaveStatus] = useState('saved')
 
-  // Mobile cost panel bottom sheet
-  const [costPanelOpen, setCostPanelOpen] = useState(false)
-
-  // Water chemistry section collapsed/expanded
-  const [waterChemOpen, setWaterChemOpen] = useState(false)
+  // Active tab: 'ingredients' | 'cost' | 'water' | 'history'
+  const [activeTab, setActiveTab] = useState('ingredients')
 
   // Inventory / brew-check panel
   const [brewCheckOpen, setBrewCheckOpen] = useState(false)
@@ -974,7 +971,7 @@ export default function RecipeDetailPage() {
     : '—'
 
   return (
-    <div className="space-y-0 pb-24 lg:pb-0">
+    <div className="space-y-0 pb-6">
 
       {/* ── Header ── */}
       <div className="bg-white border-b border-gray-200 px-4 py-4 md:px-6 -mx-4 md:-mx-6 mb-6">
@@ -1093,65 +1090,8 @@ export default function RecipeDetailPage() {
         </div>
       )}
 
-      {/* ── Version history collapsible panel ── */}
-      {versionHistory.length > 1 && (
-        <div className="mb-4 bg-white border border-gray-200 rounded-xl overflow-hidden">
-          <button
-            onClick={() => setVersionHistoryOpen(v => !v)}
-            className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors text-left"
-          >
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-navy text-sm">Version History</span>
-              <span className="text-xs bg-purple-100 text-purple-600 font-semibold px-2 py-0.5 rounded-full">{versionHistory.length} versions</span>
-            </div>
-            <div className="flex items-center gap-3 text-gray-400">
-              <button
-                onClick={e => { e.stopPropagation(); setCompareIdA(''); setCompareIdB(''); setCompareData(null); setCompareOpen(true) }}
-                className="text-xs text-amber font-medium hover:underline"
-              >
-                Compare Versions
-              </button>
-              <span className="text-xs">{versionHistoryOpen ? '▲' : '▼'}</span>
-            </div>
-          </button>
-          {versionHistoryOpen && (
-            <div className="divide-y divide-gray-100">
-              {versionHistory.map(v => (
-                <div key={v.id} className="flex items-start gap-3 px-4 py-3 text-sm">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-navy">v{v.version}</span>
-                      {v.is_current_version && (
-                        <span className="text-xs bg-green-100 text-success font-semibold px-2 py-0.5 rounded-full">Current</span>
-                      )}
-                      {v.id === recipe.id && (
-                        <span className="text-xs bg-blue-50 text-blue-500 px-2 py-0.5 rounded-full">Viewing</span>
-                      )}
-                      {v._firstBrewDate && (
-                        <span className="text-xs text-gray-400">First brewed {new Date(v._firstBrewDate).toLocaleDateString()}</span>
-                      )}
-                    </div>
-                    {v.version_notes && (
-                      <p className="text-xs text-gray-500 mt-0.5">{v.version_notes}</p>
-                    )}
-                  </div>
-                  {v.id !== recipe.id && (
-                    <button
-                      onClick={() => navigate(`/recipes/${v.id}`)}
-                      className="shrink-0 text-xs text-amber font-medium hover:underline"
-                    >
-                      View →
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
       {/* ── Recipe completion checklist ── */}
-      <div className="mb-6">
+      <div className="mb-4">
         <RecipeChecklist
           recipe={recipe}
           ingredients={lines.map(l => ({
@@ -1164,11 +1104,37 @@ export default function RecipeDetailPage() {
         />
       </div>
 
-      {/* ── Main layout — ingredients + cost (left) / pint glass (right at xl+) ── */}
-      <div className="grid grid-cols-1 xl:grid-cols-[60%_40%] gap-6 items-start">
+      {/* ── Tab bar ── */}
+      <div className="flex border-b border-gray-200 mb-6 -mx-4 md:-mx-6 px-4 md:px-6 bg-white overflow-x-auto">
+        {[
+          { id: 'ingredients', label: 'Ingredients' },
+          { id: 'cost',        label: 'Cost Calculator' },
+          { id: 'water',       label: 'Water Chemistry' },
+          { id: 'history',     label: 'Version History' },
+        ].map(t => (
+          <button
+            key={t.id}
+            onClick={() => setActiveTab(t.id)}
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
+              activeTab === t.id
+                ? 'border-amber text-amber'
+                : 'border-transparent text-gray-500 hover:text-navy'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
 
-        {/* Left column: batch size, ingredients, cost panel */}
-        <div className="min-w-0 space-y-6">
+      {/* ── Two-column tab content ── */}
+      <div className="grid grid-cols-1 xl:grid-cols-[55%_45%] gap-6 items-start">
+
+        {/* LEFT COLUMN */}
+        <div className="min-w-0">
+
+          {/* Ingredient list — shown on 'ingredients' tab and (desktop only) 'cost' tab */}
+          {(activeTab === 'ingredients' || activeTab === 'cost') && (
+          <div className={`space-y-6${activeTab === 'cost' ? ' hidden xl:block' : ''}`}>
 
           {/* Batch size selector */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
@@ -1326,63 +1292,12 @@ export default function RecipeDetailPage() {
             )
           })}
 
-          {/* Cost panel — inline below ingredients on lg+, bottom sheet on mobile */}
-          <div className="hidden lg:block">
-            <CostPanel
-              costs={costs}
-              batchBarrels={costs.batchBarrels}
-              packagingSplits={packagingSplits}
-              onSplitsChange={newSplits => { setPackagingSplits(newSplits); saveCostSettings() }}
-              packagingContainerType={packagingContainerType}
-              packagingCostPerUnit={packagingCostPerUnit}
-              labelCostPerUnit={labelCostPerUnit}
-              carrierCostPerUnit={carrierCostPerUnit}
-              packagingYieldPct={packagingYieldPct}
-              brewHours={brewHours}
-              laborRatePerHour={laborRatePerHour}
-              utilitiesCostPerBarrel={utilitiesCostPerBarrel}
-              cleaningCostPerBatch={cleaningCostPerBatch}
-              waterCostPerBarrel={waterCostPerBarrel}
-              wastewaterCostPerBarrel={wastewaterCostPerBarrel}
-              fixedOverheadPct={fixedOverheadPct}
-              marginPct={marginPct}
-              taxRate={taxRate}
-              exciseTaxRatePerBbl={exciseTaxRatePerBbl}
-              brewery={brewery}
-              onChange={handleCostFieldChange}
-              onBlur={saveCostSettings}
-            />
           </div>
-        </div>
+          )}{/* end ingredient list conditional */}
 
-        {/* Right column: pint glass — xl+ only, sticky */}
-        <div className="hidden xl:block min-w-0">
-          <div className="sticky top-4">
-            <PintGlassVisualization costs={costs} />
-          </div>
-        </div>
-      </div>
-
-      {/* Mobile: sticky Calculate Cost button */}
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 z-30">
-        <button
-          onClick={() => setCostPanelOpen(true)}
-          className="w-full bg-amber hover:bg-amber-dark text-white font-semibold py-3 rounded-lg text-sm transition-colors"
-        >
-          📊 Cost — {formatDollars(costs.costPerPint)}/pint · Retail {formatDollars(costs.suggestedRetail)}/pint
-        </button>
-      </div>
-
-      {/* Mobile cost panel bottom sheet */}
-      {costPanelOpen && (
-        <div className="lg:hidden fixed inset-0 z-40 flex items-end">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setCostPanelOpen(false)} />
-          <div className="relative w-full bg-white rounded-t-2xl shadow-xl max-h-[85vh] overflow-y-auto">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 sticky top-0 bg-white">
-              <h3 className="font-bold text-navy">Cost Calculator</h3>
-              <button onClick={() => setCostPanelOpen(false)} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
-            </div>
-            <div className="p-5">
+          {/* 'cost' tab — mobile: CostPanel + PintGlass in single column */}
+          {activeTab === 'cost' && (
+            <div className="xl:hidden space-y-6">
               <CostPanel
                 costs={costs}
                 batchBarrels={costs.batchBarrels}
@@ -1407,37 +1322,114 @@ export default function RecipeDetailPage() {
                 onChange={handleCostFieldChange}
                 onBlur={saveCostSettings}
               />
+              <PintGlassVisualization costs={costs} />
             </div>
-          </div>
-        </div>
-      )}
+          )}
 
-      {/* ── Water Chemistry Calculator ── */}
-      <div className="mt-6 bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <button
-          onClick={() => setWaterChemOpen(o => !o)}
-          className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors text-left"
-        >
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-navy">Water Chemistry</span>
-            <span className="text-xs bg-blue-50 text-blue-600 font-semibold px-2 py-0.5 rounded-full">
-              {recipe.water_target_profile || 'No profile set'}
-            </span>
-          </div>
-          <span className="text-xs text-gray-400">{waterChemOpen ? '▲ Collapse' : '▼ Expand'}</span>
-        </button>
-        {waterChemOpen && (
-          <div className="border-t border-gray-100 p-5">
-            <WaterChemistryTab
-              recipeId={recipe.id}
-              recipe={recipe}
-              batchSize={batchSize}
-              lines={lines}
-              isReadOnly={isReadOnly}
-            />
-          </div>
-        )}
-      </div>
+          {/* 'water' tab */}
+          {activeTab === 'water' && (
+            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden p-5">
+              <WaterChemistryTab
+                recipeId={recipe.id}
+                recipe={recipe}
+                batchSize={batchSize}
+                lines={lines}
+                isReadOnly={isReadOnly}
+              />
+            </div>
+          )}
+
+          {/* 'history' tab */}
+          {activeTab === 'history' && (
+            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-navy text-sm">Version History</span>
+                  <span className="text-xs bg-purple-100 text-purple-600 font-semibold px-2 py-0.5 rounded-full">
+                    {versionHistory.length} version{versionHistory.length !== 1 ? 's' : ''}
+                  </span>
+                </div>
+                <button
+                  onClick={() => { setCompareIdA(''); setCompareIdB(''); setCompareData(null); setCompareOpen(true) }}
+                  className="text-xs text-amber font-medium hover:underline"
+                >
+                  Compare Versions
+                </button>
+              </div>
+              {versionHistory.length > 0 ? (
+                <div className="divide-y divide-gray-100">
+                  {versionHistory.map(v => (
+                    <div key={v.id} className="flex items-start gap-3 px-4 py-3 text-sm">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-navy">v{v.version}</span>
+                          {v.is_current_version && (
+                            <span className="text-xs bg-green-100 text-success font-semibold px-2 py-0.5 rounded-full">Current</span>
+                          )}
+                          {v.id === recipe.id && (
+                            <span className="text-xs bg-blue-50 text-blue-500 px-2 py-0.5 rounded-full">Viewing</span>
+                          )}
+                          {v._firstBrewDate && (
+                            <span className="text-xs text-gray-400">First brewed {new Date(v._firstBrewDate).toLocaleDateString()}</span>
+                          )}
+                        </div>
+                        {v.version_notes && (
+                          <p className="text-xs text-gray-500 mt-0.5">{v.version_notes}</p>
+                        )}
+                      </div>
+                      {v.id !== recipe.id && (
+                        <button
+                          onClick={() => navigate(`/recipes/${v.id}`)}
+                          className="shrink-0 text-xs text-amber font-medium hover:underline"
+                        >
+                          View →
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="px-4 py-6 text-sm text-gray-400 text-center">No other versions yet.</p>
+              )}
+            </div>
+          )}
+
+        </div>{/* end left column */}
+
+        {/* RIGHT COLUMN — xl+ only, CostPanel + PintGlass when on cost tab */}
+        <div className="hidden xl:flex xl:flex-col gap-6 min-w-0">
+          {activeTab === 'cost' && (
+            <div className="sticky top-4 space-y-6">
+              <CostPanel
+                costs={costs}
+                batchBarrels={costs.batchBarrels}
+                packagingSplits={packagingSplits}
+                onSplitsChange={newSplits => { setPackagingSplits(newSplits); saveCostSettings() }}
+                packagingContainerType={packagingContainerType}
+                packagingCostPerUnit={packagingCostPerUnit}
+                labelCostPerUnit={labelCostPerUnit}
+                carrierCostPerUnit={carrierCostPerUnit}
+                packagingYieldPct={packagingYieldPct}
+                brewHours={brewHours}
+                laborRatePerHour={laborRatePerHour}
+                utilitiesCostPerBarrel={utilitiesCostPerBarrel}
+                cleaningCostPerBatch={cleaningCostPerBatch}
+                waterCostPerBarrel={waterCostPerBarrel}
+                wastewaterCostPerBarrel={wastewaterCostPerBarrel}
+                fixedOverheadPct={fixedOverheadPct}
+                marginPct={marginPct}
+                taxRate={taxRate}
+                exciseTaxRatePerBbl={exciseTaxRatePerBbl}
+                brewery={brewery}
+                onChange={handleCostFieldChange}
+                onBlur={saveCostSettings}
+              />
+              <PintGlassVisualization costs={costs} />
+            </div>
+          )}
+        </div>
+
+      </div>{/* end two-column grid */}
 
       {/* ── Save New Version modal ── */}
       <ModalShell
