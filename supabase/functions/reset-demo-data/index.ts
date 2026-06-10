@@ -332,6 +332,19 @@ Deno.serve(async (req) => {
     ])
     check(pmErr, 'insert packaging_materials')
 
+    // ── Parts & Supplies ──────────────────────────────────────────────────────
+    const { error: psErr } = await svc.from('ingredients').insert([
+      { brewery_id: b, name: 'Tri-Clamp Gaskets (1.5")',     category: 'Parts & Consumables', sub_type: 'Tri-Clamp Gasket',     unit: 'each',  current_price_per_unit: 0.85,  current_stock_quantity: 24, reorder_threshold: 10, is_active: true, supplier_name: 'MoreBeer' },
+      { brewery_id: b, name: 'Tri-Clamp Gaskets (2")',       category: 'Parts & Consumables', sub_type: 'Tri-Clamp Gasket',     unit: 'each',  current_price_per_unit: 1.25,  current_stock_quantity: 12, reorder_threshold: 6,  is_active: true, supplier_name: 'MoreBeer' },
+      { brewery_id: b, name: 'Silicone Tubing (1/2" ID)',    category: 'Parts & Consumables', sub_type: 'Silicone Tubing',      unit: 'ft',    current_price_per_unit: 1.85,  current_stock_quantity: 20, reorder_threshold: 10, is_active: true, supplier_name: 'MoreBeer' },
+      { brewery_id: b, name: 'Filter Cartridges (1 micron)', category: 'Parts & Consumables', sub_type: 'Filter Cartridge',     unit: 'each',  current_price_per_unit: 12.50, current_stock_quantity: 4,  reorder_threshold: 2,  is_active: true, supplier_name: 'SS Brewtech' },
+      { brewery_id: b, name: 'pH Electrode',                 category: 'Lab & QC Supplies',   sub_type: 'pH Probe/Electrode',   unit: 'each',  current_price_per_unit: 45.00, current_stock_quantity: 2,  reorder_threshold: 1,  is_active: true, supplier_name: 'Hanna Instruments' },
+      { brewery_id: b, name: 'Hydrometer',                   category: 'Lab & QC Supplies',   sub_type: 'Hydrometer',           unit: 'each',  current_price_per_unit: 8.50,  current_stock_quantity: 3,  reorder_threshold: 1,  is_active: true, supplier_name: 'MoreBeer' },
+      { brewery_id: b, name: 'Nitrile Gloves (Box)',         category: 'Safety Supplies',      sub_type: 'Nitrile Gloves',       unit: 'box',   current_price_per_unit: 12.00, current_stock_quantity: 5,  reorder_threshold: 2,  is_active: true, supplier_name: 'Grainger' },
+      { brewery_id: b, name: 'CO2 Monitor',                  category: 'Safety Supplies',      sub_type: 'CO2 Monitor/Sensor',   unit: 'each',  current_price_per_unit: 185.00, current_stock_quantity: 2, reorder_threshold: 1,  is_active: true, supplier_name: 'Grainger' },
+    ])
+    check(psErr, 'insert parts and supplies')
+
     // ── Recipes (4 + version 2 of Hazy IPA) ──────────────────────────────────
     const { error: recErr } = await svc.from('recipes').insert([
       { id: ids.recipeHazy,     brewery_id: b, name: 'Adaptive Hazy IPA', style: 'New England IPA',  base_batch_size: 15, base_batch_size_unit: 'barrels', target_og: 1.065, target_fg: 1.012, target_abv: 6.8, target_ibu: 45, target_margin_percentage: 65, version: 1, is_current_version: false },
