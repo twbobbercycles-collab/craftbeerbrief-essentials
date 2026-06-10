@@ -106,12 +106,54 @@ const BJCP_STYLES = [
   'Other / Custom',
 ]
 
-const EMPTY_FORM = {
-  name: '', style: '', style_custom: '', bjcp_category: '',
-  base_batch_size: '', base_batch_size_unit: 'barrels',
-  description: '',
-  target_og: '', target_fg: '', target_abv: '', target_ibu: '', target_srm: '',
-  overhead_percentage: '30', target_margin_percentage: '65', tax_rate: '0',
+const STATE_ABBR = {
+  'Alabama': 'AL', 'Alaska': 'AK', 'Arizona': 'AZ', 'Arkansas': 'AR', 'California': 'CA',
+  'Colorado': 'CO', 'Connecticut': 'CT', 'Delaware': 'DE', 'Florida': 'FL', 'Georgia': 'GA',
+  'Hawaii': 'HI', 'Idaho': 'ID', 'Illinois': 'IL', 'Indiana': 'IN', 'Iowa': 'IA',
+  'Kansas': 'KS', 'Kentucky': 'KY', 'Louisiana': 'LA', 'Maine': 'ME', 'Maryland': 'MD',
+  'Massachusetts': 'MA', 'Michigan': 'MI', 'Minnesota': 'MN', 'Mississippi': 'MS', 'Missouri': 'MO',
+  'Montana': 'MT', 'Nebraska': 'NE', 'Nevada': 'NV', 'New Hampshire': 'NH', 'New Jersey': 'NJ',
+  'New Mexico': 'NM', 'New York': 'NY', 'North Carolina': 'NC', 'North Dakota': 'ND', 'Ohio': 'OH',
+  'Oklahoma': 'OK', 'Oregon': 'OR', 'Pennsylvania': 'PA', 'Rhode Island': 'RI', 'South Carolina': 'SC',
+  'South Dakota': 'SD', 'Tennessee': 'TN', 'Texas': 'TX', 'Utah': 'UT', 'Vermont': 'VT',
+  'Virginia': 'VA', 'Washington': 'WA', 'West Virginia': 'WV', 'Wisconsin': 'WI', 'Wyoming': 'WY',
+  'District of Columbia': 'DC',
+}
+
+const STATE_SALES_TAX = {
+  'AL': 4.0, 'AK': 0.0, 'AZ': 5.6, 'AR': 6.5, 'CA': 7.25,
+  'CO': 2.9, 'CT': 6.35, 'DE': 0.0, 'FL': 6.0, 'GA': 4.0,
+  'HI': 4.0, 'ID': 6.0, 'IL': 6.25, 'IN': 7.0, 'IA': 6.0,
+  'KS': 6.5, 'KY': 6.0, 'LA': 4.45, 'ME': 5.5, 'MD': 6.0,
+  'MA': 6.25, 'MI': 6.0, 'MN': 6.875, 'MS': 7.0, 'MO': 4.225,
+  'MT': 0.0, 'NE': 5.5, 'NV': 6.85, 'NH': 0.0, 'NJ': 6.625,
+  'NM': 4.875, 'NY': 4.0, 'NC': 4.75, 'ND': 5.0, 'OH': 5.75,
+  'OK': 4.5, 'OR': 0.0, 'PA': 6.0, 'RI': 7.0, 'SC': 6.0,
+  'SD': 4.5, 'TN': 7.0, 'TX': 6.25, 'UT': 5.95, 'VT': 6.0,
+  'VA': 5.3, 'WA': 6.5, 'WV': 6.0, 'WI': 5.0, 'WY': 4.0, 'DC': 6.0,
+}
+
+function getDefaultSalesTax(breweryState) {
+  if (!breweryState) return 0
+  const code = STATE_ABBR[breweryState]
+  return code !== undefined ? (STATE_SALES_TAX[code] ?? 0) : 0
+}
+
+function getDefaultExciseRate(annualProduction) {
+  if (!annualProduction) return 3.50
+  return annualProduction <= 2000000 ? 3.50 : 16.00
+}
+
+function makeEmptyForm(brewery) {
+  return {
+    name: '', style: '', style_custom: '', bjcp_category: '',
+    base_batch_size: '', base_batch_size_unit: 'barrels',
+    description: '',
+    target_og: '', target_fg: '', target_abv: '', target_ibu: '', target_srm: '',
+    overhead_percentage: '30', target_margin_percentage: '65',
+    tax_rate: String(getDefaultSalesTax(brewery?.state)),
+    excise_tax_rate_per_bbl: getDefaultExciseRate(brewery?.annual_production_estimate),
+  }
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -129,7 +171,7 @@ export default function RecipesPage() {
 
   // Add Recipe modal
   const [addOpen, setAddOpen]     = useState(false)
-  const [form, setForm]           = useState(EMPTY_FORM)
+  const [form, setForm]           = useState(() => makeEmptyForm(null))
   const [saving, setSaving]       = useState(false)
   const [saveError, setSaveError] = useState('')
   const draft = useModalDraft('modal_draft_recipe')
@@ -227,14 +269,14 @@ export default function RecipesPage() {
 
   function openAddModal() {
     const saved = draft.loadDraft()
-    setForm(saved ?? EMPTY_FORM)
+    setForm(saved ?? makeEmptyForm(brewery))
     setSaveError('')
     setAddOpen(true)
   }
 
   function closeAddModal() {
     draft.clearDraft()
-    setForm(EMPTY_FORM)
+    setForm(makeEmptyForm(brewery))
     setAddOpen(false)
   }
 
@@ -244,7 +286,7 @@ export default function RecipesPage() {
     draft.saveDraft(next)
   }
 
-  const isDirty = Object.keys(form).some(k => form[k] !== EMPTY_FORM[k])
+  const isDirty = Object.keys(form).some(k => form[k] !== makeEmptyForm(brewery)[k])
 
   // ── Save recipe ─────────────────────────────────────────────────────────────
 
@@ -274,6 +316,7 @@ export default function RecipesPage() {
         overhead_percentage: parseFloat(form.overhead_percentage) || 30,
         target_margin_percentage: parseFloat(form.target_margin_percentage) || 65,
         tax_rate: parseFloat(form.tax_rate) || 0,
+        excise_tax_rate_per_bbl: parseFloat(form.excise_tax_rate_per_bbl) || 3.50,
       })
       .select()
       .single()
@@ -762,11 +805,10 @@ export default function RecipesPage() {
           {/* Cost settings */}
           <div>
             <p className="text-sm font-semibold text-navy mb-2">Cost Settings</p>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3 mb-3">
               {[
-                { key: 'overhead_percentage',      label: 'Overhead %',   placeholder: '30' },
-                { key: 'target_margin_percentage',  label: 'Target Margin %', placeholder: '65' },
-                { key: 'tax_rate',                 label: 'Tax Rate %',   placeholder: '0' },
+                { key: 'overhead_percentage',     label: 'Overhead %',      placeholder: '30' },
+                { key: 'target_margin_percentage', label: 'Target Margin %', placeholder: '65' },
               ].map(f => (
                 <div key={f.key}>
                   <label className="block text-xs text-gray-500 mb-1">{f.label}</label>
@@ -781,6 +823,82 @@ export default function RecipesPage() {
                   />
                 </div>
               ))}
+            </div>
+
+            {/* Sales Tax % */}
+            <div className="mb-3">
+              <label className="block text-xs text-gray-500 mb-1">Sales Tax %</label>
+              <input
+                type="number"
+                step="any"
+                min="0"
+                value={form.tax_rate}
+                onChange={e => updateForm('tax_rate', e.target.value)}
+                placeholder="0"
+                className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber"
+              />
+              {brewery?.state && (() => {
+                const code = STATE_ABBR[brewery.state]
+                const rate = code !== undefined ? STATE_SALES_TAX[code] : undefined
+                return rate !== undefined ? (
+                  <p className="text-[10px] text-gray-400 leading-tight mt-1">
+                    Pre-populated with {brewery.state} base sales tax rate ({rate}%). Adjust for your local rate.
+                  </p>
+                ) : null
+              })()}
+            </div>
+
+            {/* Federal Excise Tax */}
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-sm font-semibold text-navy">Federal Excise Tax</h4>
+                <span className="text-xs text-gray-500">
+                  {brewery?.annual_production_estimate
+                    ? (brewery.annual_production_estimate <= 60000 ? 'Small Brewer Rate' : 'Standard Rate')
+                    : 'Set production in TTB Tracker'}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <div>
+                  <label className="text-xs text-gray-600">Rate ($/bbl)</label>
+                  <input
+                    type="number"
+                    value={form.excise_tax_rate_per_bbl}
+                    onChange={e => updateForm('excise_tax_rate_per_bbl', parseFloat(e.target.value) || 0)}
+                    className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber mt-1"
+                    step="0.01"
+                    min="0"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-600">Batch size</label>
+                  <p className="text-sm font-medium text-navy mt-2">
+                    {convertToBarrels(form.base_batch_size, form.base_batch_size_unit).toFixed(2)} bbl
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 border-t border-amber-200 pt-2">
+                <div>
+                  <p className="text-xs text-gray-500">Batch total</p>
+                  <p className="font-bold text-amber-700">
+                    ${(convertToBarrels(form.base_batch_size, form.base_batch_size_unit) * (parseFloat(form.excise_tax_rate_per_bbl) || 3.50)).toFixed(2)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Per pint</p>
+                  <p className="font-bold text-amber-700">
+                    {(() => {
+                      const bbl = convertToBarrels(form.base_batch_size, form.base_batch_size_unit)
+                      return bbl > 0
+                        ? `$${((bbl * (parseFloat(form.excise_tax_rate_per_bbl) || 3.50)) / (bbl * 124)).toFixed(4)}`
+                        : '$0.0000'
+                    })()}
+                  </p>
+                </div>
+              </div>
+              <p className="text-xs text-gray-400 mt-2">
+                Auto-calculated from batch size. Adjust rate manually if needed.
+              </p>
             </div>
           </div>
 
