@@ -163,6 +163,8 @@ Deno.serve(async (req) => {
     'distribution_accounts',
     'local_permits',
     'insurance_policies',
+    'packaging_material_transactions',
+    'packaging_materials',
   ] as const
 
   for (const table of tablesWithBreweryId) {
@@ -256,6 +258,15 @@ Deno.serve(async (req) => {
     // Bills
     billSb412:      crypto.randomUUID(),
     billHb1205:     crypto.randomUUID(),
+    // Packaging Materials
+    pkgMat1:        crypto.randomUUID(),
+    pkgMat2:        crypto.randomUUID(),
+    pkgMat3:        crypto.randomUUID(),
+    pkgMat4:        crypto.randomUUID(),
+    pkgMat5:        crypto.randomUUID(),
+    pkgMat6:        crypto.randomUUID(),
+    pkgMat7:        crypto.randomUUID(),
+    pkgMat8:        crypto.randomUUID(),
   }
 
   const b = breweryId
@@ -289,6 +300,19 @@ Deno.serve(async (req) => {
       { id: ids.ingUs05,       brewery_id: b, name: 'US-05 Dry Yeast',   category: 'Yeast',      unit: 'packet', current_price_per_unit: 4.50, current_stock_quantity: 12,   stock_unit: 'packet', reorder_threshold: 4,   is_active: true },
     ])
     check(ingErr, 'insert ingredients')
+
+    // ── Packaging Materials (8) ───────────────────────────────────────────────
+    const { error: pmErr } = await svc.from('packaging_materials').insert([
+      { id: ids.pkgMat1, brewery_id: b, name: '16oz Cans (blank)',        category: 'Cans',                   material_type: '16oz Can / Tallboy (blank)',      stock_unit: 'each',   current_stock_quantity: 5000,  reorder_threshold: 1000, cost_per_unit: 0.18,   supplier_name: 'Crown Holdings',        is_active: true },
+      { id: ids.pkgMat2, brewery_id: b, name: 'Can Lids',                 category: 'Cans',                   material_type: 'Can Lid',                        stock_unit: 'each',   current_stock_quantity: 5000,  reorder_threshold: 1000, cost_per_unit: 0.08,   supplier_name: 'Crown Holdings',        is_active: true },
+      { id: ids.pkgMat3, brewery_id: b, name: '16oz Can Labels',          category: 'Labels',                 material_type: '16oz Can Label',                 stock_unit: 'each',   current_stock_quantity: 4800,  reorder_threshold: 1000, cost_per_unit: 0.12,   supplier_name: 'Lightning Labels',      is_active: true },
+      { id: ids.pkgMat4, brewery_id: b, name: '4-Pack Carriers (16oz)',   category: 'Carriers & Boxes',       material_type: '4-Pack Carrier (16oz cans)',     stock_unit: 'each',   current_stock_quantity: 1200,  reorder_threshold: 500,  cost_per_unit: 0.22,   supplier_name: 'WestRock Packaging',    is_active: true },
+      { id: ids.pkgMat5, brewery_id: b, name: 'Sixth Barrel Kegs',        category: 'Kegs',                   material_type: 'Sixth Barrel Keg (5.16 gal)',    stock_unit: 'each',   current_stock_quantity: 40,    reorder_threshold: 10,   cost_per_unit: 85.00,  supplier_name: 'American Keg',          is_active: true },
+      { id: ids.pkgMat6, brewery_id: b, name: 'Half Barrel Kegs',         category: 'Kegs',                   material_type: 'Half Barrel Keg (15.5 gal)',     stock_unit: 'each',   current_stock_quantity: 25,    reorder_threshold: 5,    cost_per_unit: 120.00, supplier_name: 'American Keg',          is_active: true },
+      { id: ids.pkgMat7, brewery_id: b, name: 'Star San Sanitizer',       category: 'Cleaning & Sanitation',  material_type: 'Sanitizer (general)',            stock_unit: 'gallon', current_stock_quantity: 8,     reorder_threshold: 2,    cost_per_unit: 28.00,  supplier_name: 'Five Star Chemicals',   is_active: true },
+      { id: ids.pkgMat8, brewery_id: b, name: 'PBW Cleaner',              category: 'Cleaning & Sanitation',  material_type: 'Caustic Cleaner (PBW/NaOH)',     stock_unit: 'lb',     current_stock_quantity: 25,    reorder_threshold: 5,    cost_per_unit: 4.50,   supplier_name: 'Five Star Chemicals',   is_active: true },
+    ])
+    check(pmErr, 'insert packaging_materials')
 
     // ── Recipes (4 + version 2 of Hazy IPA) ──────────────────────────────────
     const { error: recErr } = await svc.from('recipes').insert([
