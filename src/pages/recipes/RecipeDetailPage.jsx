@@ -1547,6 +1547,7 @@ export default function RecipeDetailPage() {
         addType={addingTo}
         library={library}
         form={newLineForm}
+        setForm={setNewLineForm}
         error={newLineError}
         saving={newLineSaving}
         onChange={(field, val) => setNewLineForm(p => ({ ...p, [field]: val }))}
@@ -1562,6 +1563,7 @@ export default function RecipeDetailPage() {
         addType={editIngredientTarget?.addition_type}
         library={library}
         form={editLineForm ?? emptyNewLine('Mash')}
+        setForm={setEditLineForm}
         error={editLineError}
         saving={editLineSaving}
         onChange={(field, val) => setEditLineForm(p => ({ ...p, [field]: val }))}
@@ -1952,25 +1954,25 @@ function PintGlassVisualization({ costs }) {
     )
   }
 
-  // SVG coordinate constants — large glass for side-by-side column layout
-  const VW = 500, VH = 480
-  const GT = 30, GB = 450       // glass top / bottom y
-  const GH = GB - GT            // 420
-  const CX = 250                // center x
-  const HWT = 100, HWB = 65     // half-widths at top / bottom → 200px top width, 130px bottom width
+  // SVG coordinate constants
+  const VW = 560, VH = 520
+  const GT = 30, GB = 490       // glass top / bottom y  (height = 460)
+  const GH = GB - GT            // 460
+  const CX = 280                // center x
+  const HWT = 110, HWB = 72     // half-widths at top / bottom → 220px top, 144px bottom
 
-  const FOAM_H = 40
-  const BT = GT + FOAM_H        // beer top y = 70
-  const BH = GB - BT            // beer height = 380
+  const FOAM_H = 50
+  const BT = GT + FOAM_H        // beer top y = 80
+  const BH = GB - BT            // beer height = 410
 
   function gLeft(y)  { return CX - HWT + (HWT - HWB) * (y - GT) / GH }
   function gRight(y) { return CX + HWT - (HWT - HWB) * (y - GT) / GH }
 
-  const glassPath = `M${CX - HWT},${GT} L${CX + HWT},${GT} L${CX + HWB},${GB} Q${CX},${GB + 12} ${CX - HWB},${GB} Z`
+  const glassPath = `M${CX - HWT},${GT} L${CX + HWT},${GT} L${CX + HWB},${GB} Q${CX},${GB + 14} ${CX - HWB},${GB} Z`
   const foamPath  = [
     `M${gLeft(BT)},${BT}`,
-    `Q${CX - 50},${BT - 28} ${CX},${BT - 24}`,
-    `Q${CX + 50},${BT - 20} ${gRight(BT)},${BT}`,
+    `Q${CX - 55},${BT - 32} ${CX},${BT - 28}`,
+    `Q${CX + 55},${BT - 24} ${gRight(BT)},${BT}`,
     `L${CX + HWT},${GT} L${CX - HWT},${GT} Z`,
   ].join(' ')
 
@@ -1985,9 +1987,9 @@ function PintGlassVisualization({ costs }) {
     return { ...layer, topY, h: actualH, midY }
   }).reverse()
 
-  // Spread label Y positions to prevent overlap (22px minimum gap)
-  const MIN_GAP = 22
-  const naturalYs = layerRects.map(lr => Math.min(Math.max(lr.midY, GT + 10), GB - 10))
+  // Spread label Y positions to prevent overlap (26px minimum gap)
+  const MIN_GAP = 26
+  const naturalYs = layerRects.map(lr => Math.min(Math.max(lr.midY, GT + 12), GB - 12))
 
   function spreadPositions(ys) {
     const pts = ys.map((y, i) => ({ y, i })).sort((a, b) => a.y - b.y)
@@ -2003,8 +2005,8 @@ function PintGlassVisualization({ costs }) {
   }
 
   const labelYs = spreadPositions(naturalYs)
-  const LLEFT = 143   // right-aligned left labels (glass left edge at top = 150)
-  const RLEFT = 357   // left-aligned right labels (glass right edge at top = 350)
+  const LLEFT = 135   // right-aligned left labels
+  const RLEFT = 390   // left-aligned right labels
 
   return (
     <div>
@@ -2025,7 +2027,7 @@ function PintGlassVisualization({ costs }) {
         {/* Beer layers — clipped to glass */}
         <g clipPath="url(#pint-clip)">
           {layerRects.map(lr => (
-            <rect key={lr.label} x="140" y={lr.topY} width="220" height={lr.h} fill={lr.color} opacity="0.88" />
+            <rect key={lr.label} x="160" y={lr.topY} width="240" height={lr.h} fill={lr.color} opacity="0.88" />
           ))}
           <path d={foamPath} fill="#FFF8E7" />
         </g>
@@ -2034,11 +2036,11 @@ function PintGlassVisualization({ costs }) {
         <path d={glassPath} fill="none" stroke="#94A3B8" strokeWidth="2" />
 
         {/* Shine */}
-        <line x1={gLeft(GT) + 12} y1={GT + 12} x2={gLeft(GB) + 10} y2={GB - 20}
-          stroke="white" strokeWidth="6" opacity="0.35" clipPath="url(#pint-clip)" />
+        <line x1={gLeft(GT) + 14} y1={GT + 14} x2={gLeft(GB) + 12} y2={GB - 24}
+          stroke="white" strokeWidth="7" opacity="0.35" clipPath="url(#pint-clip)" />
 
         {/* Foam label */}
-        <text x={CX} y={BT - 6} textAnchor="middle" fontSize="12" fill="#92400E" fontWeight="500">Foam</text>
+        <text x={CX} y={BT - 8} textAnchor="middle" fontSize="13" fill="#92400E" fontWeight="500">Foam</text>
 
         {/* Layer callout labels */}
         {layerRects.map((lr, i) => {
@@ -2050,11 +2052,11 @@ function PintGlassVisualization({ costs }) {
             <g key={lr.label}>
               <line x1={LLEFT + 3} y1={lY} x2={eL - 4} y2={lr.midY}
                 stroke="#CBD5E1" strokeWidth="1" strokeDasharray="3,3" />
-              <text x={LLEFT} y={lY + 4} textAnchor="end" fontSize="14" fill="#374151">{lr.label}</text>
+              <text x={LLEFT} y={lY + 4} textAnchor="end" fontSize="13" fill="#374151">{lr.label}</text>
               <line x1={eR + 4} y1={lr.midY} x2={RLEFT - 3} y2={lY}
                 stroke="#CBD5E1" strokeWidth="1" strokeDasharray="3,3" />
-              <text x={RLEFT} y={lY} fontSize="14" fill="#1A2744" fontWeight="600">${lr.cost.toFixed(3)}</text>
-              <text x={RLEFT} y={lY + 15} fontSize="12" fill="#6B7280">{pct}%</text>
+              <text x={RLEFT} y={lY} fontSize="13" fill="#1A2744" fontWeight="600">${lr.cost.toFixed(3)}</text>
+              <text x={RLEFT} y={lY + 16} fontSize="11" fill="#6B7280">{pct}%</text>
             </g>
           )
         })}
@@ -2112,7 +2114,7 @@ function CostPanel({
     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden text-xs">
       <div className="flex flex-col lg:flex-row items-start">
         {/* ── Left column: all cost inputs, summary, pricing ── */}
-        <div className="w-full lg:w-[55%] divide-y divide-gray-100 lg:border-r border-gray-200">
+        <div className="w-full lg:w-[50%] divide-y divide-gray-100 lg:border-r border-gray-200">
       <div className="px-4 py-3">
         <h3 className="font-bold text-navy text-sm">Cost Calculator</h3>
       </div>
@@ -2371,7 +2373,7 @@ function CostPanel({
         </div>{/* end left column */}
 
         {/* ── Right column: pint glass visualization ── */}
-        <div className="w-full lg:w-[45%] self-start border-t border-gray-200 lg:border-t-0">
+        <div className="w-full lg:w-[50%] self-start border-t border-gray-200 lg:border-t-0">
           <PintGlassVisualization costs={costs} />
         </div>
       </div>{/* end flex row */}
@@ -2759,7 +2761,7 @@ function UnitSelect({ value, onChange, disabled, className }) {
 // grouped by category. An "Other" option lets the brewer type a free name.
 
 function AddIngredientModal({
-  isOpen, addType, library, form, error, saving, onChange, onSubmit, onClose,
+  isOpen, addType, library, form, setForm, error, saving, onChange, onSubmit, onClose,
   isEditMode = false, editTarget = null, totalPints = 0, lines = [],
 }) {
   const { loadDraft, saveDraft, clearDraft, draftRestored, dismissDraftBanner } =
@@ -2837,33 +2839,41 @@ function AddIngredientModal({
     ? parseFloat(selectedIng.ingredient_suppliers?.find(s => s.is_preferred)?.price_per_unit ?? selectedIng.current_price_per_unit ?? 0)
     : null
 
-  // Unit change — preserves exact batch total by back-calculating new cost per unit
-  // Guarantee: old_amount × old_cost = new_amount × new_cost (no rounding drift)
+  // Unit change — uses a single atomic setForm call so all three fields (unit,
+  // amount, price_per_unit) land in the same React state update with no stale reads.
+  // Batch total is preserved exactly: new_cost = batchTotal / new_amount.
   function handleUnitChange(newUnit) {
-    const fromUnit     = form.unit
-    const currentAmt   = parseFloat(form.amount) || 0
-    const currentCost  = mode === 'other' ? parseFloat(form.price_per_unit) || 0 : 0
-    const batchTotal   = currentAmt * currentCost  // preserve this exactly
+    const currentAmount      = parseFloat(form.amount) || 0
+    const currentCostPerUnit = mode === 'other' ? parseFloat(form.price_per_unit) || 0 : 0
+    const batchTotal         = currentAmount * currentCostPerUnit  // never changes
 
-    const amtResult = convertAmount(form.amount, fromUnit, newUnit)
+    const amountResult = convertAmount(currentAmount, form.unit, newUnit)
 
-    if (!amtResult.warning && amtResult.amount > 0) {
-      onChange('unit', newUnit)
-      onChange('amount', String(amtResult.amount))
-      if (mode === 'other' && currentCost > 0) {
-        // Back-calculate cost to maintain identical batch total
-        const newCostPerUnit = parseFloat((batchTotal / amtResult.amount).toFixed(6))
-        onChange('price_per_unit', String(newCostPerUnit))
-        setUnitConversionMsg(`✓ Amount and cost converted: ${fromUnit} → ${newUnit} (batch total preserved)`)
-      } else {
-        setUnitConversionMsg(`✓ Amount converted: ${fromUnit} → ${newUnit}`)
-      }
-      setUnitConversionWarning(false)
-    } else {
-      onChange('unit', newUnit)
+    if (amountResult.warning || amountResult.amount <= 0) {
+      setForm(prev => ({ ...prev, unit: newUnit }))
       setUnitConversionWarning(true)
       setUnitConversionMsg(null)
+      return
     }
+
+    const newCostPerUnit = mode === 'other' && currentCostPerUnit > 0
+      ? parseFloat((batchTotal / amountResult.amount).toFixed(6))
+      : null
+
+    // Single atomic update — no race condition possible
+    setForm(prev => ({
+      ...prev,
+      unit:   newUnit,
+      amount: String(parseFloat(amountResult.amount.toFixed(4))),
+      ...(newCostPerUnit !== null && { price_per_unit: String(newCostPerUnit) }),
+    }))
+
+    setUnitConversionWarning(false)
+    setUnitConversionMsg(
+      newCostPerUnit !== null
+        ? `✓ Amount and cost converted: ${form.unit} → ${newUnit} (batch total preserved)`
+        : `✓ Amount converted: ${form.unit} → ${newUnit}`
+    )
   }
 
   // Cost impact calculations — shown live as the brewer fills in the form
