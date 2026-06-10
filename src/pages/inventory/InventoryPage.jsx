@@ -26,7 +26,8 @@ import { useReadOnly } from '../../hooks/useReadOnly'
 
 const CATEGORIES = [
   'Malt/Grain','Hops','Yeast','Adjunct','Fruit',
-  'Spice','Water Treatment','Packaging','Other',
+  'Spice','Water Treatment','Packaging',
+  'Parts & Consumables','Lab & QC Supplies','Safety Supplies','Other',
 ]
 
 const STOCK_UNITS = [
@@ -53,19 +54,69 @@ const PO_STATUSES = [
 
 const TABS = ['Inventory', 'Packaging Materials', 'Receive Stock', 'Purchase Orders', 'Transaction History', 'Supplier Intelligence']
 
-const PKG_MATERIAL_CATEGORIES = [
-  'Cans', 'Bottles', 'Kegs', 'Labels', 'Carriers', 'Gas', 'Cleaning', 'Other',
+// Grouped packaging material types — keys become category labels, values are type options
+const PACKAGING_MATERIAL_TYPES = {
+  'Cans': [
+    '12oz Can (blank)', '16oz Can / Tallboy (blank)', '19.2oz Stovepipe Can (blank)',
+    '32oz Crowler Can (blank)', 'Can Lid',
+  ],
+  'Bottles': [
+    '12oz Bottle (blank)', '22oz Bomber Bottle (blank)', '750ml Bottle (blank)',
+    'Bottle Cap', 'Cork & Cage',
+  ],
+  'Labels': [
+    '12oz Can Label', '16oz Can Label', '19.2oz Can Label', '32oz Crowler Label',
+    '12oz Bottle Label — Front', '12oz Bottle Label — Back',
+    '22oz Bottle Label — Front', '22oz Bottle Label — Back',
+    '750ml Bottle Label — Front', '750ml Bottle Label — Back',
+    'Neck Label', 'Keg Collar',
+  ],
+  'Carriers & Boxes': [
+    '4-Pack Carrier (16oz cans)', '6-Pack Carrier (12oz cans)',
+    '12-Pack Box', '24-Pack Case Box', 'Shipper Box',
+  ],
+  'Kegs': [
+    'Half Barrel Keg (15.5 gal)', 'Quarter Barrel Keg (7.75 gal)',
+    'Sixth Barrel Keg (5.16 gal)', 'Slim Quarter Keg (7.75 gal)', '50L European Keg',
+  ],
+  'Cleaning & Sanitation': [
+    'Caustic Cleaner (PBW/NaOH)', 'Acid Cleaner (Star San/Acid)',
+    'CIP Chemical', 'Keg Wash Chemical', 'Sanitizer (general)',
+    'CO2 Gas Cylinder', 'Nitrogen Gas Cylinder', 'Mixed Gas Cylinder (CO2/N2)',
+  ],
+  'Other Packaging Supplies': [
+    'Oxygen Barrier Caps', 'Shrink Sleeve', 'Tamper Evident Seal',
+    'Wax Dip', 'Printed Carton', 'Other',
+  ],
+}
+
+// Sub-type options for the three new ingredient categories
+const PARTS_TYPES = [
+  'Tri-Clamp Gasket', 'O-Ring', 'Pump Seal', 'Valve Seat/Diaphragm',
+  'Silicone Tubing', 'Vinyl Tubing', 'Reinforced Hose', 'Gas Line Tubing',
+  'Tri-Clamp Fitting', 'Hose Clamp', 'Quick Disconnect Fitting', 'Barbed Fitting',
+  'Filter Cartridge', 'Filter Sheet', 'Spray Ball (CIP)',
+  'Thermometer Probe/Sensor', 'Sight Glass Tube', 'Sample Cock/Petcock',
+  'CO2/Gas Line Component', 'Pump Impeller', 'Other Part/Consumable',
 ]
 
-const PKG_MATERIAL_SUGGESTIONS = {
-  Cans:     ['12oz Cans', '16oz Cans', '8oz Cans', '19.2oz Cans'],
-  Bottles:  ['12oz Bottles', '22oz Bombers', '750ml Bottles', '32oz Growlers'],
-  Kegs:     ['Half Barrel Kegs', 'Quarter Barrel Kegs', 'Sixth Barrel Kegs', '30L Kegs'],
-  Labels:   ['Front Label', 'Back Label', 'Neck Label', 'Lid Sticker'],
-  Carriers: ['4-Pack Carrier', '6-Pack Carrier', '12-Pack Case', '24-Pack Case'],
-  Gas:      ['CO2 (lbs)', 'Nitrogen (lbs)', 'Argon (lbs)'],
-  Cleaning: ['PBW (lbs)', 'Star San (oz)', 'Caustic (gal)', 'Peracetic Acid (gal)'],
-  Other:    [],
+const LAB_TYPES = [
+  'pH Probe/Electrode', 'Hydrometer', 'Refractometer',
+  'Dissolved Oxygen Test Kit', 'Turbidity Test Kit', 'Culture Media',
+  'Petri Dish/Swab Kit', 'Yeast Counting Equipment', 'Other Lab Supply',
+]
+
+const SAFETY_TYPES = [
+  'Nitrile Gloves', 'Safety Goggles', 'Rubber Boots/Footwear',
+  'Chemical Resistant Apron', 'CO2 Monitor/Sensor', 'First Aid Kit Restock',
+  'Fire Extinguisher Service', 'Eye Wash Solution', 'Other Safety Supply',
+]
+
+// Map category name → its sub-type list (null means no sub-type dropdown)
+const CATEGORY_SUBTYPES = {
+  'Parts & Consumables': PARTS_TYPES,
+  'Lab & QC Supplies':   LAB_TYPES,
+  'Safety Supplies':     SAFETY_TYPES,
 }
 
 // Days from today at which stock expiry becomes a warning vs. danger
@@ -790,11 +841,19 @@ function IngredientRow({ ingredient: ing, today, isReadOnly, ReadOnlyTooltip, on
 
   return (
     <tr className="hover:bg-gray-50 transition-colors">
-      {/* Name + category */}
+      {/* Name + category + supplier */}
       <td className="px-4 py-3">
         <p className="font-medium text-navy">{ing.name}</p>
-        {ing.category && (
-          <span className="text-[11px] bg-navy/10 text-navy px-1.5 py-0.5 rounded-full">{ing.category}</span>
+        <div className="flex flex-wrap gap-1 mt-0.5">
+          {ing.category && (
+            <span className="text-[11px] bg-navy/10 text-navy px-1.5 py-0.5 rounded-full">{ing.category}</span>
+          )}
+          {ing.sub_type && (
+            <span className="text-[11px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">{ing.sub_type}</span>
+          )}
+        </div>
+        {ing.supplier_name && (
+          <p className="text-[11px] text-gray-400 mt-0.5">🏭 {ing.supplier_name}</p>
         )}
         {ing.storage_location && (
           <p className="text-[11px] text-gray-400 mt-0.5">📍 {ing.storage_location}</p>
@@ -1550,9 +1609,13 @@ function TransactionHistoryTab({ transactions, ingredients, filterIngId, onClear
 // ─── Modal: Add / Edit Ingredient ─────────────────────────────────────────────
 
 const EMPTY_INGREDIENT = {
-  name: '', category: '', stock_unit: 'lb', current_stock_quantity: '0',
+  name: '', category: '', sub_type: '', stock_unit: 'lb', current_stock_quantity: '0',
   reorder_threshold: '', reorder_quantity: '', lead_time_days: '',
   storage_location: '', lot_number: '', expiration_date: '', notes: '',
+  // Flat supplier contact fields saved directly on the ingredient row
+  supplier_name: '', supplier_contact_name: '', supplier_phone: '',
+  supplier_email: '', supplier_website: '', supplier_account_number: '',
+  supplier_lead_time_days: '', supplier_minimum_order_quantity: '', supplier_notes: '',
 }
 
 function AddEditIngredientModal({ isOpen, ingredient, breweryId, onClose, onSaved }) {
@@ -1572,6 +1635,7 @@ function AddEditIngredientModal({ isOpen, ingredient, breweryId, onClose, onSave
       setForm({
         name:                   ingredient.name ?? '',
         category:               ingredient.category ?? '',
+        sub_type:               ingredient.sub_type ?? '',
         stock_unit:             ingredient.stock_unit ?? ingredient.unit ?? 'lb',
         current_stock_quantity: String(ingredient.current_stock_quantity ?? 0),
         reorder_threshold:      ingredient.reorder_threshold != null ? String(ingredient.reorder_threshold) : '',
@@ -1581,6 +1645,15 @@ function AddEditIngredientModal({ isOpen, ingredient, breweryId, onClose, onSave
         lot_number:             ingredient.lot_number        ?? '',
         expiration_date:        ingredient.expiration_date   ?? '',
         notes:                  ingredient.notes             ?? '',
+        supplier_name:                   ingredient.supplier_name ?? '',
+        supplier_contact_name:           ingredient.supplier_contact_name ?? '',
+        supplier_phone:                  ingredient.supplier_phone ?? '',
+        supplier_email:                  ingredient.supplier_email ?? '',
+        supplier_website:                ingredient.supplier_website ?? '',
+        supplier_account_number:         ingredient.supplier_account_number ?? '',
+        supplier_lead_time_days:         ingredient.supplier_lead_time_days != null ? String(ingredient.supplier_lead_time_days) : '',
+        supplier_minimum_order_quantity: ingredient.supplier_minimum_order_quantity != null ? String(ingredient.supplier_minimum_order_quantity) : '',
+        supplier_notes:                  ingredient.supplier_notes ?? '',
       })
     } else {
       const draft = loadDraft()
@@ -1613,6 +1686,7 @@ function AddEditIngredientModal({ isOpen, ingredient, breweryId, onClose, onSave
       brewery_id:             breweryId,
       name:                   form.name.trim(),
       category:               form.category,
+      sub_type:               form.sub_type || null,
       unit:                   form.stock_unit,
       stock_unit:             form.stock_unit,
       current_stock_quantity: parseFloat(form.current_stock_quantity) || 0,
@@ -1624,6 +1698,16 @@ function AddEditIngredientModal({ isOpen, ingredient, breweryId, onClose, onSave
       expiration_date:        form.expiration_date || null,
       notes:                  form.notes || null,
       is_active:              true,
+      // Flat supplier contact fields
+      supplier_name:                   form.supplier_name.trim() || null,
+      supplier_contact_name:           form.supplier_contact_name.trim() || null,
+      supplier_phone:                  form.supplier_phone.trim() || null,
+      supplier_email:                  form.supplier_email.trim() || null,
+      supplier_website:                form.supplier_website.trim() || null,
+      supplier_account_number:         form.supplier_account_number.trim() || null,
+      supplier_lead_time_days:         form.supplier_lead_time_days ? parseInt(form.supplier_lead_time_days) : null,
+      supplier_minimum_order_quantity: form.supplier_minimum_order_quantity ? parseFloat(form.supplier_minimum_order_quantity) : null,
+      supplier_notes:                  form.supplier_notes.trim() || null,
     }
 
     let savedId
@@ -1646,6 +1730,10 @@ function AddEditIngredientModal({ isOpen, ingredient, breweryId, onClose, onSave
     onSaved(final)
   }
 
+  const [showSupplierSection, setShowSupplierSection] = useState(false)
+  // Sub-type list for the selected category (null when no sub-type dropdown is needed)
+  const subTypes = CATEGORY_SUBTYPES[form.category] ?? null
+
   return (
     <ModalShell
       isOpen={isOpen}
@@ -1662,23 +1750,32 @@ function AddEditIngredientModal({ isOpen, ingredient, breweryId, onClose, onSave
             For items received without a purchase order — donations, transfers, opening stock, or ingredients sourced informally. For purchased ingredients use <strong>Purchase Orders</strong> instead.
           </p>
         )}
-        <p className="text-xs text-gray-500">
-          Supplier and pricing information is captured when you create a Purchase Order or receive stock.
-        </p>
 
         {/* Name + category */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Field label="Ingredient Name *">
+          <Field label="Ingredient / Item Name *">
             <input type="text" value={form.name} onChange={e => setField('name', e.target.value)}
               placeholder="e.g. Cascade Hops" className="field-input" autoFocus={!isEdit} />
           </Field>
           <Field label="Category *">
-            <select value={form.category} onChange={e => setField('category', e.target.value)} className="field-input">
+            <select value={form.category}
+              onChange={e => { setField('category', e.target.value); setField('sub_type', '') }}
+              className="field-input">
               <option value="">Select category...</option>
               {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </Field>
         </div>
+
+        {/* Sub-type dropdown — shown for Parts/Lab/Safety categories */}
+        {subTypes && (
+          <Field label="Type">
+            <select value={form.sub_type} onChange={e => setField('sub_type', e.target.value)} className="field-input">
+              <option value="">Select type...</option>
+              {subTypes.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </Field>
+        )}
 
         {/* Stock tracking */}
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
@@ -1726,6 +1823,70 @@ function AddEditIngredientModal({ isOpen, ingredient, breweryId, onClose, onSave
           <textarea value={form.notes} onChange={e => setField('notes', e.target.value)}
             rows={2} className="field-input resize-none" placeholder="Origin, variety, any storage notes..." />
         </Field>
+
+        {/* ── Collapsible Supplier Information ── */}
+        <div className="border border-gray-200 rounded-lg">
+          <button
+            type="button"
+            onClick={() => setShowSupplierSection(v => !v)}
+            className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium text-navy hover:bg-gray-50 rounded-lg transition-colors"
+          >
+            <span>Supplier Information <span className="text-xs font-normal text-gray-400">(contact, lead time — optional)</span></span>
+            <span className="text-gray-400 text-xs">{showSupplierSection ? '▲' : '▼'}</span>
+          </button>
+          {showSupplierSection && (
+            <div className="px-3 pb-3 pt-1 border-t border-gray-100 space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Field label="Supplier Name">
+                  <input type="text" value={form.supplier_name}
+                    onChange={e => setField('supplier_name', e.target.value)}
+                    placeholder="e.g. LD Carlson" className="field-input" />
+                </Field>
+                <Field label="Contact Name">
+                  <input type="text" value={form.supplier_contact_name}
+                    onChange={e => setField('supplier_contact_name', e.target.value)}
+                    placeholder="Jane Smith" className="field-input" />
+                </Field>
+                <Field label="Phone">
+                  <input type="tel" value={form.supplier_phone}
+                    onChange={e => setField('supplier_phone', e.target.value)}
+                    placeholder="(555) 555-5555" className="field-input" />
+                </Field>
+                <Field label="Email">
+                  <input type="email" value={form.supplier_email}
+                    onChange={e => setField('supplier_email', e.target.value)}
+                    placeholder="orders@supplier.com" className="field-input" />
+                </Field>
+                <Field label="Website">
+                  <input type="url" value={form.supplier_website}
+                    onChange={e => setField('supplier_website', e.target.value)}
+                    placeholder="https://supplier.com" className="field-input" />
+                </Field>
+                <Field label="Account Number">
+                  <input type="text" value={form.supplier_account_number}
+                    onChange={e => setField('supplier_account_number', e.target.value)}
+                    placeholder="ACC-12345" className="field-input" />
+                </Field>
+                <Field label="Lead Time (days)">
+                  <input type="number" min="0" value={form.supplier_lead_time_days}
+                    onChange={e => setField('supplier_lead_time_days', e.target.value)}
+                    placeholder="e.g. 5" className="field-input" />
+                </Field>
+                <Field label="Min Order Quantity">
+                  <input type="number" min="0" step="any" value={form.supplier_minimum_order_quantity}
+                    onChange={e => setField('supplier_minimum_order_quantity', e.target.value)}
+                    placeholder="e.g. 10" className="field-input" />
+                </Field>
+              </div>
+              <Field label="Supplier Notes">
+                <textarea value={form.supplier_notes}
+                  onChange={e => setField('supplier_notes', e.target.value)}
+                  rows={2} className="field-input resize-none"
+                  placeholder="Lead time notes, ordering instructions, preferred contacts..." />
+              </Field>
+            </div>
+          )}
+        </div>
 
         {error && <p className="text-sm text-danger">{error}</p>}
 
@@ -3005,7 +3166,7 @@ function PackagingMaterialsTab({ materials, loading, isReadOnly, ReadOnlyTooltip
           className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber"
         >
           <option value="">All Categories</option>
-          {PKG_MATERIAL_CATEGORIES.map(c => <option key={c}>{c}</option>)}
+          {Object.keys(PACKAGING_MATERIAL_TYPES).map(c => <option key={c}>{c}</option>)}
         </select>
       </div>
 
@@ -3029,13 +3190,12 @@ function PackagingMaterialsTab({ materials, loading, isReadOnly, ReadOnlyTooltip
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
-                <th className="text-left px-4 py-3">Name</th>
-                <th className="text-left px-4 py-3">Category</th>
-                <th className="text-left px-4 py-3">Specification</th>
+                <th className="text-left px-4 py-3">Name / Type</th>
+                <th className="text-left px-4 py-3 hidden sm:table-cell">Size / Spec</th>
                 <th className="text-right px-4 py-3">In Stock</th>
-                <th className="text-right px-4 py-3">Reorder At</th>
-                <th className="text-right px-4 py-3">Cost/Unit</th>
-                <th className="text-left px-4 py-3">Supplier</th>
+                <th className="text-right px-4 py-3 hidden sm:table-cell">Reorder At</th>
+                <th className="text-right px-4 py-3 hidden md:table-cell">Cost/Unit</th>
+                <th className="text-left px-4 py-3 hidden md:table-cell">Supplier</th>
                 <th className="px-4 py-3"></th>
               </tr>
             </thead>
@@ -3046,28 +3206,50 @@ function PackagingMaterialsTab({ materials, loading, isReadOnly, ReadOnlyTooltip
                 const isLow    = reorder != null && qty <= reorder
                 return (
                   <tr key={mat.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 font-medium text-navy">
-                      {mat.name}
-                      {isLow && (
-                        <span className="ml-2 text-xs bg-amber/20 text-amber-dark font-semibold px-1.5 py-0.5 rounded">
-                          Low Stock
-                        </span>
+                    {/* Name with category + type badges */}
+                    <td className="px-4 py-3">
+                      <p className="font-medium text-navy">
+                        {mat.name}
+                        {isLow && (
+                          <span className="ml-2 text-xs bg-amber/20 text-amber-dark font-semibold px-1.5 py-0.5 rounded">
+                            Low Stock
+                          </span>
+                        )}
+                      </p>
+                      <div className="flex flex-wrap gap-1 mt-0.5">
+                        {(mat.material_category || mat.category) && (
+                          <span className="text-[11px] bg-navy/10 text-navy px-1.5 py-0.5 rounded-full">
+                            {mat.material_category || mat.category}
+                          </span>
+                        )}
+                        {mat.material_type && (
+                          <span className="text-[11px] bg-amber/10 text-amber-dark px-1.5 py-0.5 rounded-full">
+                            {mat.material_type}
+                          </span>
+                        )}
+                      </div>
+                      {mat.supplier_name && (
+                        <p className="text-[11px] text-gray-400 mt-0.5">🏭 {mat.supplier_name}</p>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-gray-600">{mat.category ?? '—'}</td>
-                    <td className="px-4 py-3 text-gray-500">{mat.specification ?? '—'}</td>
+                    {/* Size / Spec — uses new size_spec field, falls back to legacy specification */}
+                    <td className="px-4 py-3 text-gray-500 text-sm hidden sm:table-cell">
+                      {mat.size_spec || mat.specification || '—'}
+                    </td>
                     <td className="px-4 py-3 text-right font-medium">
                       <span className={isLow ? 'text-amber' : 'text-navy'}>
                         {qty.toLocaleString()} {mat.stock_unit ?? 'units'}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-right text-gray-500">
+                    <td className="px-4 py-3 text-right text-gray-500 hidden sm:table-cell">
                       {reorder != null ? `${reorder.toLocaleString()} ${mat.stock_unit ?? 'units'}` : '—'}
                     </td>
-                    <td className="px-4 py-3 text-right text-gray-600">
+                    <td className="px-4 py-3 text-right text-gray-600 hidden md:table-cell">
                       {mat.cost_per_unit != null ? `$${parseFloat(mat.cost_per_unit).toFixed(4)}` : '—'}
                     </td>
-                    <td className="px-4 py-3 text-gray-500">{mat.supplier ?? '—'}</td>
+                    <td className="px-4 py-3 text-gray-500 hidden md:table-cell">
+                      {mat.supplier_name || mat.supplier || '—'}
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-2 justify-end">
                         <ReadOnlyTooltip isReadOnly={isReadOnly}>
@@ -3105,36 +3287,43 @@ function PackagingMaterialsTab({ materials, loading, isReadOnly, ReadOnlyTooltip
 
 const INPUT_PKG = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber'
 
+const BLANK_PKG = {
+  material_category: '', material_type: '', name: '', size_spec: '',
+  stock_unit: 'units', current_stock_quantity: '', reorder_threshold: '',
+  reorder_quantity: '', cost_per_unit: '', notes: '',
+  supplier_name: '', supplier_contact_name: '', supplier_phone: '',
+  supplier_email: '', supplier_website: '', supplier_account_number: '',
+  supplier_lead_time_days: '', supplier_minimum_order_quantity: '', supplier_notes: '',
+}
+
 function AddPackagingMaterialModal({ isOpen, breweryId, onClose, onSaved }) {
   const { loadDraft, saveDraft, clearDraft, draftRestored, dismissDraftBanner } =
     useModalDraft('add_packaging_material')
 
-  const blank = {
-    category: '', name: '', specification: '', stock_unit: 'units',
-    current_stock_quantity: '', reorder_threshold: '', reorder_quantity: '',
-    cost_per_unit: '', supplier: '', notes: '',
-  }
-
-  const [form,   setForm]   = useState(blank)
-  const [saving, setSaving] = useState(false)
-  const [error,  setError]  = useState('')
+  const [form,             setForm]             = useState(BLANK_PKG)
+  const [saving,           setSaving]           = useState(false)
+  const [error,            setError]            = useState('')
+  const [showSupSection,   setShowSupSection]   = useState(false)
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
+  // Restore draft or reset when modal opens
   useEffect(() => {
     if (!isOpen) return
     const draft = loadDraft()
     if (draft) setForm(draft)
-    else       setForm(blank)
+    else       setForm(BLANK_PKG)
     setError('')
   }, [isOpen])
 
+  // Auto-save draft while composing
   useEffect(() => {
     if (!isOpen) return
     saveDraft(form)
   }, [form])
 
-  const suggestions = PKG_MATERIAL_SUGGESTIONS[form.category] ?? []
+  // Type options for the selected material category
+  const typeOptions = PACKAGING_MATERIAL_TYPES[form.material_category] ?? []
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -3144,17 +3333,28 @@ function AddPackagingMaterialModal({ isOpen, breweryId, onClose, onSaved }) {
     const { data, error: err } = await supabase
       .from('packaging_materials')
       .insert({
-        brewery_id:             breweryId,
-        category:               form.category   || null,
-        name:                   form.name.trim(),
-        specification:          form.specification.trim() || null,
-        stock_unit:             form.stock_unit  || 'units',
-        current_stock_quantity: parseFloat(form.current_stock_quantity) || 0,
-        reorder_threshold:      form.reorder_threshold !== '' ? parseFloat(form.reorder_threshold) : null,
-        reorder_quantity:       form.reorder_quantity  !== '' ? parseFloat(form.reorder_quantity)  : null,
-        cost_per_unit:          form.cost_per_unit     !== '' ? parseFloat(form.cost_per_unit)     : null,
-        supplier:               form.supplier.trim()   || null,
-        notes:                  form.notes.trim()      || null,
+        brewery_id:                      breweryId,
+        // Use material_category as the display category; keep legacy category column in sync
+        category:                        form.material_category || null,
+        material_category:               form.material_category || null,
+        material_type:                   form.material_type || null,
+        name:                            form.name.trim(),
+        size_spec:                       form.size_spec.trim() || null,
+        stock_unit:                      form.stock_unit || 'units',
+        current_stock_quantity:          parseFloat(form.current_stock_quantity) || 0,
+        reorder_threshold:               form.reorder_threshold !== '' ? parseFloat(form.reorder_threshold) : null,
+        reorder_quantity:                form.reorder_quantity  !== '' ? parseFloat(form.reorder_quantity)  : null,
+        cost_per_unit:                   form.cost_per_unit     !== '' ? parseFloat(form.cost_per_unit)     : null,
+        notes:                           form.notes.trim() || null,
+        supplier_name:                   form.supplier_name.trim() || null,
+        supplier_contact_name:           form.supplier_contact_name.trim() || null,
+        supplier_phone:                  form.supplier_phone.trim() || null,
+        supplier_email:                  form.supplier_email.trim() || null,
+        supplier_website:                form.supplier_website.trim() || null,
+        supplier_account_number:         form.supplier_account_number.trim() || null,
+        supplier_lead_time_days:         form.supplier_lead_time_days ? parseInt(form.supplier_lead_time_days) : null,
+        supplier_minimum_order_quantity: form.supplier_minimum_order_quantity ? parseFloat(form.supplier_minimum_order_quantity) : null,
+        supplier_notes:                  form.supplier_notes.trim() || null,
       })
       .select()
       .single()
@@ -3170,7 +3370,8 @@ function AddPackagingMaterialModal({ isOpen, breweryId, onClose, onSaved }) {
       isOpen={isOpen}
       onClose={onClose}
       title="Add Packaging Material"
-      isDirty={JSON.stringify(form) !== JSON.stringify(blank)}
+      isDirty={JSON.stringify(form) !== JSON.stringify(BLANK_PKG)}
+      maxWidth="max-w-xl"
     >
       {draftRestored && (
         <div className="bg-amber/10 border border-amber rounded-lg px-3 py-2 text-xs text-amber-dark flex justify-between items-center mb-3">
@@ -3180,40 +3381,59 @@ function AddPackagingMaterialModal({ isOpen, breweryId, onClose, onSaved }) {
       )}
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
+
+        {/* Category → grouped type dropdown */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-1">
             <label className="text-xs font-medium text-gray-600">Category</label>
-            <select value={form.category} onChange={e => set('category', e.target.value)} className={INPUT_PKG}>
+            <select
+              value={form.material_category}
+              onChange={e => { set('material_category', e.target.value); set('material_type', '') }}
+              className={INPUT_PKG}
+            >
               <option value="">Select category…</option>
-              {PKG_MATERIAL_CATEGORIES.map(c => <option key={c}>{c}</option>)}
+              {Object.keys(PACKAGING_MATERIAL_TYPES).map(c => <option key={c}>{c}</option>)}
             </select>
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-600">Name <span className="text-danger">*</span></label>
-            <input
-              list="pkg-mat-suggestions"
-              value={form.name}
-              onChange={e => set('name', e.target.value)}
-              placeholder="e.g. 16oz Cans"
+            <label className="text-xs font-medium text-gray-600">Type</label>
+            <select
+              value={form.material_type}
+              onChange={e => set('material_type', e.target.value)}
               className={INPUT_PKG}
-              required
-            />
-            <datalist id="pkg-mat-suggestions">
-              {suggestions.map(s => <option key={s} value={s} />)}
-            </datalist>
+              disabled={!form.material_category}
+            >
+              <option value="">{form.material_category ? 'Select type…' : 'Select a category first'}</option>
+              {typeOptions.map(t => <option key={t}>{t}</option>)}
+            </select>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        {/* Name + size spec */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-600">Specification</label>
+            <label className="text-xs font-medium text-gray-600">Name <span className="text-danger">*</span></label>
             <input
-              value={form.specification}
-              onChange={e => set('specification', e.target.value)}
-              placeholder="e.g. Front Label, Half Barrel"
+              value={form.name}
+              onChange={e => set('name', e.target.value)}
+              placeholder="e.g. 16oz Tallboy Cans"
+              className={INPUT_PKG}
+              required
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-600">Size / Spec</label>
+            <input
+              value={form.size_spec}
+              onChange={e => set('size_spec', e.target.value)}
+              placeholder="e.g. 16oz, 12mm ID, 1.5 inch tri-clamp"
               className={INPUT_PKG}
             />
           </div>
+        </div>
+
+        {/* Stock unit + levels */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-1">
             <label className="text-xs font-medium text-gray-600">Stock Unit</label>
             <input
@@ -3223,42 +3443,6 @@ function AddPackagingMaterialModal({ isOpen, breweryId, onClose, onSaved }) {
               className={INPUT_PKG}
             />
           </div>
-        </div>
-
-        <div className="grid grid-cols-3 gap-4">
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-600">Current Stock</label>
-            <input
-              type="number" min="0" step="any"
-              value={form.current_stock_quantity}
-              onChange={e => set('current_stock_quantity', e.target.value)}
-              placeholder="0"
-              className={INPUT_PKG}
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-600">Reorder At</label>
-            <input
-              type="number" min="0" step="any"
-              value={form.reorder_threshold}
-              onChange={e => set('reorder_threshold', e.target.value)}
-              placeholder="—"
-              className={INPUT_PKG}
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-600">Reorder Qty</label>
-            <input
-              type="number" min="0" step="any"
-              value={form.reorder_quantity}
-              onChange={e => set('reorder_quantity', e.target.value)}
-              placeholder="—"
-              className={INPUT_PKG}
-            />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
           <div className="space-y-1">
             <label className="text-xs font-medium text-gray-600">Cost per Unit ($)</label>
             <input
@@ -3269,35 +3453,110 @@ function AddPackagingMaterialModal({ isOpen, breweryId, onClose, onSaved }) {
               className={INPUT_PKG}
             />
           </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-4">
           <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-600">Supplier</label>
-            <input
-              value={form.supplier}
-              onChange={e => set('supplier', e.target.value)}
-              placeholder="Supplier name"
-              className={INPUT_PKG}
-            />
+            <label className="text-xs font-medium text-gray-600">Current Stock</label>
+            <input type="number" min="0" step="any" value={form.current_stock_quantity}
+              onChange={e => set('current_stock_quantity', e.target.value)} placeholder="0" className={INPUT_PKG} />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-600">Reorder At</label>
+            <input type="number" min="0" step="any" value={form.reorder_threshold}
+              onChange={e => set('reorder_threshold', e.target.value)} placeholder="—" className={INPUT_PKG} />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-600">Reorder Qty</label>
+            <input type="number" min="0" step="any" value={form.reorder_quantity}
+              onChange={e => set('reorder_quantity', e.target.value)} placeholder="—" className={INPUT_PKG} />
           </div>
         </div>
 
         <div className="space-y-1">
           <label className="text-xs font-medium text-gray-600">Notes</label>
-          <textarea
-            value={form.notes}
-            onChange={e => set('notes', e.target.value)}
-            rows={2}
-            className={INPUT_PKG}
-          />
+          <textarea value={form.notes} onChange={e => set('notes', e.target.value)}
+            rows={2} className={INPUT_PKG} placeholder="Any notes about this material…" />
+        </div>
+
+        {/* ── Collapsible Supplier Information ── */}
+        <div className="border border-gray-200 rounded-lg">
+          <button
+            type="button"
+            onClick={() => setShowSupSection(v => !v)}
+            className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium text-navy hover:bg-gray-50 rounded-lg transition-colors"
+          >
+            <span>Supplier Information <span className="text-xs font-normal text-gray-400">(contact, lead time — optional)</span></span>
+            <span className="text-gray-400 text-xs">{showSupSection ? '▲' : '▼'}</span>
+          </button>
+          {showSupSection && (
+            <div className="px-3 pb-3 pt-1 border-t border-gray-100 space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-gray-600">Supplier Name</label>
+                  <input type="text" value={form.supplier_name}
+                    onChange={e => set('supplier_name', e.target.value)}
+                    placeholder="e.g. Ball Corporation" className={INPUT_PKG} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-gray-600">Contact Name</label>
+                  <input type="text" value={form.supplier_contact_name}
+                    onChange={e => set('supplier_contact_name', e.target.value)}
+                    placeholder="Jane Smith" className={INPUT_PKG} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-gray-600">Phone</label>
+                  <input type="tel" value={form.supplier_phone}
+                    onChange={e => set('supplier_phone', e.target.value)}
+                    placeholder="(555) 555-5555" className={INPUT_PKG} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-gray-600">Email</label>
+                  <input type="email" value={form.supplier_email}
+                    onChange={e => set('supplier_email', e.target.value)}
+                    placeholder="orders@supplier.com" className={INPUT_PKG} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-gray-600">Website</label>
+                  <input type="url" value={form.supplier_website}
+                    onChange={e => set('supplier_website', e.target.value)}
+                    placeholder="https://supplier.com" className={INPUT_PKG} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-gray-600">Account Number</label>
+                  <input type="text" value={form.supplier_account_number}
+                    onChange={e => set('supplier_account_number', e.target.value)}
+                    placeholder="ACC-12345" className={INPUT_PKG} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-gray-600">Lead Time (days)</label>
+                  <input type="number" min="0" value={form.supplier_lead_time_days}
+                    onChange={e => set('supplier_lead_time_days', e.target.value)}
+                    placeholder="e.g. 14" className={INPUT_PKG} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-gray-600">Min Order Quantity</label>
+                  <input type="number" min="0" step="any" value={form.supplier_minimum_order_quantity}
+                    onChange={e => set('supplier_minimum_order_quantity', e.target.value)}
+                    placeholder="e.g. 500" className={INPUT_PKG} />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-gray-600">Supplier Notes</label>
+                <textarea value={form.supplier_notes}
+                  onChange={e => set('supplier_notes', e.target.value)}
+                  rows={2} className={INPUT_PKG}
+                  placeholder="Lead time notes, ordering instructions, preferred contacts…" />
+              </div>
+            </div>
+          )}
         </div>
 
         {error && <p className="text-sm text-danger">{error}</p>}
 
         <div className="flex gap-3 pt-2">
-          <button
-            type="submit"
-            disabled={saving}
-            className="flex-1 bg-amber hover:bg-amber-dark text-white font-semibold py-3 rounded-lg text-sm transition-colors disabled:opacity-50"
-          >
+          <button type="submit" disabled={saving}
+            className="flex-1 bg-amber hover:bg-amber-dark text-white font-semibold py-3 rounded-lg text-sm transition-colors disabled:opacity-50">
             {saving ? 'Saving…' : 'Add Material'}
           </button>
           <button type="button" onClick={onClose}
