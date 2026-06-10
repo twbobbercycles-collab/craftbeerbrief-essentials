@@ -129,6 +129,38 @@ function convertCostPerUnit(cost, fromUnit, toUnit) {
   return { cost: numCost, warning: true }
 }
 
+// ─── Amount conversion when switching units ──────────────────────────────────
+// Returns { amount: number, warning: boolean } — warning true when units are
+// incompatible (cross weight/volume, or count units).
+function convertAmount(amount, fromUnit, toUnit) {
+  if (!amount || fromUnit === toUnit || !fromUnit || !toUnit) return { amount, warning: false }
+  const num = parseFloat(amount)
+  if (isNaN(num) || num === 0) return { amount, warning: false }
+
+  const weightToGrams = { 'g': 1, 'oz': 28.3495, 'lb': 453.592, 'kg': 1000 }
+  const volumeToMl = {
+    'ml': 1, 'fl oz': 29.5735, 'qt': 946.353, 'quart': 946.353,
+    'pint': 473.176, 'L': 1000, 'liter': 1000,
+    'Gallon': 3785.41, 'gallon': 3785.41,
+    'Barrel': 117347, 'bbl': 117347,
+    'cup': 236.588, 'tsp': 4.929, 'tbsp': 14.787,
+  }
+  const countUnits = ['each', 'packet', 'unit', 'tablet', 'bag', 'box', 'case', 'bundle', 'sheet', 'roll', 'other', 'pinch']
+
+  if (countUnits.includes(fromUnit) || countUnits.includes(toUnit)) {
+    return { amount: num, warning: true }
+  }
+  if (weightToGrams[fromUnit] !== undefined && weightToGrams[toUnit] !== undefined) {
+    const inGrams = num * weightToGrams[fromUnit]
+    return { amount: parseFloat((inGrams / weightToGrams[toUnit]).toFixed(4)), warning: false }
+  }
+  if (volumeToMl[fromUnit] !== undefined && volumeToMl[toUnit] !== undefined) {
+    const inMl = num * volumeToMl[fromUnit]
+    return { amount: parseFloat((inMl / volumeToMl[toUnit]).toFixed(4)), warning: false }
+  }
+  return { amount: num, warning: true }
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function RecipeDetailPage() {
@@ -331,7 +363,10 @@ export default function RecipeDetailPage() {
     const lineCosts = lines.map(l => {
       const pricePerUnit = parseFloat(l.supplier?.price_per_unit ?? l.ingredient?.current_price_per_unit ?? l._priceOverride ?? 0)
       const scaled = calculateScaledAmount(parseFloat(l.amount) || 0, baseBatch, curBatch, l.scale_with_batch)
-      return { id: l.id, name: l.ingredient_name, scaled, effectiveCost: pricePerUnit, totalCost: scaled * pricePerUnit }
+      return {
+        id: l.id, name: l.ingredient_name, category: l.ingredient?.category ?? '',
+        scaled, effectiveCost: pricePerUnit, totalCost: scaled * pricePerUnit,
+      }
     })
 
     const mappedLines = lines.map(l => ({
@@ -420,11 +455,23 @@ export default function RecipeDetailPage() {
       return { ...split, splitPct, units, splitPackCost, allocatedCost, costPerUnit, retailPerUnit }
     })
 
+    // Per-category ingredient costs for pint glass visualization
+    const tp1 = totalPints || 1
+    const isGrain = lc => lc.category === 'Malt/Grain' || (lc.name ?? '').toLowerCase().includes('malt') || (lc.name ?? '').toLowerCase().includes('grain')
+    const isHops  = lc => lc.category === 'Hops'  || (lc.name ?? '').toLowerCase().includes('hop')
+    const isYeast = lc => lc.category === 'Yeast' || (lc.name ?? '').toLowerCase().includes('yeast')
+    const isOther = lc => !isGrain(lc) && !isHops(lc) && !isYeast(lc)
+    const grainCostPerPint    = lineCosts.filter(isGrain).reduce((s, lc) => s + lc.totalCost, 0) / tp1
+    const hopsCostPerPint     = lineCosts.filter(isHops).reduce((s, lc) => s + lc.totalCost, 0) / tp1
+    const yeastCostPerPint    = lineCosts.filter(isYeast).reduce((s, lc) => s + lc.totalCost, 0) / tp1
+    const otherIngCostPerPint = lineCosts.filter(isOther).reduce((s, lc) => s + lc.totalCost, 0) / tp1
+
     return {
       ...breakdown, utilitiesBreakdown,
       costPerBarrel, costPerPint, exciseTaxBatchTotal, exciseTaxPerPint, trueCostPerPint,
       suggestedRetail, taxInclusivePrice,
       grossMargin, batchBarrels, totalPints, unitsProduced, lineCosts, splitOutputs,
+      grainCostPerPint, hopsCostPerPint, yeastCostPerPint, otherIngCostPerPint,
     }
   }, [
     lines, recipe, batchSize,
@@ -1870,6 +1917,164 @@ function IngredientRow({
   )
 }
 
+// ─── PintGlassVisualization ───────────────────────────────────────────────────
+
+function PintGlassVisualization({ costs }) {
+  const {
+    suggestedRetail = 0, trueCostPerPint = 0, exciseTaxPerPint = 0,
+    totalPints = 0, packagingCost = 0, laborCost = 0, overhead = 0,
+    utilitiesBreakdown, grainCostPerPint = 0, hopsCostPerPint = 0,
+    yeastCostPerPint = 0, otherIngCostPerPint = 0,
+  } = costs
+
+  const tp              = totalPints || 1
+  const utilitiesCost   = utilitiesBreakdown?.total ?? costs.utilitiesCost ?? 0
+  const packagingCPP    = packagingCost / tp
+  const laborOvhdCPP    = (laborCost + utilitiesCost + overhead) / tp
+  const marginCPP       = Math.max(0, suggestedRetail - trueCostPerPint)
+
+  const allLayers = [
+    { label: 'Grain & Malt',  color: '#92400E', cost: grainCostPerPint },
+    { label: 'Hops',          color: '#16A34A', cost: hopsCostPerPint },
+    { label: 'Yeast',         color: '#CA8A04', cost: yeastCostPerPint },
+    { label: 'Other Ingr.',   color: '#2563EB', cost: otherIngCostPerPint },
+    { label: 'Packaging',     color: '#64748B', cost: packagingCPP },
+    { label: 'Labor+Ovhd',    color: '#EA580C', cost: laborOvhdCPP },
+    { label: 'Excise Tax',    color: '#D97706', cost: exciseTaxPerPint },
+    { label: 'Margin',        color: '#1A2744', cost: marginCPP },
+  ].filter(l => l.cost > 0.000001)
+
+  if (!suggestedRetail || suggestedRetail <= 0 || allLayers.length === 0) {
+    return (
+      <div className="border-t border-gray-100 px-4 py-4 text-center text-xs text-gray-400">
+        Add ingredients and set a target margin to see your pint breakdown.
+      </div>
+    )
+  }
+
+  // SVG coordinate constants
+  const VW = 300, VH = 260
+  const GT = 25, GB = 245       // glass top / bottom y
+  const GH = GB - GT            // 220
+  const CX = 150                // center x
+  const HWT = 62, HWB = 40      // half-widths at top / bottom
+
+  const FOAM_H = 22
+  const BT = GT + FOAM_H        // beer top y = 47
+  const BH = GB - BT            // beer height = 198
+
+  function gLeft(y)  { return CX - HWT + (HWT - HWB) * (y - GT) / GH }
+  function gRight(y) { return CX + HWT - (HWT - HWB) * (y - GT) / GH }
+
+  const glassPath = `M${CX - HWT},${GT} L${CX + HWT},${GT} L${CX + HWB},${GB} Q${CX},${GB + 12} ${CX - HWB},${GB} Z`
+  const foamPath  = [
+    `M${gLeft(BT)},${BT}`,
+    `Q${CX - 22},${BT - 11} ${CX},${BT - 9}`,
+    `Q${CX + 22},${BT - 7} ${gRight(BT)},${BT}`,
+    `L${CX + HWT},${GT} L${CX - HWT},${GT} Z`,
+  ].join(' ')
+
+  // Compute layer rects from bottom to top
+  let curY = GB
+  const layerRects = [...allLayers].reverse().map(layer => {
+    const h    = Math.max((layer.cost / suggestedRetail) * BH, 1)
+    const topY = Math.max(curY - h, BT)
+    const actualH = curY - topY
+    const midY = topY + actualH / 2
+    curY = topY
+    return { ...layer, topY, h: actualH, midY }
+  }).reverse()
+
+  // Spread label Y positions to prevent overlap
+  const MIN_GAP = 13
+  const naturalYs = layerRects.map(lr => Math.min(Math.max(lr.midY, GT + 6), GB - 6))
+
+  function spreadPositions(ys) {
+    const pts = ys.map((y, i) => ({ y, i })).sort((a, b) => a.y - b.y)
+    for (let k = 1; k < pts.length; k++) {
+      if (pts[k].y - pts[k - 1].y < MIN_GAP) pts[k].y = pts[k - 1].y + MIN_GAP
+    }
+    for (let k = pts.length - 2; k >= 0; k--) {
+      if (pts[k + 1].y - pts[k].y < MIN_GAP) pts[k].y = pts[k + 1].y - MIN_GAP
+    }
+    const out = new Array(ys.length)
+    for (const { y, i } of pts) out[i] = y
+    return out
+  }
+
+  const labelYs = spreadPositions(naturalYs)
+  const LLEFT = 82    // right edge of left labels
+  const RLEFT = 220   // left edge of right labels
+
+  return (
+    <div className="border-t border-gray-100">
+      <div className="px-4 pt-3 pb-1 flex items-baseline justify-between">
+        <p className="text-xs font-bold text-navy">What's in Your Pint?</p>
+        <p className="text-[10px] text-gray-400">Retail ${suggestedRetail.toFixed(2)}</p>
+      </div>
+      <svg viewBox={`0 0 ${VW} ${VH}`} className="w-full" style={{ maxHeight: 230 }}>
+        <defs>
+          <clipPath id="pint-clip">
+            <path d={glassPath} />
+          </clipPath>
+        </defs>
+
+        {/* Glass background tint */}
+        <path d={glassPath} fill="#EFF6FF" opacity="0.4" />
+
+        {/* Beer layers — clipped to glass */}
+        <g clipPath="url(#pint-clip)">
+          {layerRects.map(lr => (
+            <rect key={lr.label} x="80" y={lr.topY} width="140" height={lr.h} fill={lr.color} opacity="0.88" />
+          ))}
+          <path d={foamPath} fill="#FFF8E7" />
+        </g>
+
+        {/* Glass outline */}
+        <path d={glassPath} fill="none" stroke="#94A3B8" strokeWidth="1.5" />
+
+        {/* Shine */}
+        <line x1={gLeft(GT) + 7} y1={GT + 8} x2={gLeft(GB) + 6} y2={GB - 12}
+          stroke="white" strokeWidth="4" opacity="0.35" clipPath="url(#pint-clip)" />
+
+        {/* Foam label */}
+        <text x={CX} y={BT - 3} textAnchor="middle" fontSize="7.5" fill="#92400E" fontWeight="500">Foam</text>
+
+        {/* Layer callout labels */}
+        {layerRects.map((lr, i) => {
+          const lY  = labelYs[i]
+          const eL  = gLeft(Math.min(Math.max(lr.midY, GT + 1), GB - 1))
+          const eR  = gRight(Math.min(Math.max(lr.midY, GT + 1), GB - 1))
+          const pct = suggestedRetail > 0 ? (lr.cost / suggestedRetail * 100).toFixed(0) : '0'
+          return (
+            <g key={lr.label}>
+              <line x1={LLEFT + 2} y1={lY} x2={eL - 3} y2={lr.midY}
+                stroke="#CBD5E1" strokeWidth="0.7" strokeDasharray="2,2" />
+              <text x={LLEFT} y={lY + 3} textAnchor="end" fontSize="8.5" fill="#374151">{lr.label}</text>
+              <line x1={eR + 3} y1={lr.midY} x2={RLEFT - 2} y2={lY}
+                stroke="#CBD5E1" strokeWidth="0.7" strokeDasharray="2,2" />
+              <text x={RLEFT} y={lY} fontSize="8.5" fill="#1A2744" fontWeight="600">${lr.cost.toFixed(3)}</text>
+              <text x={RLEFT} y={lY + 9} fontSize="7.5" fill="#6B7280">{pct}%</text>
+            </g>
+          )
+        })}
+      </svg>
+
+      {/* Color legend */}
+      <div className="px-4 pb-3">
+        <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+          {allLayers.map(l => (
+            <div key={l.label} className="flex items-center gap-1.5">
+              <div className="w-2 h-2 rounded-sm shrink-0" style={{ backgroundColor: l.color }} />
+              <span className="text-[9px] text-gray-500 leading-tight">{l.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── CostPanel ────────────────────────────────────────────────────────────────
 
 function CostPanel({
@@ -2160,6 +2365,7 @@ function CostPanel({
           </div>
         )
       )}
+      <PintGlassVisualization costs={costs} />
     </div>
   )
 }
@@ -2622,25 +2828,25 @@ function AddIngredientModal({
     ? parseFloat(selectedIng.ingredient_suppliers?.find(s => s.is_preferred)?.price_per_unit ?? selectedIng.current_price_per_unit ?? 0)
     : null
 
-  // Unit change with cost conversion for "other" mode items
+  // Unit change — converts both amount and cost per unit proportionally
   function handleUnitChange(newUnit) {
     const fromUnit = form.unit
+    const amtResult = convertAmount(form.amount, fromUnit, newUnit)
+
     if (mode === 'other' && form.price_per_unit) {
-      const result = convertCostPerUnit(form.price_per_unit, fromUnit, newUnit)
-      if (typeof result === 'object') {
-        onChange('unit', newUnit)
-        onChange('price_per_unit', result.warning ? form.price_per_unit : String(result.cost))
-        setUnitConversionWarning(result.warning)
-        setUnitConversionMsg(result.warning ? null : `✓ Cost converted from ${fromUnit} to ${newUnit}`)
-      } else {
-        onChange('unit', newUnit)
-        setUnitConversionWarning(false)
-        setUnitConversionMsg(null)
-      }
+      const costResult = convertCostPerUnit(form.price_per_unit, fromUnit, newUnit)
+      const costObj = typeof costResult === 'object' ? costResult : { cost: parseFloat(form.price_per_unit) || 0, warning: true }
+      const warn = costObj.warning || amtResult.warning
+      onChange('unit', newUnit)
+      if (!amtResult.warning) onChange('amount', String(amtResult.amount))
+      if (!costObj.warning) onChange('price_per_unit', String(costObj.cost))
+      setUnitConversionWarning(warn)
+      setUnitConversionMsg(warn ? null : `✓ Amount and cost converted: ${fromUnit} → ${newUnit}`)
     } else {
       onChange('unit', newUnit)
-      setUnitConversionWarning(false)
-      setUnitConversionMsg(null)
+      if (!amtResult.warning) onChange('amount', String(amtResult.amount))
+      setUnitConversionWarning(amtResult.warning)
+      setUnitConversionMsg(amtResult.warning ? null : `✓ Amount converted: ${fromUnit} → ${newUnit}`)
     }
   }
 
