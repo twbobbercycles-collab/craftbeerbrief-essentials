@@ -150,6 +150,7 @@ function EquipmentPageInner() {
   const [logMaintenanceData, setLogMaintenanceData] = useState(null)
   const [showAddSchedule, setShowAddSchedule] = useState(false)
   const [prefillScheduleData, setPrefillScheduleData] = useState(null)
+  const [editScheduleTarget, setEditScheduleTarget] = useState(null)
 
   useEffect(() => {
     if (!brewery?.id) return
@@ -230,6 +231,7 @@ function EquipmentPageInner() {
     setLogMaintenanceData(null)
     setShowAddSchedule(false)
     setPrefillScheduleData(null)
+    setEditScheduleTarget(null)
     loadAll()
   }
 
@@ -314,7 +316,8 @@ function EquipmentPageInner() {
           today={today}
           isReadOnly={isReadOnly}
           ReadOnlyTooltip={ReadOnlyTooltip}
-          onAddSchedule={() => { setPrefillScheduleData(null); setShowAddSchedule(true) }}
+          onAddSchedule={() => { setPrefillScheduleData(null); setEditScheduleTarget(null); setShowAddSchedule(true) }}
+          onEditSchedule={(sched) => { setEditScheduleTarget(sched); setShowAddSchedule(true) }}
           onMarkComplete={(sched) => {
             const asset = assets.find(a => a.id === sched.asset_id)
             setLogMaintenanceData({
@@ -356,6 +359,7 @@ function EquipmentPageInner() {
             setLogMaintenanceData({ asset_id: detailAsset.id, assetName: detailAsset.asset_name })
             setDetailAsset(null)
           }}
+          onEditSchedule={(sched) => { setEditScheduleTarget(sched); setDetailAsset(null); setShowAddSchedule(true) }}
         />
       )}
 
@@ -374,7 +378,8 @@ function EquipmentPageInner() {
           breweryId={brewery.id}
           assets={assets}
           prefill={prefillScheduleData}
-          onClose={() => { setShowAddSchedule(false); setPrefillScheduleData(null) }}
+          editSchedule={editScheduleTarget}
+          onClose={() => { setShowAddSchedule(false); setPrefillScheduleData(null); setEditScheduleTarget(null) }}
           onSuccess={handleModalSuccess}
         />
       )}
@@ -742,7 +747,7 @@ function MaintenanceLogTab({ assets, maintenance, isReadOnly, ReadOnlyTooltip, o
 }
 
 // ── Tab 3: Schedules & Alerts ─────────────────────────────────────────────────
-function SchedulesAlertsTab({ assets, schedules, today, isReadOnly, ReadOnlyTooltip, onAddSchedule, onMarkComplete, onDeleteSchedule }) {
+function SchedulesAlertsTab({ assets, schedules, today, isReadOnly, ReadOnlyTooltip, onAddSchedule, onEditSchedule, onMarkComplete, onDeleteSchedule }) {
   // Map asset_id → asset for quick lookups
   const assetMap = useMemo(() => {
     const m = {}
@@ -829,10 +834,14 @@ function SchedulesAlertsTab({ assets, schedules, today, isReadOnly, ReadOnlyTool
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 items-center">
                         <button onClick={() => onMarkComplete(s)}
                           className="text-xs text-amber font-medium hover:underline whitespace-nowrap">
                           Mark Complete
+                        </button>
+                        <button onClick={() => onEditSchedule(s)} title="Edit schedule"
+                          className="text-gray-400 hover:text-navy transition-colors">
+                          ✏️
                         </button>
                         <button onClick={() => onDeleteSchedule(s.id)}
                           className="text-xs text-danger hover:underline">
@@ -1156,7 +1165,7 @@ function AddAssetModal({ breweryId, editAsset, onClose, onSuccess }) {
 }
 
 // ── Modal: Asset Detail View ──────────────────────────────────────────────────
-function AssetDetailModal({ asset, maintenance, schedules, today, onClose, onEdit, onLogMaintenance }) {
+function AssetDetailModal({ asset, maintenance, schedules, today, onClose, onEdit, onLogMaintenance, onEditSchedule }) {
   const [subTab, setSubTab] = useState('overview')
 
   const nextDue = schedules.reduce((best, s) => {
@@ -1284,13 +1293,19 @@ function AssetDetailModal({ asset, maintenance, schedules, today, onClose, onEdi
                     }`}>
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-semibold text-navy">{s.maintenance_type}</span>
-                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
-                          status === 'overdue' ? 'bg-red-100 text-danger' :
-                          status === 'due_soon' ? 'bg-amber/20 text-amber-dark' :
-                          'bg-green-100 text-green-700'
-                        }`}>
-                          {status === 'overdue' ? 'Overdue' : status === 'due_soon' ? 'Due Soon' : 'On Track'}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => onEditSchedule(s)} title="Edit schedule"
+                            className="text-gray-400 hover:text-navy transition-colors text-xs">
+                            ✏️
+                          </button>
+                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
+                            status === 'overdue' ? 'bg-red-100 text-danger' :
+                            status === 'due_soon' ? 'bg-amber/20 text-amber-dark' :
+                            'bg-green-100 text-green-700'
+                          }`}>
+                            {status === 'overdue' ? 'Overdue' : status === 'due_soon' ? 'Due Soon' : 'On Track'}
+                          </span>
+                        </div>
                       </div>
                       <p className="text-gray-600 mt-1">
                         {s.frequency === 'Every X Days' && s.frequency_days ? `Every ${s.frequency_days} days` : s.frequency}
@@ -1533,9 +1548,9 @@ function LogMaintenanceModal({ breweryId, assets, prefill = {}, onClose, onSucce
 }
 
 // ── Modal: Add Maintenance Schedule ──────────────────────────────────────────
-function AddScheduleModal({ breweryId, assets, prefill = null, onClose, onSuccess }) {
+function AddScheduleModal({ breweryId, assets, prefill = null, editSchedule = null, onClose, onSuccess }) {
   const draft = useModalDraft('modal_draft_add_schedule')
-  const todayStr = new Date().toISOString().slice(0, 10)
+  const isEdit = !!editSchedule
 
   const EMPTY_FORM = {
     asset_id: prefill?.asset_id ?? '',
@@ -1549,13 +1564,26 @@ function AddScheduleModal({ breweryId, assets, prefill = null, onClose, onSucces
   }
 
   const [form, setForm] = useState(() => {
+    if (isEdit) {
+      return {
+        asset_id:             editSchedule.asset_id ?? '',
+        maintenance_type:     editSchedule.maintenance_type ?? '',
+        frequency:            editSchedule.frequency ?? 'Monthly',
+        frequency_days:       editSchedule.frequency_days != null ? String(editSchedule.frequency_days) : '',
+        last_performed_date:  editSchedule.last_performed_date ?? '',
+        next_due_date:        editSchedule.next_due_date ?? '',
+        alert_days_before:    editSchedule.alert_days_before != null ? String(editSchedule.alert_days_before) : '14',
+        notes:                editSchedule.notes ?? '',
+      }
+    }
     const saved = draft.loadDraft()
     return saved ?? EMPTY_FORM
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-  useEffect(() => { draft.saveDraft(form) }, [form])
+  // Only save draft for new schedules
+  useEffect(() => { if (!isEdit) draft.saveDraft(form) }, [form])
 
   function set(field, value) {
     setForm(prev => {
@@ -1574,7 +1602,7 @@ function AddScheduleModal({ breweryId, assets, prefill = null, onClose, onSucces
     })
   }
 
-  const isDirty = form.asset_id !== '' || form.maintenance_type !== ''
+  const isDirty = !isEdit && (form.asset_id !== '' || form.maintenance_type !== '')
 
   async function handleSave() {
     if (!form.asset_id) return setError('Please select an asset.')
@@ -1584,8 +1612,7 @@ function AddScheduleModal({ breweryId, assets, prefill = null, onClose, onSucces
     setError('')
     setSaving(true)
 
-    const { error: insertErr } = await supabase.from('equipment_maintenance_schedules').insert({
-      brewery_id:           breweryId,
+    const payload = {
       asset_id:             form.asset_id,
       maintenance_type:     form.maintenance_type,
       frequency:            form.frequency,
@@ -1593,13 +1620,19 @@ function AddScheduleModal({ breweryId, assets, prefill = null, onClose, onSucces
       last_performed_date:  form.last_performed_date || null,
       next_due_date:        form.next_due_date || null,
       alert_days_before:    parseInt(form.alert_days_before) || 14,
-      is_active:            true,
       notes:                form.notes.trim() || null,
-    })
+    }
+
+    let res
+    if (isEdit) {
+      res = await supabase.from('equipment_maintenance_schedules').update(payload).eq('id', editSchedule.id)
+    } else {
+      res = await supabase.from('equipment_maintenance_schedules').insert({ ...payload, brewery_id: breweryId, is_active: true })
+    }
 
     setSaving(false)
-    if (insertErr) return setError(insertErr.message)
-    draft.clearDraft()
+    if (res.error) return setError(res.error.message)
+    if (!isEdit) draft.clearDraft()
     onSuccess()
   }
 
@@ -1609,7 +1642,7 @@ function AddScheduleModal({ breweryId, assets, prefill = null, onClose, onSucces
     <ModalShell
       isOpen
       onClose={onClose}
-      title="Add Maintenance Schedule"
+      title={isEdit ? 'Edit Maintenance Schedule' : 'Add Maintenance Schedule'}
       isDirty={isDirty}
       draftRestored={draft.draftRestored}
       onDismissDraft={draft.dismissDraftBanner}
@@ -1688,7 +1721,7 @@ function AddScheduleModal({ breweryId, assets, prefill = null, onClose, onSucces
           </button>
           <button type="button" onClick={handleSave} disabled={saving}
             className="flex-1 bg-amber hover:bg-amber-dark text-white font-semibold py-2.5 rounded-lg text-sm transition-colors disabled:opacity-50">
-            {saving ? 'Saving…' : 'Save Schedule'}
+            {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Save Schedule'}
           </button>
         </div>
       </div>
