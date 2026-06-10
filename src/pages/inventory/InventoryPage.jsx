@@ -181,13 +181,17 @@ function InventoryPageInner() {
   const [addPartOpen,    setAddPartOpen]    = useState(false)
   const [editPartTarget, setEditPartTarget] = useState(null)
 
+  // Packaging material transactions for Transaction History tab
+  const [pkgTransactions, setPkgTransactions] = useState([])
+
   // ── Load all data ────────────────────────────────────────────────────────────
 
   const loadAll = useCallback(async () => {
     if (!brewery?.id) return
     setLoading(true)
 
-    const [ingResult, txResult, poResult] = await Promise.all([
+    // Fetch ingredient transactions, purchase orders, and packaging transactions in parallel
+    const [ingResult, txResult, poResult, pkgTxResult] = await Promise.all([
       supabase
         .from('ingredients')
         .select('*, ingredient_suppliers(*)')
@@ -195,7 +199,7 @@ function InventoryPageInner() {
         .order('category').order('name'),
       supabase
         .from('inventory_transactions')
-        .select('*, ingredient:ingredients(name,unit)')
+        .select('*, ingredient:ingredients(name,unit,category)')
         .eq('brewery_id', brewery.id)
         .order('transaction_date', { ascending: false })
         .order('created_at',       { ascending: false })
@@ -205,11 +209,19 @@ function InventoryPageInner() {
         .select('*, purchase_order_items(*)')
         .eq('brewery_id', brewery.id)
         .order('order_date', { ascending: false }),
+      supabase
+        .from('packaging_material_transactions')
+        .select('*, material:packaging_materials(name,stock_unit)')
+        .eq('brewery_id', brewery.id)
+        .order('transaction_date', { ascending: false })
+        .order('created_at',       { ascending: false })
+        .limit(200),
     ])
 
     setIngredients(ingResult.data ?? [])
     setTransactions(txResult.data ?? [])
     setPurchaseOrders(poResult.data ?? [])
+    setPkgTransactions(pkgTxResult.data ?? [])
     setLoading(false)
   }, [brewery?.id])
 
@@ -490,6 +502,8 @@ function InventoryPageInner() {
         <TransactionHistoryTab
           transactions={transactions}
           ingredients={ingredients}
+          pkgTransactions={pkgTransactions}
+          packagingMaterials={packagingMaterials}
           filterIngId={historyIngId}
           onClearFilter={() => setHistoryIngId(null)}
           onOpenAdjust={ing => setAdjustTarget(ing)}
@@ -501,6 +515,7 @@ function InventoryPageInner() {
           ingredients={ingredients}
           transactions={transactions}
           purchaseOrders={purchaseOrders}
+          packagingMaterials={packagingMaterials}
           breweryId={brewery.id}
         />
       )}
@@ -543,6 +558,7 @@ function InventoryPageInner() {
           isOpen={receiveOpen}
           purchaseOrder={receivePO}
           ingredients={ingredients}
+          packagingMaterials={packagingMaterials}
           breweryId={brewery.id}
           onClose={() => { setReceiveOpen(false); setReceivePO(null) }}
           onSaved={msg => { setReceiveOpen(false); setReceivePO(null); setReceiveSuccessMsg(msg ?? null); loadAll() }}
@@ -554,6 +570,7 @@ function InventoryPageInner() {
           isOpen={poOpen}
           purchaseOrder={poTarget}
           ingredients={ingredients}
+          packagingMaterials={packagingMaterials}
           breweryId={brewery.id}
           onClose={() => { setPoOpen(false); setPoTarget(null) }}
           onSaved={newPO => {
@@ -1466,36 +1483,74 @@ function SuppliersPanel({ ingredients, purchaseOrders, breweryId, isReadOnly }) 
 
 // ─── Tab 4: Transaction History ────────────────────────────────────────────────
 
-function TransactionHistoryTab({ transactions, ingredients, filterIngId, onClearFilter, onOpenAdjust }) {
+function TransactionHistoryTab({ transactions, ingredients, pkgTransactions, packagingMaterials, filterIngId, onClearFilter, onOpenAdjust }) {
   const [dateFrom,        setDateFrom]        = useState('')
   const [dateTo,          setDateTo]          = useState('')
   const [txTypeFilter,    setTxTypeFilter]    = useState('')
   const [ingFilter,       setIngFilter]       = useState(filterIngId ?? '')
   const [correctionIngId, setCorrectionIngId] = useState('')
+  // Type filter: 'All' | 'Ingredients' | 'Packaging Materials' | 'Parts & Supplies'
+  const [typeFilter,      setTypeFilter]      = useState('All')
 
   // Sync external filter (from History button on ingredient row)
   useEffect(() => { if (filterIngId) setIngFilter(filterIngId) }, [filterIngId])
 
+  // Merge ingredient transactions and packaging material transactions into a unified list.
+  // Each row gets a _source tag so the type filter can split them back out.
+  const allTransactions = useMemo(() => {
+    // Tag each ingredient transaction with its source type
+    const ingTxs = transactions.map(t => ({
+      ...t,
+      _source: PARTS_CATS.includes(t.ingredient?.category) ? 'part' : 'ingredient',
+      _name:   t.ingredient?.name ?? '—',
+      _unit:   t.unit,
+    }))
+    // Normalise packaging transactions into the same shape
+    const pkgTxs = (pkgTransactions ?? []).map(t => ({
+      ...t,
+      ingredient_id: null,
+      _source:       'packaging',
+      _name:         t.material?.name ?? '—',
+      _unit:         t.material?.stock_unit ?? 'units',
+      unit_cost:     null,
+      total_cost:    null,
+      reference_name: null,
+      lot_number:    null,
+    }))
+    // Sort newest-first across both sources
+    return [...ingTxs, ...pkgTxs].sort((a, b) => {
+      if (b.transaction_date !== a.transaction_date)
+        return b.transaction_date.localeCompare(a.transaction_date)
+      return new Date(b.created_at) - new Date(a.created_at)
+    })
+  }, [transactions, pkgTransactions])
+
   const filtered = useMemo(() => {
-    let list = [...transactions]
-    if (ingFilter) list = list.filter(t => t.ingredient_id === ingFilter)
+    let list = [...allTransactions]
+    // Category type filter
+    if (typeFilter === 'Ingredients')         list = list.filter(t => t._source === 'ingredient')
+    else if (typeFilter === 'Packaging Materials') list = list.filter(t => t._source === 'packaging')
+    else if (typeFilter === 'Parts & Supplies')    list = list.filter(t => t._source === 'part')
+    // Ingredient-level item filter (clears automatically when type=Packaging since no matches)
+    if (ingFilter)    list = list.filter(t => t.ingredient_id === ingFilter)
     if (txTypeFilter) list = list.filter(t => t.transaction_type === txTypeFilter)
-    if (dateFrom) list = list.filter(t => t.transaction_date >= dateFrom)
-    if (dateTo)   list = list.filter(t => t.transaction_date <= dateTo)
+    if (dateFrom)     list = list.filter(t => t.transaction_date >= dateFrom)
+    if (dateTo)       list = list.filter(t => t.transaction_date <= dateTo)
     return list
-  }, [transactions, ingFilter, txTypeFilter, dateFrom, dateTo])
+  }, [allTransactions, typeFilter, ingFilter, txTypeFilter, dateFrom, dateTo])
 
   // Export filtered transactions as CSV
   function handleExportCSV() {
     const rows = [
-      ['Date','Ingredient','Type','Quantity','Unit','Unit Cost','Total Cost','Reference','Lot #','Notes'],
+      ['Date','Item','Type','Source','Quantity','Unit','Unit Cost','Total Cost','Reference','Lot #','Notes'],
       ...filtered.map(tx => [
         tx.transaction_date,
-        tx.ingredient?.name ?? '',
+        tx._name,
         tx.transaction_type,
+        tx._source,
         tx.quantity,
-        tx.unit,
-        tx.unit_cost ?? '',
+        tx._unit,
+        tx.unit_cost  ?? '',
         tx.total_cost ?? '',
         tx.reference_name ?? '',
         tx.lot_number ?? '',
@@ -1544,6 +1599,28 @@ function TransactionHistoryTab({ transactions, ingredients, filterIngId, onClear
         </div>
       </div>
 
+      {/* Type filter pills — splits Ingredients / Packaging Materials / Parts & Supplies */}
+      <div className="flex flex-wrap gap-1">
+        {['All', 'Ingredients', 'Packaging Materials', 'Parts & Supplies'].map(f => (
+          <button
+            key={f}
+            onClick={() => {
+              setTypeFilter(f)
+              // Clear ingredient filter when switching to Packaging (no ingredient_id in those rows)
+              if (f === 'Packaging Materials') setIngFilter('')
+            }}
+            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+              typeFilter === f
+                ? 'bg-amber text-white'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            {f}
+          </button>
+        ))}
+        <span className="text-xs text-gray-400 self-center ml-2">{filtered.length} row{filtered.length !== 1 ? 's' : ''}</span>
+      </div>
+
       {/* Filter bar */}
       <div className="flex flex-wrap gap-2 items-center">
         {filterIngId && (
@@ -1552,14 +1629,17 @@ function TransactionHistoryTab({ transactions, ingredients, filterIngId, onClear
             <button onClick={() => { onClearFilter(); setIngFilter('') }} className="hover:text-amber-dark ml-1">✕</button>
           </div>
         )}
+        {/* Item filter — only relevant for Ingredients / Parts tabs */}
+        {typeFilter !== 'Packaging Materials' && (
         <select
           value={ingFilter}
           onChange={e => setIngFilter(e.target.value)}
           className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-amber"
         >
-          <option value="">All ingredients</option>
+          <option value="">All items</option>
           {ingredients.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
         </select>
+        )}
         <select
           value={txTypeFilter}
           onChange={e => setTxTypeFilter(e.target.value)}
@@ -1598,8 +1678,8 @@ function TransactionHistoryTab({ transactions, ingredients, filterIngId, onClear
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200 text-xs text-gray-500 uppercase tracking-wide">
                   <th className="text-left px-4 py-3">Date</th>
-                  <th className="text-left px-4 py-3">Ingredient</th>
-                  <th className="text-left px-4 py-3">Type</th>
+                  <th className="text-left px-4 py-3">Item</th>
+                  <th className="text-left px-4 py-3">Tx Type</th>
                   <th className="text-right px-4 py-3">Quantity</th>
                   <th className="text-right px-4 py-3 hidden sm:table-cell">Unit Cost</th>
                   <th className="text-right px-4 py-3 hidden sm:table-cell">Total</th>
@@ -1615,14 +1695,24 @@ function TransactionHistoryTab({ transactions, ingredients, filterIngId, onClear
                   return (
                     <tr key={tx.id} className="hover:bg-gray-50">
                       <td className="px-4 py-2.5 text-xs text-gray-500">{tx.transaction_date}</td>
-                      <td className="px-4 py-2.5 font-medium text-navy">{tx.ingredient?.name ?? '—'}</td>
+                      {/* Item name + source type badge */}
+                      <td className="px-4 py-2.5">
+                        <span className="font-medium text-navy">{tx._name}</span>
+                        {tx._source && tx._source !== 'ingredient' && (
+                          <span className={`ml-1.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
+                            tx._source === 'packaging' ? 'bg-navy/10 text-navy' : 'bg-amber/10 text-amber-dark'
+                          }`}>
+                            {tx._source === 'packaging' ? 'Packaging' : 'Part'}
+                          </span>
+                        )}
+                      </td>
                       <td className="px-4 py-2.5">
                         <span className={`text-xs font-medium ${typeInfo?.color ?? 'text-gray-500'}`}>
                           {typeInfo?.label ?? tx.transaction_type}
                         </span>
                       </td>
                       <td className={`px-4 py-2.5 text-right font-semibold ${qtyClass}`}>
-                        {qty >= 0 ? '+' : ''}{qty.toFixed(2)} {tx.unit}
+                        {qty >= 0 ? '+' : ''}{qty.toFixed(2)} {tx._unit}
                       </td>
                       <td className="px-4 py-2.5 text-right text-gray-500 hidden sm:table-cell">
                         {tx.unit_cost ? `$${parseFloat(tx.unit_cost).toFixed(4)}` : '—'}
@@ -2123,7 +2213,7 @@ function AdjustStockModal({ isOpen, ingredient, breweryId, onClose, onSaved }) {
 
 // ─── Modal: Receive Stock ─────────────────────────────────────────────────────
 
-function ReceiveStockModal({ isOpen, purchaseOrder, ingredients, breweryId, onClose, onSaved }) {
+function ReceiveStockModal({ isOpen, purchaseOrder, ingredients, packagingMaterials, breweryId, onClose, onSaved }) {
   const { loadDraft, saveDraft, clearDraft, draftRestored, dismissDraftBanner } =
     useModalDraft('modal_draft_inventory_receive_stock')
 
@@ -2135,7 +2225,11 @@ function ReceiveStockModal({ isOpen, purchaseOrder, ingredients, breweryId, onCl
   const [saving,       setSaving]       = useState(false)
   const [error,        setError]        = useState('')
 
-  const EMPTY_LINE = { ingredient_id: '', ingredient_name: '', quantity: '', unit: 'lb', unit_cost: '', lot_number: '', expiration_date: '' }
+  // item_type determines which table the received stock is written to
+  const EMPTY_LINE = {
+    ingredient_id: '', packaging_material_id: '', item_type: 'ingredient',
+    ingredient_name: '', quantity: '', unit: 'lb', unit_cost: '', lot_number: '', expiration_date: '',
+  }
 
   useEffect(() => {
     console.log('[ReceiveStockModal] isOpen:', isOpen, 'purchaseOrder:', purchaseOrder)
@@ -2172,17 +2266,19 @@ function ReceiveStockModal({ isOpen, purchaseOrder, ingredients, breweryId, onCl
           const qty       = parseFloat(item.quantity_ordered) || 1
           const unitCost  = storedUc > 0 ? storedUc : (parseFloat(item.total_cost) || 0) / qty
           const remaining = qty - (parseFloat(item.quantity_received) || 0)
-          console.log('[ReceiveStockModal] item:', item.ingredient_name, 'ordered:', qty, 'unitCost:', unitCost)
+          console.log('[ReceiveStockModal] item:', item.ingredient_name, 'ordered:', qty, 'unitCost:', unitCost, 'item_type:', item.item_type)
           return {
-            ingredient_id:    item.ingredient_id ?? '',
-            ingredient_name:  item.ingredient_name,
-            quantity:         String(Math.max(0, remaining)),
-            unit:             item.unit,
-            unit_cost:        String(unitCost),
-            lot_number:       item.lot_number ?? '',
-            expiration_date:  '',
-            _ordered:         qty,
-            _receivedSoFar:   parseFloat(item.quantity_received ?? 0),
+            ingredient_id:         item.ingredient_id          ?? '',
+            packaging_material_id: item.packaging_material_id  ?? '',
+            item_type:             item.item_type               ?? 'ingredient',
+            ingredient_name:       item.ingredient_name,
+            quantity:              String(Math.max(0, remaining)),
+            unit:                  item.unit,
+            unit_cost:             String(unitCost),
+            lot_number:            item.lot_number ?? '',
+            expiration_date:       '',
+            _ordered:              qty,
+            _receivedSoFar:        parseFloat(item.quantity_received ?? 0),
           }
         }))
         // Fall back to a single empty line if PO somehow has no items
@@ -2265,45 +2361,69 @@ function ReceiveStockModal({ isOpen, purchaseOrder, ingredients, breweryId, onCl
       const proratedShipping = itemsTotal > 0 ? shipping * (lineValue / itemsTotal) : 0
       const landedUnitCost   = unitCost + (qty > 0 ? proratedShipping / qty : 0)
 
-      await supabase.from('inventory_transactions').insert({
-        brewery_id:       breweryId,
-        ingredient_id:    line.ingredient_id || null,
-        transaction_type: 'received',
-        quantity:         qty,
-        unit:             line.unit,
-        unit_cost:        landedUnitCost || null,
-        total_cost:       (landedUnitCost * qty) || null,
-        lot_number:       line.lot_number || null,
-        notes:            notes || null,
-        transaction_date: deliveryDate,
-        reference_type:   purchaseOrder ? 'purchase_order' : 'manual',
-        reference_id:     purchaseOrder?.id ?? null,
-        reference_name:   supplier || null,
-      })
+      if (line.item_type === 'packaging_material' && line.packaging_material_id) {
+        // ── Packaging material receive ────────────────────────────────────────
+        // Record the stock movement in packaging_material_transactions
+        await supabase.from('packaging_material_transactions').insert({
+          brewery_id:       breweryId,
+          material_id:      line.packaging_material_id,
+          transaction_type: 'received',
+          quantity:         qty,
+          notes:            notes || null,
+          transaction_date: deliveryDate,
+          reference_type:   purchaseOrder ? 'purchase_order' : 'manual',
+          reference_id:     purchaseOrder?.id ?? null,
+        })
+        // Update the packaging material's stock quantity
+        const mat      = (packagingMaterials ?? []).find(m => m.id === line.packaging_material_id)
+        const newStock = (parseFloat(mat?.current_stock_quantity) || 0) + qty
+        await supabase.from('packaging_materials').update({
+          current_stock_quantity: newStock,
+          updated_at:             new Date().toISOString(),
+        }).eq('id', line.packaging_material_id)
 
-      if (line.ingredient_id) {
-        const ing      = ingredients.find(i => i.id === line.ingredient_id)
-        const newStock = (parseFloat(ing?.current_stock_quantity) || 0) + qty
+      } else {
+        // ── Ingredient / part receive (both in ingredients table) ─────────────
+        await supabase.from('inventory_transactions').insert({
+          brewery_id:       breweryId,
+          ingredient_id:    line.ingredient_id || null,
+          transaction_type: 'received',
+          quantity:         qty,
+          unit:             line.unit,
+          unit_cost:        landedUnitCost || null,
+          total_cost:       (landedUnitCost * qty) || null,
+          lot_number:       line.lot_number || null,
+          notes:            notes || null,
+          transaction_date: deliveryDate,
+          reference_type:   purchaseOrder ? 'purchase_order' : 'manual',
+          reference_id:     purchaseOrder?.id ?? null,
+          reference_name:   supplier || null,
+        })
 
-        // Always update ingredient with landed cost — no prompt needed
-        await supabase.from('ingredients').update({
-          current_stock_quantity:  newStock,
-          current_price_per_unit:  landedUnitCost || null,
-          last_received_date:      deliveryDate,
-          last_received_quantity:  qty,
-          last_received_price:     landedUnitCost || null,
-          lot_number:              line.lot_number || null,
-          expiration_date:         line.expiration_date || null,
-        }).eq('id', line.ingredient_id)
+        if (line.ingredient_id) {
+          const ing      = ingredients.find(i => i.id === line.ingredient_id)
+          const newStock = (parseFloat(ing?.current_stock_quantity) || 0) + qty
 
-        // Keep preferred supplier price in sync with landed cost
-        const preferred = ing?.ingredient_suppliers?.find(s => s.is_preferred)
-        if (preferred && landedUnitCost > 0) {
-          await supabase.from('ingredient_suppliers').update({
-            price_per_unit:     landedUnitCost,
-            last_ordered_date:  deliveryDate,
-            last_ordered_price: landedUnitCost,
-          }).eq('id', preferred.id)
+          // Always update ingredient with landed cost — no prompt needed
+          await supabase.from('ingredients').update({
+            current_stock_quantity:  newStock,
+            current_price_per_unit:  landedUnitCost || null,
+            last_received_date:      deliveryDate,
+            last_received_quantity:  qty,
+            last_received_price:     landedUnitCost || null,
+            lot_number:              line.lot_number || null,
+            expiration_date:         line.expiration_date || null,
+          }).eq('id', line.ingredient_id)
+
+          // Keep preferred supplier price in sync with landed cost
+          const preferred = ing?.ingredient_suppliers?.find(s => s.is_preferred)
+          if (preferred && landedUnitCost > 0) {
+            await supabase.from('ingredient_suppliers').update({
+              price_per_unit:     landedUnitCost,
+              last_ordered_date:  deliveryDate,
+              last_ordered_price: landedUnitCost,
+            }).eq('id', preferred.id)
+          }
         }
       }
     }))
@@ -2468,13 +2588,18 @@ function ReceiveStockModal({ isOpen, purchaseOrder, ingredients, breweryId, onCl
 
 // total_cost is what the brewery actually paid for the whole line (e.g. $150 for a sack of malt).
 // unit_cost is calculated automatically as total_cost / quantity_ordered.
-const EMPTY_PO_LINE = { ingredient_id: '', ingredient_name: '', quantity_ordered: '', unit: 'lb', total_cost: '', is_new: false, new_category: '' }
+// item_type: 'ingredient' | 'packaging_material' | 'part'
+const EMPTY_PO_LINE = {
+  ingredient_id: '', packaging_material_id: '', item_type: 'ingredient',
+  ingredient_name: '', quantity_ordered: '', unit: 'lb',
+  total_cost: '', is_new: false, new_category: '',
+}
 
 const EMPTY_SUPPLIER_DETAILS = {
   contact_name: '', contact_email: '', contact_phone: '', website_url: '', account_number: '',
 }
 
-function CreatePOModal({ isOpen, purchaseOrder, ingredients, breweryId, onClose, onSaved }) {
+function CreatePOModal({ isOpen, purchaseOrder, ingredients, packagingMaterials, breweryId, onClose, onSaved }) {
   const { loadDraft, saveDraft, clearDraft, draftRestored, dismissDraftBanner } =
     useModalDraft('modal_draft_inventory_create_po')
 
@@ -2490,9 +2615,11 @@ function CreatePOModal({ isOpen, purchaseOrder, ingredients, breweryId, onClose,
   const [saving,           setSaving]           = useState(false)
   const [error,            setError]            = useState('')
 
-  // Unique known suppliers derived from ingredient_suppliers nested data
+  // Known suppliers — pulled from ingredient_suppliers junction table AND flat supplier_name
+  // fields on all inventory types, so the PO autocomplete sees every supplier in the system.
   const knownSuppliers = useMemo(() => {
     const map = new Map()
+    // From ingredient_suppliers junction table
     for (const ing of ingredients) {
       for (const sup of (ing.ingredient_suppliers ?? [])) {
         if (sup.supplier_name && !map.has(sup.supplier_name)) {
@@ -2507,18 +2634,75 @@ function CreatePOModal({ isOpen, purchaseOrder, ingredients, breweryId, onClose,
         }
       }
     }
-    return [...map.values()]
-  }, [ingredients])
-
-  const ingredientsByCategory = useMemo(() => {
-    const map = new Map()
+    // From flat supplier_name fields on ingredients and packaging materials
     for (const ing of ingredients) {
-      const cat = ing.category || 'Other'
-      if (!map.has(cat)) map.set(cat, [])
-      map.get(cat).push(ing)
+      if (ing.supplier_name && !map.has(ing.supplier_name)) {
+        map.set(ing.supplier_name, {
+          supplier_name:  ing.supplier_name,
+          contact_name:   ing.supplier_contact_name ?? '',
+          contact_email:  ing.supplier_email        ?? '',
+          contact_phone:  ing.supplier_phone        ?? '',
+          website_url:    ing.supplier_website      ?? '',
+          account_number: ing.supplier_account_number ?? '',
+        })
+      }
     }
-    return [...map.entries()].map(([cat, items]) => ({ cat, items }))
-  }, [ingredients])
+    for (const mat of (packagingMaterials ?? [])) {
+      if (mat.supplier_name && !map.has(mat.supplier_name)) {
+        map.set(mat.supplier_name, {
+          supplier_name:  mat.supplier_name,
+          contact_name:   mat.supplier_contact_name ?? '',
+          contact_email:  mat.supplier_email        ?? '',
+          contact_phone:  mat.supplier_phone        ?? '',
+          website_url:    mat.supplier_website      ?? '',
+          account_number: mat.supplier_account_number ?? '',
+        })
+      }
+    }
+    return [...map.values()]
+  }, [ingredients, packagingMaterials])
+
+  // All inventory items grouped into three sections for the PO line item select:
+  //   INGREDIENTS  — brewing ingredients (not in PARTS_CATS), grouped by category
+  //   PACKAGING MATERIALS — all active packaging materials
+  //   PARTS & SUPPLIES    — items in PARTS_CATS categories
+  const allItemsGrouped = useMemo(() => {
+    const groups = []
+
+    // INGREDIENTS — one optgroup per category
+    const ingItems = ingredients.filter(i => i.is_active !== false && !PARTS_CATS.includes(i.category))
+    const catMap = new Map()
+    for (const ing of ingItems) {
+      const cat = ing.category || 'Other'
+      if (!catMap.has(cat)) catMap.set(cat, [])
+      catMap.get(cat).push(ing)
+    }
+    for (const [cat, items] of catMap) {
+      groups.push({ label: `INGREDIENTS — ${cat}`, items, isIngCat: cat })
+    }
+
+    // PACKAGING MATERIALS
+    const pkgItems = (packagingMaterials ?? []).filter(m => m.is_active !== false)
+    if (pkgItems.length > 0) {
+      groups.push({
+        label: 'PACKAGING MATERIALS',
+        items: pkgItems.map(m => ({ ...m, _type: 'packaging_material' })),
+        isIngCat: null,
+      })
+    }
+
+    // PARTS & SUPPLIES
+    const partsItems = ingredients.filter(i => i.is_active !== false && PARTS_CATS.includes(i.category))
+    if (partsItems.length > 0) {
+      groups.push({
+        label: 'PARTS & SUPPLIES',
+        items: partsItems,
+        isIngCat: null,
+      })
+    }
+
+    return groups
+  }, [ingredients, packagingMaterials])
 
   const acResults = useMemo(() => {
     if (!supplier.trim()) return knownSuppliers
@@ -2594,19 +2778,41 @@ function CreatePOModal({ isOpen, purchaseOrder, ingredients, breweryId, onClose,
     setLines(prev => prev.map((l, i) => i === idx ? { ...l, [key]: val } : l))
   }
 
+  // Handle item selection in a PO line — value is one of:
+  //   'other_<category>'  → new inline ingredient for that category
+  //   'pkg_<uuid>'        → packaging material (stored in packaging_materials table)
+  //   '<uuid>'            → ingredient or part (both stored in ingredients table)
   function handleIngSelect(idx, val) {
+    if (!val) return
+
     if (val.startsWith('other_')) {
       const cat = val.slice(6)
       setLines(prev => prev.map((l, i) => i === idx
-        ? { ...l, ingredient_id: '', ingredient_name: '', unit: 'lb', is_new: true, new_category: cat }
+        ? { ...l, ingredient_id: '', packaging_material_id: '', ingredient_name: '', unit: 'lb', is_new: true, new_category: cat, item_type: 'ingredient' }
         : l
       ))
       return
     }
+
+    // Packaging material — prefixed with 'pkg_'
+    if (val.startsWith('pkg_')) {
+      const pkgId = val.slice(4)
+      const mat = (packagingMaterials ?? []).find(m => m.id === pkgId)
+      if (mat) {
+        setLines(prev => prev.map((l, i) => i === idx
+          ? { ...l, ingredient_id: '', packaging_material_id: pkgId, ingredient_name: mat.name, unit: mat.stock_unit ?? 'units', is_new: false, new_category: '', item_type: 'packaging_material' }
+          : l
+        ))
+      }
+      return
+    }
+
+    // Ingredient or part (both in ingredients table)
     const ing = ingredients.find(i => i.id === val)
     if (ing) {
+      const itemType = PARTS_CATS.includes(ing.category) ? 'part' : 'ingredient'
       setLines(prev => prev.map((l, i) => i === idx
-        ? { ...l, ingredient_id: val, ingredient_name: ing.name, unit: ing.stock_unit ?? ing.unit ?? 'lb', is_new: false, new_category: '' }
+        ? { ...l, ingredient_id: val, packaging_material_id: '', ingredient_name: ing.name, unit: ing.stock_unit ?? ing.unit ?? 'lb', is_new: false, new_category: '', item_type: itemType }
         : l
       ))
     }
@@ -2699,17 +2905,21 @@ function CreatePOModal({ isOpen, purchaseOrder, ingredients, breweryId, onClose,
       const qty      = parseFloat(l.quantity_ordered)
       const total    = parseFloat(l.total_cost) || 0
       const unitCost = qty > 0 ? total / qty : 0
+      // Resolve display name from whichever table the item belongs to
       const name     = l.ingredient_name?.trim()
                      || ingredients.find(i => i.id === l.ingredient_id)?.name
+                     || (packagingMaterials ?? []).find(m => m.id === l.packaging_material_id)?.name
                      || ''
       return {
-        purchase_order_id: po.id,
-        brewery_id:        breweryId,
-        ingredient_id:     l.ingredient_id || null,
-        ingredient_name:   name,
-        quantity_ordered:  qty,
-        unit:              l.unit,
-        unit_cost:         unitCost,
+        purchase_order_id:     po.id,
+        brewery_id:            breweryId,
+        ingredient_id:         l.ingredient_id         || null,
+        packaging_material_id: l.packaging_material_id || null,
+        item_type:             l.item_type             || 'ingredient',
+        ingredient_name:       name,
+        quantity_ordered:      qty,
+        unit:                  l.unit,
+        unit_cost:             unitCost,
         // total_cost intentionally omitted — it is a generated column
       }
     })
@@ -2901,16 +3111,44 @@ function CreatePOModal({ isOpen, purchaseOrder, ingredients, breweryId, onClose,
                         </Field>
                       </div>
                     ) : (
-                      <Field label={idx === 0 ? 'Ingredient *' : undefined}>
-                        <select value={line.ingredient_id} onChange={e => handleIngSelect(idx, e.target.value)} className="field-input">
-                          <option value="">Select ingredient...</option>
-                          {ingredientsByCategory.map(({ cat, items }) => (
-                            <optgroup key={cat} label={cat}>
-                              {items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
-                              <option value={`other_${cat}`}>Other — new ingredient</option>
+                      <Field label={idx === 0 ? 'Item *' : undefined}>
+                        {/* Compute a compound select value: pkg materials use 'pkg_<id>' prefix */}
+                        <select
+                          value={
+                            line.packaging_material_id
+                              ? `pkg_${line.packaging_material_id}`
+                              : (line.ingredient_id || '')
+                          }
+                          onChange={e => handleIngSelect(idx, e.target.value)}
+                          className="field-input"
+                        >
+                          <option value="">Select item…</option>
+                          {allItemsGrouped.map(({ label, items, isIngCat }) => (
+                            <optgroup key={label} label={label}>
+                              {items.map(item => {
+                                // Packaging materials get a 'pkg_' prefix so we know which table they're from
+                                const val = item._type === 'packaging_material' ? `pkg_${item.id}` : item.id
+                                return <option key={val} value={val}>{item.name}</option>
+                              })}
+                              {/* "Other — new ingredient" only applies to ingredient groups */}
+                              {isIngCat && (
+                                <option value={`other_${isIngCat}`}>Other — new ingredient</option>
+                              )}
                             </optgroup>
                           ))}
                         </select>
+                        {/* Item type badge — shows which inventory type was selected */}
+                        {line.ingredient_id || line.packaging_material_id ? (
+                          <span className={`mt-0.5 inline-block text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
+                            line.item_type === 'packaging_material' ? 'bg-navy/10 text-navy' :
+                            line.item_type === 'part'               ? 'bg-amber/10 text-amber-dark' :
+                                                                      'bg-green-50 text-success'
+                          }`}>
+                            {line.item_type === 'packaging_material' ? 'Packaging' :
+                             line.item_type === 'part'               ? 'Part/Supply' :
+                                                                       'Ingredient'}
+                          </span>
+                        ) : null}
                       </Field>
                     )}
                     <Field label={idx === 0 ? 'Qty *' : undefined}>
@@ -4219,7 +4457,7 @@ function AddPartModal({ isOpen, part, breweryId, onClose, onSaved }) {
 // Distinct colors for chart lines — one per supplier, cycling if more than 8
 const CHART_COLORS = ['#F59E0B', '#1E3A5F', '#10B981', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#F97316']
 
-function SupplierIntelligenceTab({ ingredients, transactions, purchaseOrders, breweryId }) {
+function SupplierIntelligenceTab({ ingredients, transactions, purchaseOrders, breweryId, packagingMaterials }) {
 
   // ── Section 2 state ───────────────────────────────────────────────────────
   // ID of the ingredient whose price history is displayed in the chart
@@ -4256,22 +4494,38 @@ function SupplierIntelligenceTab({ ingredients, transactions, purchaseOrders, br
   const [overrideIngId, setOverrideIngId] = useState('')
   const [overrideValue, setOverrideValue] = useState('')
 
+  // ── Supplier Directory filter state ──────────────────────────────────────
+  // Category filter for the Supplier Directory: 'All' | 'Ingredients' | 'Packaging' | 'Parts'
+  const [catFilter, setCatFilter] = useState('All')
+
   // ── Active ingredient list ────────────────────────────────────────────────
   // All ingredients that have is_active = true
   const activeIngredients = useMemo(() =>
     localIngredients.filter(i => i.is_active),
   [localIngredients])
 
+  // Active packaging materials
+  const activePkgMaterials = useMemo(() =>
+    (packagingMaterials ?? []).filter(m => m.is_active !== false),
+  [packagingMaterials])
+
   // ── Section 1: Summary card computations ─────────────────────────────────
 
-  // Count of distinct supplier names across all active ingredients (active suppliers only)
+  // Count of distinct supplier names across all active items (ingredients + packaging materials)
   const uniqueSupplierCount = useMemo(() => {
     const names = new Set()
+    // From ingredient_suppliers join table
     for (const ing of activeIngredients)
       for (const s of (ing.ingredient_suppliers ?? []))
-        if (s.is_active !== false) names.add(s.supplier_name)
+        if (s.is_active !== false && s.supplier_name) names.add(s.supplier_name)
+    // From flat supplier_name on ingredients (migration 053)
+    for (const ing of activeIngredients)
+      if (ing.supplier_name) names.add(ing.supplier_name)
+    // From flat supplier_name on packaging materials (migration 053)
+    for (const m of activePkgMaterials)
+      if (m.supplier_name) names.add(m.supplier_name)
     return names.size
-  }, [activeIngredients])
+  }, [activeIngredients, activePkgMaterials])
 
   // Number of active ingredients that have 2 or more active suppliers
   const multiSupplierCount = useMemo(() =>
@@ -4289,12 +4543,58 @@ function SupplierIntelligenceTab({ ingredients, transactions, purchaseOrders, br
     return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null
   }, [activeIngredients])
 
-  // Active ingredients that have zero supplier records on file
-  const noSupplierCount = useMemo(() =>
-    activeIngredients.filter(i =>
-      (i.ingredient_suppliers ?? []).filter(s => s.is_active !== false).length === 0
-    ).length,
-  [activeIngredients])
+  // Items across all types that have no supplier on file
+  const noSupplierCount = useMemo(() => {
+    const ingNoSup = activeIngredients.filter(i =>
+      (i.ingredient_suppliers ?? []).filter(s => s.is_active !== false).length === 0 && !i.supplier_name
+    ).length
+    const pkgNoSup = activePkgMaterials.filter(m => !m.supplier_name).length
+    return ingNoSup + pkgNoSup
+  }, [activeIngredients, activePkgMaterials])
+
+  // ── Supplier Directory useMemo ────────────────────────────────────────────
+  // Groups all items (ingredients, parts, packaging) by supplier name for the directory section
+  const supplierDirectory = useMemo(() => {
+    const map = new Map()
+
+    function ensureEntry(name) {
+      if (!name) return null
+      const key = name.trim()
+      if (!map.has(key)) map.set(key, { name: key, items: [] })
+      return map.get(key)
+    }
+
+    // Ingredients & parts — from ingredient_suppliers join table
+    for (const ing of activeIngredients) {
+      const isPart = PARTS_CATS.includes(ing.category)
+      const type   = isPart ? 'part' : 'ingredient'
+      for (const s of (ing.ingredient_suppliers ?? [])) {
+        if (s.is_active === false || !s.supplier_name) continue
+        const entry = ensureEntry(s.supplier_name)
+        if (entry && !entry.items.find(x => x.id === ing.id)) {
+          entry.items.push({ id: ing.id, name: ing.name, category: ing.category, type })
+        }
+      }
+      // Also include flat supplier_name field if set
+      if (ing.supplier_name) {
+        const entry = ensureEntry(ing.supplier_name)
+        if (entry && !entry.items.find(x => x.id === ing.id)) {
+          entry.items.push({ id: ing.id, name: ing.name, category: ing.category, type })
+        }
+      }
+    }
+
+    // Packaging materials — flat supplier_name field
+    for (const m of activePkgMaterials) {
+      if (!m.supplier_name) continue
+      const entry = ensureEntry(m.supplier_name)
+      if (entry && !entry.items.find(x => x.id === m.id)) {
+        entry.items.push({ id: m.id, name: m.name, category: m.category ?? 'Packaging', type: 'packaging' })
+      }
+    }
+
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name))
+  }, [activeIngredients, activePkgMaterials])
 
   // ── Section 2: Fetch price history when user picks an ingredient ──────────
 
@@ -4535,16 +4835,16 @@ function SupplierIntelligenceTab({ ingredients, transactions, purchaseOrders, br
             <p className="text-xs text-gray-500 mt-1">Active Suppliers</p>
           </div>
 
-          {/* Total ingredients */}
+          {/* Total items across all categories */}
           <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
-            <p className="text-2xl font-bold text-navy">{activeIngredients.length}</p>
-            <p className="text-xs text-gray-500 mt-1">Ingredients Tracked</p>
+            <p className="text-2xl font-bold text-navy">{activeIngredients.length + activePkgMaterials.length}</p>
+            <p className="text-xs text-gray-500 mt-1">Items Tracked</p>
           </div>
 
           {/* Ingredients with 2+ suppliers */}
           <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
             <p className="text-2xl font-bold text-amber">{multiSupplierCount}</p>
-            <p className="text-xs text-gray-500 mt-1">Multi-Supplier Ingredients</p>
+            <p className="text-xs text-gray-500 mt-1">Multi-Supplier Items</p>
           </div>
 
           {/* Average quality rating */}
@@ -4566,19 +4866,83 @@ function SupplierIntelligenceTab({ ingredients, transactions, purchaseOrders, br
       </section>
 
       {/* ══════════════════════════════════════════════════════════════════════
-          Section 2 — Price Trend Analysis
+          Section 2 — Supplier Directory (all items grouped by supplier)
+          ══════════════════════════════════════════════════════════════════════ */}
+      <section>
+        <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Supplier Directory</h3>
+          {/* Category filter pills */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {['All', 'Ingredients', 'Packaging', 'Parts'].map(f => (
+              <button
+                key={f}
+                onClick={() => setCatFilter(f)}
+                className={`text-xs px-3 py-1 rounded-full font-medium transition-colors ${
+                  catFilter === f
+                    ? 'bg-amber text-white'
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                }`}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {supplierDirectory.length === 0 ? (
+          <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
+            <p className="text-gray-400 text-sm">No supplier information on record yet.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {supplierDirectory.map(sup => {
+              // Apply category filter to items within this supplier
+              const visibleItems = sup.items.filter(item => {
+                if (catFilter === 'All') return true
+                if (catFilter === 'Ingredients') return item.type === 'ingredient'
+                if (catFilter === 'Packaging')   return item.type === 'packaging'
+                if (catFilter === 'Parts')        return item.type === 'part'
+                return true
+              })
+              if (visibleItems.length === 0) return null
+              return (
+                <div key={sup.name} className="bg-white rounded-xl border border-gray-200 p-4">
+                  <h4 className="font-semibold text-navy mb-2">{sup.name}</h4>
+                  <div className="flex flex-wrap gap-1.5">
+                    {visibleItems.map(item => (
+                      <span
+                        key={item.id}
+                        className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${
+                          item.type === 'packaging' ? 'bg-navy/10 text-navy' :
+                          item.type === 'part'      ? 'bg-amber/10 text-amber-dark' :
+                                                      'bg-gray-100 text-gray-600'
+                        }`}
+                      >
+                        {item.name}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          Section 3 — Price Trend Analysis
           ══════════════════════════════════════════════════════════════════════ */}
       <section>
         <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Price Trend Analysis</h3>
 
-        {/* Ingredient selector — picking an ingredient triggers the Supabase fetch */}
+        {/* Item selector — picking an item triggers the Supabase fetch (ingredients + parts only) */}
         <div className="mb-4">
           <select
             value={selectedIngId}
             onChange={e => setSelectedIngId(e.target.value)}
             className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber w-full sm:w-80"
           >
-            <option value="">Select an ingredient to view price trends…</option>
+            <option value="">Select an item to view price trends…</option>
             {activeIngredients.map(i => (
               <option key={i.id} value={i.id}>{i.name}</option>
             ))}
@@ -4677,7 +5041,7 @@ function SupplierIntelligenceTab({ ingredients, transactions, purchaseOrders, br
       </section>
 
       {/* ══════════════════════════════════════════════════════════════════════
-          Section 3 — Supplier Comparison Table
+          Section 4 — Supplier Comparison Table
           ══════════════════════════════════════════════════════════════════════ */}
       <section>
         <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
@@ -4832,7 +5196,7 @@ function SupplierIntelligenceTab({ ingredients, transactions, purchaseOrders, br
       </section>
 
       {/* ══════════════════════════════════════════════════════════════════════
-          Section 4 — Supplier Performance Dashboard
+          Section 5 — Supplier Performance Dashboard
           ══════════════════════════════════════════════════════════════════════ */}
       <section>
         <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Supplier Performance</h3>
@@ -4904,18 +5268,18 @@ function SupplierIntelligenceTab({ ingredients, transactions, purchaseOrders, br
       </section>
 
       {/* ══════════════════════════════════════════════════════════════════════
-          Section 5 — Price Alerts
+          Section 6 — Price Alerts
           ══════════════════════════════════════════════════════════════════════ */}
       <section>
         <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Price Alerts</h3>
 
         <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
 
-          {/* Global threshold — one number that applies to all ingredients by default */}
+          {/* Global threshold — one number that applies to all items by default */}
           <div className="p-4">
             <p className="text-sm font-medium text-navy mb-2">Alert Threshold</p>
             <div className="flex items-center gap-3 flex-wrap">
-              <label className="text-sm text-gray-600">Notify when any ingredient price increases by more than</label>
+              <label className="text-sm text-gray-600">Notify when any item price increases by more than</label>
               <input
                 type="number"
                 min="1"
@@ -4929,9 +5293,9 @@ function SupplierIntelligenceTab({ ingredients, transactions, purchaseOrders, br
             </div>
           </div>
 
-          {/* Per-ingredient overrides — allows tighter or looser thresholds per ingredient */}
+          {/* Per-item overrides — allows tighter or looser thresholds per ingredient/part */}
           <div className="p-4 space-y-3">
-            <p className="text-sm font-medium text-navy">Per-Ingredient Overrides</p>
+            <p className="text-sm font-medium text-navy">Per-Item Overrides</p>
 
             {/* List of active overrides with a remove button */}
             {Object.entries(perIngThresholds).length > 0 ? (
@@ -4954,18 +5318,18 @@ function SupplierIntelligenceTab({ ingredients, transactions, purchaseOrders, br
                 })}
               </div>
             ) : (
-              <p className="text-xs text-gray-400">No per-ingredient overrides set.</p>
+              <p className="text-xs text-gray-400">No per-item overrides set.</p>
             )}
 
-            {/* Add override form — ingredient dropdown + threshold input */}
+            {/* Add override form — item dropdown + threshold input */}
             <div className="flex items-center gap-2 flex-wrap pt-1">
               <select
                 value={overrideIngId}
                 onChange={e => setOverrideIngId(e.target.value)}
                 className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-amber"
               >
-                <option value="">Select ingredient…</option>
-                {/* Only show ingredients that don't already have an override */}
+                <option value="">Select item…</option>
+                {/* Only show ingredients/parts that don't already have an override */}
                 {activeIngredients
                   .filter(i => !(i.id in perIngThresholds))
                   .map(i => <option key={i.id} value={i.id}>{i.name}</option>)
