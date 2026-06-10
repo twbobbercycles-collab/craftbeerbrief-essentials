@@ -22,96 +22,92 @@ import {
 
 // ─── Static data ──────────────────────────────────────────────────────────────
 
-const STYLE_SUGGESTIONS = [
-  // American Ales
-  'American Light Lager','American Lager','Cream Ale','American Wheat Beer','Blonde Ale',
-  'American Pale Ale','American Amber Ale','California Common','American Brown Ale',
-  'American Porter','American Stout','Imperial Stout','American Strong Ale',
-  'American Barleywine','Wheatwine',
-  // IPAs
-  'Session IPA','American IPA','Hazy IPA','New England IPA','West Coast IPA',
-  'Double IPA','Triple IPA','Brut IPA','Black IPA','Red IPA','Brown IPA','Rye IPA',
-  'White IPA','Belgian IPA','Milkshake IPA',
-  // British and Irish Ales
-  'Ordinary Bitter','Best Bitter','Strong Bitter','British Golden Ale','English IPA',
-  'Dark Mild','British Brown Ale','English Porter','Scottish Light','Scottish Heavy',
-  'Scottish Export','Wee Heavy','Irish Red Ale','Irish Stout','Irish Extra Stout',
-  'Sweet Stout','Oatmeal Stout','Tropical Stout','Foreign Extra Stout',
-  'British Strong Ale','Old Ale','English Barleywine','Australian Sparkling Ale',
-  // German and Czech Lagers
-  'International Pale Lager','International Amber Lager','International Dark Lager',
-  'Czech Pale Lager','Czech Premium Pale Lager','Czech Amber Lager','Czech Dark Lager',
-  'Munich Helles','Festbier','Helles Bock','German Leichtbier','Kolsch',
-  'German Exportbier','German Pils','Marzen','Rauchbier','Dunkles Bock','Vienna Lager',
-  'Altbier','Munich Dunkel','Schwarzbier','Doppelbock','Eisbock','Baltic Porter',
-  // German Wheat Beers
-  'Weissbier','Hefeweizen','Dunkles Weissbier','Weizenbock','Roggenbier',
-  'Kellerweis','Dunkelweizen',
-  // Belgian and French Ales
-  'Witbier','Belgian Pale Ale','Biere de Garde','Belgian Blond Ale','Saison',
-  'Belgian Golden Strong Ale','Trappist Single','Belgian Dubbel','Belgian Tripel',
-  'Belgian Dark Strong Ale',
-  // Sour and Wild Ales
-  'Berliner Weisse','Flanders Red Ale','Oud Bruin','Lambic','Gueuze','Fruit Lambic',
-  'Gose','Brett Beer','Mixed-Fermentation Sour Beer','Wild Specialty Beer',
-  'Smoothie Sour','Pastry Sour','Kettle Sour',
-  // Fruit and Specialty
-  'Fruit Beer','Fruit and Spice Beer','Specialty Fruit Beer',
-  'Spice Herb or Vegetable Beer','Autumn Seasonal Beer','Winter Seasonal Beer',
-  'Holiday Ale','Specialty Spice Beer',
-  // Alternative and Experimental
-  'Alternative Grain Beer','Alternative Sugar Beer','Classic Style Smoked Beer',
-  'Specialty Smoked Beer','Wood-Aged Beer','Barrel-Aged Beer',
-  'Specialty Wood-Aged Beer','Gluten-Free Beer','Non-Alcoholic Beer','Hard Seltzer',
-  'Session Beer','Nitro Beer','Pastry Stout','Milkshake Stout','Dessert Beer',
-  'Craft Lager','Experimental Beer',
-  // Historical Styles
-  'Gruit','Kellerbier','Kentucky Common','Lichtenhainer','London Brown Ale',
-  'Piwo Grodziskie','Pre-Prohibition Lager','Pre-Prohibition Porter','Sahti',
-  // Other
-  'Mixed-Style Beer','Commercial Specialty Beer','Other',
-]
-
-// Grouped BJCP categories for the <select> element
-const BJCP_GROUPS = [
-  { label: 'Category 1 Standard American Beer', options: ['1A American Light Lager','1B American Lager','1C Cream Ale','1D American Wheat Beer'] },
-  { label: 'Category 2 International Lager', options: ['2A International Pale Lager','2B International Amber Lager','2C International Dark Lager'] },
-  { label: 'Category 3 Czech Lager', options: ['3A Czech Pale Lager','3B Czech Premium Pale Lager','3C Czech Amber Lager','3D Czech Dark Lager'] },
-  { label: 'Category 4 Pale Malty European Lager', options: ['4A Munich Helles','4B Festbier','4C Helles Bock'] },
-  { label: 'Category 5 Pale Bitter European Beer', options: ['5A German Leichtbier','5B Kolsch','5C German Exportbier','5D German Pils'] },
-  { label: 'Category 6 Amber Malty European Lager', options: ['6A Marzen','6B Rauchbier','6C Dunkles Bock'] },
-  { label: 'Category 7 Amber Bitter European Beer', options: ['7A Vienna Lager','7B Altbier','7C Kellerbier'] },
-  { label: 'Category 8 Dark European Lager', options: ['8A Munich Dunkel','8B Schwarzbier'] },
-  { label: 'Category 9 Strong European Beer', options: ['9A Doppelbock','9B Eisbock','9C Baltic Porter'] },
-  { label: 'Category 10 German Wheat Beer', options: ['10A Weissbier','10B Dunkles Weissbier','10C Weizenbock','10D Roggenbier','10E Kellerweis'] },
-  { label: 'Category 11 British Bitter', options: ['11A Ordinary Bitter','11B Best Bitter','11C Strong Bitter'] },
-  { label: 'Category 12 Pale Commonwealth Beer', options: ['12A British Golden Ale','12B Australian Sparkling Ale','12C English IPA'] },
-  { label: 'Category 13 Brown British Beer', options: ['13A Dark Mild','13B British Brown Ale','13C English Porter'] },
-  { label: 'Category 14 Scottish Ale', options: ['14A Scottish Light','14B Scottish Heavy','14C Scottish Export'] },
-  { label: 'Category 15 Irish Beer', options: ['15A Irish Red Ale','15B Irish Stout','15C Irish Extra Stout'] },
-  { label: 'Category 16 Dark British Beer', options: ['16A Sweet Stout','16B Oatmeal Stout','16C Tropical Stout','16D Foreign Extra Stout'] },
-  { label: 'Category 17 Strong British Ale', options: ['17A British Strong Ale','17B Old Ale','17C Wee Heavy','17D English Barleywine'] },
-  { label: 'Category 18 Pale American Ale', options: ['18A Blonde Ale','18B American Pale Ale'] },
-  { label: 'Category 19 Amber and Brown American Beer', options: ['19A American Amber Ale','19B California Common','19C American Brown Ale'] },
-  { label: 'Category 20 American Porter and Stout', options: ['20A American Porter','20B American Stout','20C Imperial Stout'] },
-  { label: 'Category 21 IPA', options: ['21A American IPA','21B Specialty IPA','21C Hazy IPA'] },
-  { label: 'Category 22 Strong American Ale', options: ['22A Double IPA','22B American Strong Ale','22C American Barleywine','22D Wheatwine'] },
-  { label: 'Category 23 European Sour Ale', options: ['23A Berliner Weisse','23B Flanders Red Ale','23C Oud Bruin','23D Lambic','23E Gueuze','23F Fruit Lambic','23G Gose'] },
-  { label: 'Category 24 Belgian Ale', options: ['24A Witbier','24B Belgian Pale Ale','24C Biere de Garde'] },
-  { label: 'Category 25 Strong Belgian Ale', options: ['25A Belgian Blond Ale','25B Saison','25C Belgian Golden Strong Ale'] },
-  { label: 'Category 26 Trappist Ale', options: ['26A Trappist Single','26B Belgian Dubbel','26C Belgian Tripel','26D Belgian Dark Strong Ale'] },
-  { label: 'Category 27 Historical Beer', options: ['27A Historical Beer'] },
-  { label: 'Category 28 American Wild Ale', options: ['28A Brett Beer','28B Mixed-Fermentation Sour Beer','28C Wild Specialty Beer'] },
-  { label: 'Category 29 Fruit Beer', options: ['29A Fruit Beer','29B Fruit and Spice Beer','29C Specialty Fruit Beer'] },
-  { label: 'Category 30 Spiced Beer', options: ['30A Spice Herb or Vegetable Beer','30B Autumn Seasonal Beer','30C Winter Seasonal Beer','30D Specialty Spice Beer'] },
-  { label: 'Category 31 Alternative Fermentables Beer', options: ['31A Alternative Grain Beer','31B Alternative Sugar Beer'] },
-  { label: 'Category 32 Smoked Beer', options: ['32A Classic Style Smoked Beer','32B Specialty Smoked Beer'] },
-  { label: 'Category 33 Wood-Aged Beer', options: ['33A Wood-Aged Beer','33B Specialty Wood-Aged Beer'] },
-  { label: 'Category 34 Specialty Beer', options: ['34A Commercial Specialty Beer','34B Mixed-Style Beer','34C Experimental Beer'] },
+// Complete BJCP 2021 style list in numerical order.
+// Used as a <select> dropdown; 'Other / Custom' triggers a free-text input.
+const BJCP_STYLES = [
+  // Category 1: Standard American Beer
+  '1A: American Light Lager', '1B: American Lager', '1C: Cream Ale', '1D: American Wheat Beer',
+  // Category 2: International Lager
+  '2A: International Pale Lager', '2B: International Amber Lager', '2C: International Dark Lager',
+  // Category 3: Czech Lager
+  '3A: Czech Pale Lager', '3B: Czech Premium Pale Lager', '3C: Czech Amber Lager', '3D: Czech Dark Lager',
+  // Category 4: Pale Malty European Lager
+  '4A: Munich Helles', '4B: Festbier', '4C: Helles Bock',
+  // Category 5: Pale Bitter European Beer
+  '5A: German Leichtbier', '5B: Kölsch', '5C: German Helles Exportbier', '5D: German Pils',
+  // Category 6: Amber Malty European Lager
+  '6A: Märzen', '6B: Rauchbier', '6C: Dunkles Bock',
+  // Category 7: Amber Bitter European Beer
+  '7A: Vienna Lager', '7B: Altbier', '7C: Kellerbier',
+  // Category 8: Dark European Lager
+  '8A: Munich Dunkel', '8B: Schwarzbier',
+  // Category 9: Strong European Beer
+  '9A: Doppelbock', '9B: Eisbock', '9C: Baltic Porter',
+  // Category 10: German Wheat Beer
+  '10A: Weissbier', '10B: Dunkles Weissbier', '10C: Weizenbock', '10D: Köstritzer Schwarzbier',
+  // Category 11: British Bitter
+  '11A: Ordinary Bitter', '11B: Best Bitter', '11C: Strong Bitter',
+  // Category 12: Pale Commonwealth Beer
+  '12A: British Golden Ale', '12B: Australian Sparkling Ale', '12C: English IPA',
+  // Category 13: Brown British Beer
+  '13A: Dark Mild', '13B: British Brown Ale', '13C: English Porter',
+  // Category 14: Scottish Ale
+  '14A: Scottish Light', '14B: Scottish Heavy', '14C: Scottish Export',
+  // Category 15: Irish Beer
+  '15A: Irish Red Ale', '15B: Irish Stout', '15C: Irish Extra Stout',
+  // Category 16: Dark British Beer
+  '16A: Sweet Stout', '16B: Oatmeal Stout', '16C: Tropical Stout', '16D: Foreign Extra Stout',
+  // Category 17: Strong British Ale
+  '17A: British Strong Ale', '17B: Old Ale', '17C: Wee Heavy', '17D: English Barleywine',
+  // Category 18: Pale American Ale
+  '18A: Blonde Ale', '18B: American Pale Ale',
+  // Category 19: Amber and Brown American Beer
+  '19A: American Amber Ale', '19B: California Common', '19C: American Brown Ale',
+  // Category 20: American Porter and Stout
+  '20A: American Porter', '20B: American Stout', '20C: Imperial Stout',
+  // Category 21: IPA
+  '21A: American IPA', '21B: Specialty IPA: Belgian IPA', '21B: Specialty IPA: Black IPA',
+  '21B: Specialty IPA: Brown IPA', '21B: Specialty IPA: New England IPA',
+  '21B: Specialty IPA: Red IPA', '21B: Specialty IPA: Rye IPA',
+  '21B: Specialty IPA: White IPA', '21C: Hazy IPA',
+  // Category 22: Strong American Ale
+  '22A: Double IPA', '22B: American Strong Ale', '22C: American Barleywine', '22D: Wheatwine',
+  // Category 23: European Sour Ale
+  '23A: Berliner Weisse', '23B: Flanders Red Ale', '23C: Oud Bruin', '23D: Lambic',
+  '23E: Gueuze', '23F: Fruit Lambic',
+  // Category 24: Belgian Ale
+  '24A: Witbier', '24B: Belgian Pale Ale', '24C: Bière de Garde',
+  // Category 25: Strong Belgian Ale
+  '25A: Belgian Blond Ale', '25B: Saison', '25C: Belgian Golden Strong Ale',
+  // Category 26: Trappist Ale
+  '26A: Single', '26B: Dubbel', '26C: Tripel', '26D: Belgian Dark Strong Ale',
+  // Category 27: Historical Beer
+  '27A: Historical Beer: Gose', '27A: Historical Beer: Kentucky Common',
+  '27A: Historical Beer: Lichtenhainer', '27A: Historical Beer: London Brown Ale',
+  '27A: Historical Beer: Piwo Grodziskie', '27A: Historical Beer: Pre-Prohibition Lager',
+  '27A: Historical Beer: Pre-Prohibition Porter', '27A: Historical Beer: Roggenbier',
+  '27A: Historical Beer: Sahti',
+  // Category 28: American Wild Ale
+  '28A: Brett Beer', '28B: Mixed-Fermentation Sour Beer', '28C: Wild Specialty Beer',
+  // Category 29: Fruit Beer
+  '29A: Fruit Beer', '29B: Fruit and Spice Beer', '29C: Specialty Fruit Beer', '29D: Grape Ale',
+  // Category 30: Spiced Beer
+  '30A: Spice, Herb, or Vegetable Beer', '30B: Autumn Seasonal Beer',
+  '30C: Winter Seasonal Beer', '30D: Specialty Spice Beer',
+  // Category 31: Alternative Fermentables Beer
+  '31A: Alternative Grain Beer', '31B: Alternative Sugar Beer',
+  // Category 32: Smoked Beer
+  '32A: Classic Style Smoked Beer', '32B: Specialty Smoked Beer',
+  // Category 33: Wood Beer
+  '33A: Wood-Aged Beer', '33B: Specialty Wood-Aged Beer',
+  // Category 34: Specialty Beer
+  '34A: Commercial Specialty Beer', '34B: Mixed-Style Beer', '34C: Experimental Beer',
+  // Custom
+  'Other / Custom',
 ]
 
 const EMPTY_FORM = {
-  name: '', style: '', bjcp_category: '',
+  name: '', style: '', style_custom: '', bjcp_category: '',
   base_batch_size: '', base_batch_size_unit: 'barrels',
   description: '',
   target_og: '', target_fg: '', target_abv: '', target_ibu: '', target_srm: '',
@@ -254,7 +250,7 @@ export default function RecipesPage() {
       .insert({
         brewery_id: brewery.id,
         name: form.name.trim(),
-        style: form.style || null,
+        style: form.style === 'Other / Custom' ? (form.style_custom.trim() || null) : (form.style || null),
         bjcp_category: form.bjcp_category || null,
         base_batch_size: parseFloat(form.base_batch_size),
         base_batch_size_unit: form.base_batch_size_unit,
@@ -639,36 +635,25 @@ export default function RecipesPage() {
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-navy mb-1.5">Style</label>
-              <input
-                type="text"
-                list="recipe-styles"
+              <label className="block text-sm font-semibold text-navy mb-1.5">BJCP Style</label>
+              <select
                 value={form.style}
                 onChange={e => updateForm('style', e.target.value)}
-                placeholder="e.g. Hazy IPA"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber"
-              />
-              <datalist id="recipe-styles">
-                {STYLE_SUGGESTIONS.map(s => <option key={s} value={s} />)}
-              </datalist>
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber"
+              >
+                <option value="">Select style...</option>
+                {BJCP_STYLES.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              {form.style === 'Other / Custom' && (
+                <input
+                  type="text"
+                  value={form.style_custom}
+                  onChange={e => updateForm('style_custom', e.target.value)}
+                  placeholder="Enter your custom style name..."
+                  className="w-full mt-2 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber"
+                />
+              )}
             </div>
-          </div>
-
-          {/* BJCP Category */}
-          <div>
-            <label className="block text-sm font-semibold text-navy mb-1.5">BJCP Category <span className="text-gray-400 font-normal">(optional)</span></label>
-            <select
-              value={form.bjcp_category}
-              onChange={e => updateForm('bjcp_category', e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber"
-            >
-              <option value="">Select BJCP category...</option>
-              {BJCP_GROUPS.map(group => (
-                <optgroup key={group.label} label={group.label}>
-                  {group.options.map(o => <option key={o} value={o}>{o}</option>)}
-                </optgroup>
-              ))}
-            </select>
           </div>
 
           {/* Batch size */}

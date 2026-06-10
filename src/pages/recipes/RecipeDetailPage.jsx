@@ -27,6 +27,42 @@ import {
 } from './recipeUtils'
 import WaterChemistryTab from './WaterChemistryTab'
 
+// State abbreviation lookup — brewery.state is stored as a full name (e.g. "California")
+const STATE_ABBR = {
+  'Alabama': 'AL', 'Alaska': 'AK', 'Arizona': 'AZ', 'Arkansas': 'AR', 'California': 'CA',
+  'Colorado': 'CO', 'Connecticut': 'CT', 'Delaware': 'DE', 'Florida': 'FL', 'Georgia': 'GA',
+  'Hawaii': 'HI', 'Idaho': 'ID', 'Illinois': 'IL', 'Indiana': 'IN', 'Iowa': 'IA',
+  'Kansas': 'KS', 'Kentucky': 'KY', 'Louisiana': 'LA', 'Maine': 'ME', 'Maryland': 'MD',
+  'Massachusetts': 'MA', 'Michigan': 'MI', 'Minnesota': 'MN', 'Mississippi': 'MS',
+  'Missouri': 'MO', 'Montana': 'MT', 'Nebraska': 'NE', 'Nevada': 'NV',
+  'New Hampshire': 'NH', 'New Jersey': 'NJ', 'New Mexico': 'NM', 'New York': 'NY',
+  'North Carolina': 'NC', 'North Dakota': 'ND', 'Ohio': 'OH', 'Oklahoma': 'OK',
+  'Oregon': 'OR', 'Pennsylvania': 'PA', 'Rhode Island': 'RI', 'South Carolina': 'SC',
+  'South Dakota': 'SD', 'Tennessee': 'TN', 'Texas': 'TX', 'Utah': 'UT', 'Vermont': 'VT',
+  'Virginia': 'VA', 'Washington': 'WA', 'West Virginia': 'WV', 'Wisconsin': 'WI',
+  'Wyoming': 'WY', 'District of Columbia': 'DC',
+}
+
+// Base state sales tax rates by 2-letter code (state-level only — local rates vary)
+const STATE_SALES_TAX = {
+  'AL': 4.0, 'AK': 0.0, 'AZ': 5.6, 'AR': 6.5, 'CA': 7.25,
+  'CO': 2.9, 'CT': 6.35, 'DE': 0.0, 'FL': 6.0, 'GA': 4.0,
+  'HI': 4.0, 'ID': 6.0, 'IL': 6.25, 'IN': 7.0, 'IA': 6.0,
+  'KS': 6.5, 'KY': 6.0, 'LA': 4.45, 'ME': 5.5, 'MD': 6.0,
+  'MA': 6.25, 'MI': 6.0, 'MN': 6.875, 'MS': 7.0, 'MO': 4.225,
+  'MT': 0.0, 'NE': 5.5, 'NV': 6.85, 'NH': 0.0, 'NJ': 6.625,
+  'NM': 4.875, 'NY': 4.0, 'NC': 4.75, 'ND': 5.0, 'OH': 5.75,
+  'OK': 4.5, 'OR': 0.0, 'PA': 6.0, 'RI': 7.0, 'SC': 6.0,
+  'SD': 4.5, 'TN': 7.0, 'TX': 6.25, 'UT': 5.95, 'VT': 6.0,
+  'VA': 5.3, 'WA': 6.5, 'WV': 6.0, 'WI': 5.0, 'WY': 4.0, 'DC': 6.0,
+}
+
+const FEDERAL_EXCISE_TAX_RATES = {
+  SMALL_BREWER: 3.50,   // Under 2 million barrels annual production
+  STANDARD:     16.00,  // Over 2 million barrels (essentially no craft brewery)
+  THRESHOLD_BARRELS: 60000,
+}
+
 // Container type options — simplified names, synced with 016 migration constraint.
 // Default volume for unit count estimates uses the most common size per type.
 const CONTAINER_TYPES = [
@@ -99,6 +135,7 @@ export default function RecipeDetailPage() {
   const [fixedOverheadPct,       setFixedOverheadPct]           = useState('15')
   const [marginPct,              setMarginPct]              = useState('65')
   const [taxRate,                setTaxRate]                = useState('0')
+  const [exciseTaxRatePerBbl,    setExciseTaxRatePerBbl]    = useState(3.50)
 
   // Inline name editing
   const [editingName, setEditingName]   = useState(false)
@@ -219,12 +256,32 @@ export default function RecipeDetailPage() {
     setFixedOverheadPct(String(r.fixed_overhead_percentage ?? 15))
     setMarginPct(String(r.target_margin_percentage ?? 65))
     setTaxRate(String(r.tax_rate ?? 0))
+    setExciseTaxRatePerBbl(r.excise_tax_rate_per_bbl ?? 3.50)
     setLines(linesResult.data ?? [])
     setLibrary(libResult.data ?? [])
     setLoading(false)
   }, [id, brewery?.id])
 
   useEffect(() => { loadAll() }, [loadAll])
+
+  // Auto-populate sales tax from brewery state (only if not yet set on this recipe)
+  useEffect(() => {
+    if (brewery?.state && (taxRate === '0' || taxRate === '')) {
+      const code = STATE_ABBR[brewery.state]
+      const stateTax = code !== undefined ? STATE_SALES_TAX[code] : undefined
+      if (stateTax !== undefined) setTaxRate(String(stateTax))
+    }
+  }, [brewery?.state]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-populate excise tax rate from brewery annual production estimate
+  useEffect(() => {
+    if (brewery?.annual_production_estimate) {
+      const rate = brewery.annual_production_estimate <= 2000000
+        ? FEDERAL_EXCISE_TAX_RATES.SMALL_BREWER
+        : FEDERAL_EXCISE_TAX_RATES.STANDARD
+      setExciseTaxRatePerBbl(rate)
+    }
+  }, [brewery?.annual_production_estimate]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Cost calculations (memoized — recomputes only when inputs change) ─────────
 
@@ -285,9 +342,16 @@ export default function RecipeDetailPage() {
 
     const costPerBarrel   = calculateCostPerBarrel(breakdown.totalCost, batchBarrels)
     const costPerPint     = calculateCostPerPint(costPerBarrel)
-    const suggestedRetail = calculateSuggestedRetail(costPerPint, parseFloat(marginPct) || 65)
+
+    // Federal excise tax — $3.50/bbl small brewer rate, applied per pint
+    const exciseTaxBatchTotal = batchBarrels * (parseFloat(exciseTaxRatePerBbl) || 3.50)
+    const totalPints = batchBarrels * 124 // as specified: 124 pints per barrel for this calculation
+    const exciseTaxPerPint = totalPints > 0 ? exciseTaxBatchTotal / totalPints : 0
+    const trueCostPerPint = costPerPint + exciseTaxPerPint
+
+    const suggestedRetail = calculateSuggestedRetail(trueCostPerPint, parseFloat(marginPct) || 65)
     const taxInclusivePrice = calculateTaxInclusivePrice(suggestedRetail, parseFloat(taxRate) || 0)
-    const grossMargin     = calculateGrossMargin(suggestedRetail, costPerPint)
+    const grossMargin     = calculateGrossMargin(suggestedRetail, trueCostPerPint)
 
     // Total units produced across all splits (or single container)
     const unitsProduced = packagingSplits.length > 0
@@ -321,7 +385,8 @@ export default function RecipeDetailPage() {
 
     return {
       ...breakdown, utilitiesBreakdown,
-      costPerBarrel, costPerPint, suggestedRetail, taxInclusivePrice,
+      costPerBarrel, costPerPint, exciseTaxBatchTotal, exciseTaxPerPint, trueCostPerPint,
+      suggestedRetail, taxInclusivePrice,
       grossMargin, batchBarrels, unitsProduced, lineCosts, splitOutputs,
     }
   }, [
@@ -330,7 +395,7 @@ export default function RecipeDetailPage() {
     packagingContainerType, packagingCostPerUnit, labelCostPerUnit, carrierCostPerUnit, packagingYieldPct,
     brewHours, laborRatePerHour, utilitiesCostPerBarrel, cleaningCostPerBatch,
     waterCostPerBarrel, wastewaterCostPerBarrel, fixedOverheadPct,
-    marginPct, taxRate,
+    marginPct, taxRate, exciseTaxRatePerBbl,
   ])
 
   // ── Recipe name inline save ───────────────────────────────────────────────────
@@ -361,6 +426,7 @@ export default function RecipeDetailPage() {
       fixedOverheadPct:        setFixedOverheadPct,
       marginPct:              setMarginPct,
       taxRate:                setTaxRate,
+      exciseTaxRatePerBbl:    setExciseTaxRatePerBbl,
     }
     setters[field]?.(value)
   }
@@ -385,6 +451,7 @@ export default function RecipeDetailPage() {
       fixed_overhead_percentage:  safeParse(fixedOverheadPct,            15),
       target_margin_percentage:   safeParse(marginPct,                   65),
       tax_rate:                   safeParse(taxRate,                     0),
+      excise_tax_rate_per_bbl:    parseFloat(exciseTaxRatePerBbl) || 3.50,
     }).eq('id', id)
     setAutoSaveStatus(saveErr ? 'error' : 'saved')
   }
@@ -613,11 +680,13 @@ export default function RecipeDetailPage() {
       ['Direct Costs',              formatDollars(costs.directCosts)],
       ['Fixed Overhead',     formatDollars(costs.overhead)],
       ['Total Production Cost', formatDollars(costs.totalCost)],
-      ['Cost per Barrel',    formatDollars(costs.costPerBarrel)],
-      ['Cost per Pint',      formatDollars(costs.costPerPint)],
-      ['Suggested Retail (pre-tax)',   formatDollars(costs.suggestedRetail)],
-      ['Suggested Retail (tax-incl.)', formatDollars(costs.taxInclusivePrice)],
-      ['Gross Margin',       formatPct(costs.grossMargin?.percentage)],
+      ['Cost per Barrel',                formatDollars(costs.costPerBarrel)],
+      ['Production Cost per Pint',       formatDollars(costs.costPerPint)],
+      ['Federal Excise Tax per Pint',    formatDollars(costs.exciseTaxPerPint)],
+      ['True Cost per Pint',             formatDollars(costs.trueCostPerPint)],
+      ['Suggested Retail (pre-tax)',     formatDollars(costs.suggestedRetail)],
+      ['Suggested Retail (tax-incl.)',   formatDollars(costs.taxInclusivePrice)],
+      ['Gross Margin',                   formatPct(costs.grossMargin?.percentage)],
     ]
 
     const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n')
@@ -1142,6 +1211,8 @@ export default function RecipeDetailPage() {
             fixedOverheadPct={fixedOverheadPct}
             marginPct={marginPct}
             taxRate={taxRate}
+            exciseTaxRatePerBbl={exciseTaxRatePerBbl}
+            brewery={brewery}
             onChange={handleCostFieldChange}
             onBlur={saveCostSettings}
           />
@@ -1187,6 +1258,8 @@ export default function RecipeDetailPage() {
                 fixedOverheadPct={fixedOverheadPct}
                 marginPct={marginPct}
                 taxRate={taxRate}
+                exciseTaxRatePerBbl={exciseTaxRatePerBbl}
+                brewery={brewery}
                 onChange={handleCostFieldChange}
                 onBlur={saveCostSettings}
               />
@@ -1685,7 +1758,7 @@ function CostPanel({
   packagingContainerType, packagingCostPerUnit, labelCostPerUnit, carrierCostPerUnit, packagingYieldPct,
   brewHours, laborRatePerHour,
   utilitiesCostPerBarrel, cleaningCostPerBatch, waterCostPerBarrel, wastewaterCostPerBarrel,
-  fixedOverheadPct, marginPct, taxRate,
+  fixedOverheadPct, marginPct, taxRate, exciseTaxRatePerBbl, brewery,
   onChange, onBlur,
 }) {
   const [packagingOpen,  setPackagingOpen]  = useState(true)
@@ -1803,8 +1876,59 @@ function CostPanel({
         <CostRow label="Total production cost" value={costs.totalCost} bold />
         <div className="border-t border-gray-100 pt-1">
           <CostRow label="Cost per barrel" value={costs.costPerBarrel} />
-          <CostRow label="Cost per pint"   value={costs.costPerPint} bold />
+          <CostRow label="Production cost per pint" value={costs.costPerPint} />
+          <div className="flex justify-between gap-2 text-xs text-amber font-medium">
+            <span>+ Federal excise tax/pint</span>
+            <span>+${(costs.exciseTaxPerPint ?? 0).toFixed(4)}</span>
+          </div>
+          <CostRow label="True cost per pint" value={costs.trueCostPerPint} bold />
         </div>
+      </div>
+
+      {/* ── Federal Excise Tax ── */}
+      <div className="mx-3 my-2 bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs">
+        <div className="flex items-center justify-between mb-2">
+          <span className="font-semibold text-navy text-xs">Federal Excise Tax</span>
+          <span className="text-gray-500 text-[10px]">
+            {brewery?.annual_production_estimate
+              ? (brewery.annual_production_estimate <= FEDERAL_EXCISE_TAX_RATES.THRESHOLD_BARRELS ? 'Small Brewer Rate' : 'Standard Rate')
+              : 'Set in TTB Tracker'}
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <div>
+            <label className="text-gray-600 block mb-0.5">Rate per barrel ($)</label>
+            <input
+              type="number" step="0.01" min="0"
+              value={exciseTaxRatePerBbl}
+              onChange={e => onChange('exciseTaxRatePerBbl', parseFloat(e.target.value) || 0)}
+              onBlur={onBlur}
+              className="w-full border border-amber-200 rounded px-1.5 py-1 text-right focus:outline-none focus:ring-1 focus:ring-amber bg-white"
+            />
+          </div>
+          <div>
+            <label className="text-gray-600 block mb-0.5">Batch size</label>
+            <p className="text-sm font-medium text-navy mt-1">{(batchBarrels || 0).toFixed(2)} bbl</p>
+          </div>
+        </div>
+        <div className="border-t border-amber-200 pt-2 grid grid-cols-2 gap-2">
+          <div>
+            <p className="text-gray-500">Batch total</p>
+            <p className="font-bold text-amber-700">${(costs.exciseTaxBatchTotal ?? 0).toFixed(2)}</p>
+          </div>
+          <div>
+            <p className="text-gray-500">Per pint</p>
+            <p className="font-bold text-amber-700">${(costs.exciseTaxPerPint ?? 0).toFixed(4)}</p>
+          </div>
+        </div>
+        {!brewery?.annual_production_estimate && (
+          <p className="text-amber-700 mt-2">
+            → <a href="/ttb" className="underline">Set annual production in TTB Tracker</a> to auto-set your rate.
+          </p>
+        )}
+        <p className="text-gray-400 mt-2 leading-tight">
+          Federal excise tax is owed when beer leaves your brewery for sale. Small brewers under 2M bbl annual production pay $3.50/bbl on the first 60,000 bbl removed per year.
+        </p>
       </div>
 
       {/* ── Pricing ── */}
@@ -1823,14 +1947,25 @@ function CostPanel({
           <span className="text-gray-500">Suggested retail</span>
           <span className="font-semibold text-navy">{formatDollars(costs.suggestedRetail)}/pint</span>
         </div>
-        <div className="flex items-center justify-between gap-2">
-          <label className="text-gray-600">Tax rate</label>
-          <div className="flex items-center gap-1">
-            <input type="number" min="0" max="30" step="0.1" value={taxRate}
-              onChange={e => onChange('taxRate', e.target.value)} onBlur={onBlur}
-              className="w-14 border border-gray-200 rounded px-1.5 py-1 text-right focus:outline-none focus:ring-1 focus:ring-amber" />
-            <span className="text-gray-400">%</span>
+        <div className="space-y-1">
+          <div className="flex items-center justify-between gap-2">
+            <label className="text-gray-600">Sales Tax %</label>
+            <div className="flex items-center gap-1">
+              <input type="number" min="0" max="30" step="0.1" value={taxRate}
+                onChange={e => onChange('taxRate', e.target.value)} onBlur={onBlur}
+                className="w-14 border border-gray-200 rounded px-1.5 py-1 text-right focus:outline-none focus:ring-1 focus:ring-amber" />
+              <span className="text-gray-400">%</span>
+            </div>
           </div>
+          {brewery?.state && (() => {
+            const code = STATE_ABBR[brewery.state]
+            const rate = code !== undefined ? STATE_SALES_TAX[code] : undefined
+            return rate !== undefined ? (
+              <p className="text-[10px] text-gray-400 leading-tight">
+                Pre-populated with {brewery.state} base state rate ({rate}%). Adjust for local city/county taxes. Applied to suggested retail for customer display only.
+              </p>
+            ) : null
+          })()}
         </div>
         <div className="flex justify-between">
           <span className="text-gray-500">Tax-inclusive retail</span>

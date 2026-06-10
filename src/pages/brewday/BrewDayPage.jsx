@@ -56,6 +56,54 @@ const MASH_BADGE_STYLES = {
 // localStorage key prefix for filter preferences
 const LS_KEY = 'brewday_filters'
 
+// Complete BJCP 2021 style list in numerical order — shared with Recipes module
+const BJCP_STYLES = [
+  '1A: American Light Lager', '1B: American Lager', '1C: Cream Ale', '1D: American Wheat Beer',
+  '2A: International Pale Lager', '2B: International Amber Lager', '2C: International Dark Lager',
+  '3A: Czech Pale Lager', '3B: Czech Premium Pale Lager', '3C: Czech Amber Lager', '3D: Czech Dark Lager',
+  '4A: Munich Helles', '4B: Festbier', '4C: Helles Bock',
+  '5A: German Leichtbier', '5B: Kölsch', '5C: German Helles Exportbier', '5D: German Pils',
+  '6A: Märzen', '6B: Rauchbier', '6C: Dunkles Bock',
+  '7A: Vienna Lager', '7B: Altbier', '7C: Kellerbier',
+  '8A: Munich Dunkel', '8B: Schwarzbier',
+  '9A: Doppelbock', '9B: Eisbock', '9C: Baltic Porter',
+  '10A: Weissbier', '10B: Dunkles Weissbier', '10C: Weizenbock', '10D: Köstritzer Schwarzbier',
+  '11A: Ordinary Bitter', '11B: Best Bitter', '11C: Strong Bitter',
+  '12A: British Golden Ale', '12B: Australian Sparkling Ale', '12C: English IPA',
+  '13A: Dark Mild', '13B: British Brown Ale', '13C: English Porter',
+  '14A: Scottish Light', '14B: Scottish Heavy', '14C: Scottish Export',
+  '15A: Irish Red Ale', '15B: Irish Stout', '15C: Irish Extra Stout',
+  '16A: Sweet Stout', '16B: Oatmeal Stout', '16C: Tropical Stout', '16D: Foreign Extra Stout',
+  '17A: British Strong Ale', '17B: Old Ale', '17C: Wee Heavy', '17D: English Barleywine',
+  '18A: Blonde Ale', '18B: American Pale Ale',
+  '19A: American Amber Ale', '19B: California Common', '19C: American Brown Ale',
+  '20A: American Porter', '20B: American Stout', '20C: Imperial Stout',
+  '21A: American IPA', '21B: Specialty IPA: Belgian IPA', '21B: Specialty IPA: Black IPA',
+  '21B: Specialty IPA: Brown IPA', '21B: Specialty IPA: New England IPA',
+  '21B: Specialty IPA: Red IPA', '21B: Specialty IPA: Rye IPA',
+  '21B: Specialty IPA: White IPA', '21C: Hazy IPA',
+  '22A: Double IPA', '22B: American Strong Ale', '22C: American Barleywine', '22D: Wheatwine',
+  '23A: Berliner Weisse', '23B: Flanders Red Ale', '23C: Oud Bruin', '23D: Lambic',
+  '23E: Gueuze', '23F: Fruit Lambic',
+  '24A: Witbier', '24B: Belgian Pale Ale', '24C: Bière de Garde',
+  '25A: Belgian Blond Ale', '25B: Saison', '25C: Belgian Golden Strong Ale',
+  '26A: Single', '26B: Dubbel', '26C: Tripel', '26D: Belgian Dark Strong Ale',
+  '27A: Historical Beer: Gose', '27A: Historical Beer: Kentucky Common',
+  '27A: Historical Beer: Lichtenhainer', '27A: Historical Beer: London Brown Ale',
+  '27A: Historical Beer: Piwo Grodziskie', '27A: Historical Beer: Pre-Prohibition Lager',
+  '27A: Historical Beer: Pre-Prohibition Porter', '27A: Historical Beer: Roggenbier',
+  '27A: Historical Beer: Sahti',
+  '28A: Brett Beer', '28B: Mixed-Fermentation Sour Beer', '28C: Wild Specialty Beer',
+  '29A: Fruit Beer', '29B: Fruit and Spice Beer', '29C: Specialty Fruit Beer', '29D: Grape Ale',
+  '30A: Spice, Herb, or Vegetable Beer', '30B: Autumn Seasonal Beer',
+  '30C: Winter Seasonal Beer', '30D: Specialty Spice Beer',
+  '31A: Alternative Grain Beer', '31B: Alternative Sugar Beer',
+  '32A: Classic Style Smoked Beer', '32B: Specialty Smoked Beer',
+  '33A: Wood-Aged Beer', '33B: Specialty Wood-Aged Beer',
+  '34A: Commercial Specialty Beer', '34B: Mixed-Style Beer', '34C: Experimental Beer',
+  'Other / Custom',
+]
+
 // Empty form for the Schedule a Brew modal
 const EMPTY_FORM = {
   batch_number: '',
@@ -65,6 +113,7 @@ const EMPTY_FORM = {
   recipe_id: '',
   recipe_name: '',
   beer_style: '',
+  beer_style_custom: '',
   planned_batch_size: '',
   planned_batch_unit: 'barrels',
   brewer_name: '',
@@ -184,11 +233,14 @@ export default function BrewDayPage() {
     setRecipeWarning('')
     const rec = recipes.find(r => r.id === recipeId)
     if (!rec) { updateForm('recipe_id', ''); return }
+    const recStyle = rec.style ?? ''
+    const styleIsKnown = BJCP_STYLES.includes(recStyle)
     const next = {
       ...form,
-      recipe_id:   rec.id,
-      recipe_name: rec.name,
-      beer_style:  rec.style ?? '',
+      recipe_id:         rec.id,
+      recipe_name:       rec.name,
+      beer_style:        styleIsKnown ? recStyle : (recStyle ? 'Other / Custom' : ''),
+      beer_style_custom: styleIsKnown ? '' : recStyle,
       planned_batch_size: String(rec.base_batch_size ?? ''),
       planned_batch_unit: rec.base_batch_size_unit ?? 'barrels',
       target_og:   rec.target_og ? String(rec.target_og) : '',
@@ -256,7 +308,7 @@ export default function BrewDayPage() {
       batch_number:               form.batch_number.trim(),
       recipe_id:                  form.recipe_id || null,
       recipe_name:                form.recipe_name || null,
-      beer_style:                 form.beer_style || null,
+      beer_style:                 form.beer_style === 'Other / Custom' ? (form.beer_style_custom.trim() || null) : (form.beer_style || null),
       status:                     'scheduled',
       brew_date:                  form.brew_date,
       brew_start_time:            form.brew_start_time || null,
@@ -551,14 +603,24 @@ export default function BrewDayPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Style</label>
-                  <input
-                    type="text"
+                  <label className="block text-xs text-gray-500 mb-1">BJCP Style</label>
+                  <select
                     value={form.beer_style}
                     onChange={e => updateForm('beer_style', e.target.value)}
-                    placeholder="e.g. Hazy IPA"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber"
-                  />
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber"
+                  >
+                    <option value="">Select style...</option>
+                    {BJCP_STYLES.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                  {form.beer_style === 'Other / Custom' && (
+                    <input
+                      type="text"
+                      value={form.beer_style_custom}
+                      onChange={e => updateForm('beer_style_custom', e.target.value)}
+                      placeholder="Enter your custom style name..."
+                      className="w-full mt-2 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber"
+                    />
+                  )}
                 </div>
               </div>
             )}
