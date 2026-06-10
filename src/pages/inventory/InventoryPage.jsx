@@ -4627,24 +4627,30 @@ function SupplierIntelligenceTab({ ingredients, transactions, purchaseOrders, br
     (packagingMaterials ?? []).filter(m => m.is_active !== false),
   [packagingMaterials])
 
-  // Items available in the price trend dropdown — filtered by the active Supplier Directory catFilter
+  // Items available in the price trend dropdown — filtered by the active Supplier Directory catFilter.
+  // Uses the raw `ingredients` prop (is_active !== false) so parts are not silently dropped if
+  // is_active was stored as null rather than explicit true.
   const trendItems = useMemo(() => {
+    console.log('Trend items for Parts:', ingredients.filter(i => PARTS_CATS.includes(i.category)))
+    const activeParts = ingredients.filter(i => i.is_active !== false && PARTS_CATS.includes(i.category))
+    const activeIngs  = ingredients.filter(i => i.is_active !== false && !PARTS_CATS.includes(i.category))
+
     if (catFilter === 'Packaging') {
       return activePkgMaterials.map(m => ({ ...m, _source: 'packaging' }))
     }
     if (catFilter === 'Parts') {
-      return activeIngredients.filter(i => PARTS_CATS.includes(i.category)).map(i => ({ ...i, _source: 'part' }))
+      return activeParts.map(i => ({ ...i, _source: 'part' }))
     }
     if (catFilter === 'Ingredients') {
-      return activeIngredients.filter(i => !PARTS_CATS.includes(i.category)).map(i => ({ ...i, _source: 'ingredient' }))
+      return activeIngs.map(i => ({ ...i, _source: 'ingredient' }))
     }
-    // All — ingredients first, then packaging, then parts
+    // 'All' or any other value — combine all three sources
     return [
-      ...activeIngredients.filter(i => !PARTS_CATS.includes(i.category)).map(i => ({ ...i, _source: 'ingredient' })),
+      ...activeIngs.map(i => ({ ...i, _source: 'ingredient' })),
       ...activePkgMaterials.map(m => ({ ...m, _source: 'packaging' })),
-      ...activeIngredients.filter(i => PARTS_CATS.includes(i.category)).map(i => ({ ...i, _source: 'part' })),
+      ...activeParts.map(i => ({ ...i, _source: 'part' })),
     ]
-  }, [catFilter, activeIngredients, activePkgMaterials])
+  }, [catFilter, ingredients, activePkgMaterials])
 
   // Clear selected item whenever the category filter changes to avoid stale cross-category selection
   useEffect(() => { setSelectedIngId('') }, [catFilter])
@@ -5083,7 +5089,7 @@ function SupplierIntelligenceTab({ ingredients, transactions, purchaseOrders, br
             className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber w-full sm:w-80"
           >
             <option value="">Select an item to view price trends…</option>
-            {catFilter === 'All' ? (
+            {(!catFilter || catFilter === 'All') ? (
               <>
                 {/* Group into three sections when showing all */}
                 {trendItems.filter(i => i._source === 'ingredient').length > 0 && (
