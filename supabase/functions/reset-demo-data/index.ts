@@ -347,11 +347,11 @@ Deno.serve(async (req) => {
 
     // ── Recipes (4 + version 2 of Hazy IPA) ──────────────────────────────────
     const { error: recErr } = await svc.from('recipes').insert([
-      { id: ids.recipeHazy,     brewery_id: b, name: 'Adaptive Hazy IPA', style: '21C: Hazy IPA',          base_batch_size: 15, base_batch_size_unit: 'barrels', target_og: 1.065, target_fg: 1.013, target_abv: 6.8, target_ibu: 40, target_margin_percentage: 65, version_number: 1, is_current_version: false },
-      { id: ids.recipeHazyV2,   brewery_id: b, name: 'Adaptive Hazy IPA', style: '21C: Hazy IPA',          base_batch_size: 15, base_batch_size_unit: 'barrels', target_og: 1.065, target_fg: 1.013, target_abv: 6.8, target_ibu: 40, target_margin_percentage: 65, version_number: 2, is_current_version: true,  parent_recipe_id: ids.recipeHazy, version_notes: 'Increased dry hop rate — added Mosaic alongside Citra for more tropical complexity. Switched to WY1318 London Ale III for juicier ester profile.' },
-      { id: ids.recipePivot,    brewery_id: b, name: 'Pivot Pale Ale',    style: '18B: American Pale Ale', base_batch_size: 15, base_batch_size_unit: 'barrels', target_og: 1.052, target_fg: 1.010, target_abv: 5.5, target_ibu: 35, target_margin_percentage: 60, version_number: 1, is_current_version: true },
-      { id: ids.recipeStout,    brewery_id: b, name: 'Margin Stout',      style: '20B: American Stout',    base_batch_size: 10, base_batch_size_unit: 'barrels', target_og: 1.072, target_fg: 1.016, target_abv: 7.3, target_ibu: 38, target_margin_percentage: 62, version_number: 1, is_current_version: true },
-      { id: ids.recipeBaseline, brewery_id: b, name: 'Baseline Lager',    style: '1B: American Lager',     base_batch_size: 20, base_batch_size_unit: 'barrels', target_og: 1.048, target_fg: 1.008, target_abv: 5.2, target_ibu: 18, target_margin_percentage: 55, version_number: 1, is_current_version: true },
+      { id: ids.recipeHazy,     brewery_id: b, name: 'Adaptive Hazy IPA', style: '21C: Hazy IPA',          base_batch_size: 15, base_batch_size_unit: 'barrels', target_og: 1.065, target_fg: 1.013, target_abv: 6.8, target_ibu: 40, target_margin_percentage: 65, version: 1, is_current_version: false },
+      { id: ids.recipeHazyV2,   brewery_id: b, name: 'Adaptive Hazy IPA', style: '21C: Hazy IPA',          base_batch_size: 15, base_batch_size_unit: 'barrels', target_og: 1.065, target_fg: 1.013, target_abv: 6.8, target_ibu: 40, target_margin_percentage: 65, version: 2, is_current_version: true,  parent_recipe_id: ids.recipeHazy, version_notes: 'Increased dry hop rate — added Mosaic alongside Citra for more tropical complexity. Switched to WY1318 London Ale III for juicier ester profile.' },
+      { id: ids.recipePivot,    brewery_id: b, name: 'Pivot Pale Ale',    style: '18B: American Pale Ale', base_batch_size: 15, base_batch_size_unit: 'barrels', target_og: 1.052, target_fg: 1.010, target_abv: 5.5, target_ibu: 35, target_margin_percentage: 60, version: 1, is_current_version: true },
+      { id: ids.recipeStout,    brewery_id: b, name: 'Margin Stout',      style: '20B: American Stout',    base_batch_size: 10, base_batch_size_unit: 'barrels', target_og: 1.072, target_fg: 1.016, target_abv: 7.3, target_ibu: 38, target_margin_percentage: 62, version: 1, is_current_version: true },
+      { id: ids.recipeBaseline, brewery_id: b, name: 'Baseline Lager',    style: '1B: American Lager',     base_batch_size: 20, base_batch_size_unit: 'barrels', target_og: 1.048, target_fg: 1.008, target_abv: 5.2, target_ibu: 18, target_margin_percentage: 55, version: 1, is_current_version: true },
     ])
     check(recErr, 'insert recipes')
 
@@ -360,49 +360,49 @@ Deno.serve(async (req) => {
 
       // ── ADAPTIVE HAZY IPA V2 (15 bbl) ────────────────────────────────────
       // Grain bill: 65% Pale 2-Row, 20% Flaked Oats, 10% White Wheat, 5% Carapils
-      { brewery_id: b, recipe_id: ids.recipeHazyV2, ingredient_id: ids.ingPale,    ingredient_name: 'Pale Malt 2-Row',      category: 'Malt/Grain', amount: 930,  unit: 'lb', cost_per_unit: 0.65, addition_type: 'Mash',        addition_time: null },
-      { brewery_id: b, recipe_id: ids.recipeHazyV2, ingredient_id: ids.ingOats,    ingredient_name: 'Flaked Oats',          category: 'Adjunct',    amount: 285,  unit: 'lb', cost_per_unit: 0.70, addition_type: 'Mash',        addition_time: null },
-      { brewery_id: b, recipe_id: ids.recipeHazyV2, ingredient_id: ids.ingMunich,  ingredient_name: 'White Wheat Malt',     category: 'Malt/Grain', amount: 142,  unit: 'lb', cost_per_unit: 0.75, addition_type: 'Mash',        addition_time: null },
-      { brewery_id: b, recipe_id: ids.recipeHazyV2, ingredient_id: ids.ingCrystal, ingredient_name: 'Carapils',             category: 'Malt/Grain', amount: 71,   unit: 'lb', cost_per_unit: 0.75, addition_type: 'Mash',        addition_time: null },
-      { brewery_id: b, recipe_id: ids.recipeHazyV2, ingredient_id: ids.ingCitra,   ingredient_name: 'Citra Hops',           category: 'Hops',       amount: 37.5, unit: 'lb', cost_per_unit: 6.00, addition_type: 'Whirlpool',   addition_time: '0' },
-      { brewery_id: b, recipe_id: ids.recipeHazyV2, ingredient_id: ids.ingMosaic,  ingredient_name: 'Mosaic Hops',          category: 'Hops',       amount: 30,   unit: 'lb', cost_per_unit: 6.50, addition_type: 'Dry Hop',     addition_time: null },
-      { brewery_id: b, recipe_id: ids.recipeHazyV2, ingredient_id: ids.ingCitra,   ingredient_name: 'Citra Hops',           category: 'Hops',       amount: 22.5, unit: 'lb', cost_per_unit: 6.00, addition_type: 'Dry Hop',     addition_time: null },
-      { brewery_id: b, recipe_id: ids.recipeHazyV2, ingredient_id: ids.ingUs05,    ingredient_name: 'WY1318 London Ale III', category: 'Yeast',     amount: 6,    unit: 'packet', cost_per_unit: 8.00, addition_type: 'Fermentation', addition_time: null },
+      { brewery_id: b, recipe_id: ids.recipeHazyV2, ingredient_id: ids.ingPale,    ingredient_name: 'Pale Malt 2-Row',       amount: 930,  unit: 'lb',     addition_type: 'Mash',        addition_time: null },
+      { brewery_id: b, recipe_id: ids.recipeHazyV2, ingredient_id: ids.ingOats,    ingredient_name: 'Flaked Oats',           amount: 285,  unit: 'lb',     addition_type: 'Mash',        addition_time: null },
+      { brewery_id: b, recipe_id: ids.recipeHazyV2, ingredient_id: ids.ingMunich,  ingredient_name: 'White Wheat Malt',      amount: 142,  unit: 'lb',     addition_type: 'Mash',        addition_time: null },
+      { brewery_id: b, recipe_id: ids.recipeHazyV2, ingredient_id: ids.ingCrystal, ingredient_name: 'Carapils',              amount: 71,   unit: 'lb',     addition_type: 'Mash',        addition_time: null },
+      { brewery_id: b, recipe_id: ids.recipeHazyV2, ingredient_id: ids.ingCitra,   ingredient_name: 'Citra Hops',            amount: 37.5, unit: 'lb',     addition_type: 'Whirlpool',   addition_time: '0' },
+      { brewery_id: b, recipe_id: ids.recipeHazyV2, ingredient_id: ids.ingMosaic,  ingredient_name: 'Mosaic Hops',           amount: 30,   unit: 'lb',     addition_type: 'Dry Hop',     addition_time: null },
+      { brewery_id: b, recipe_id: ids.recipeHazyV2, ingredient_id: ids.ingCitra,   ingredient_name: 'Citra Hops',            amount: 22.5, unit: 'lb',     addition_type: 'Dry Hop',     addition_time: null },
+      { brewery_id: b, recipe_id: ids.recipeHazyV2, ingredient_id: ids.ingUs05,    ingredient_name: 'WY1318 London Ale III', amount: 6,    unit: 'packet', addition_type: 'Fermentation', addition_time: null },
 
       // ── ADAPTIVE HAZY IPA V1 (same grain bill, single dry hop) ────────────
-      { brewery_id: b, recipe_id: ids.recipeHazy, ingredient_id: ids.ingPale,    ingredient_name: 'Pale Malt 2-Row',  category: 'Malt/Grain', amount: 930,  unit: 'lb', cost_per_unit: 0.65, addition_type: 'Mash',        addition_time: null },
-      { brewery_id: b, recipe_id: ids.recipeHazy, ingredient_id: ids.ingOats,    ingredient_name: 'Flaked Oats',      category: 'Adjunct',    amount: 285,  unit: 'lb', cost_per_unit: 0.70, addition_type: 'Mash',        addition_time: null },
-      { brewery_id: b, recipe_id: ids.recipeHazy, ingredient_id: ids.ingMunich,  ingredient_name: 'White Wheat Malt', category: 'Malt/Grain', amount: 142,  unit: 'lb', cost_per_unit: 0.75, addition_type: 'Mash',        addition_time: null },
-      { brewery_id: b, recipe_id: ids.recipeHazy, ingredient_id: ids.ingCrystal, ingredient_name: 'Carapils',         category: 'Malt/Grain', amount: 71,   unit: 'lb', cost_per_unit: 0.75, addition_type: 'Mash',        addition_time: null },
-      { brewery_id: b, recipe_id: ids.recipeHazy, ingredient_id: ids.ingCitra,   ingredient_name: 'Citra Hops',       category: 'Hops',       amount: 37.5, unit: 'lb', cost_per_unit: 6.00, addition_type: 'Whirlpool',   addition_time: '0' },
-      { brewery_id: b, recipe_id: ids.recipeHazy, ingredient_id: ids.ingCitra,   ingredient_name: 'Citra Hops',       category: 'Hops',       amount: 30,   unit: 'lb', cost_per_unit: 6.00, addition_type: 'Dry Hop',     addition_time: null },
-      { brewery_id: b, recipe_id: ids.recipeHazy, ingredient_id: ids.ingUs05,    ingredient_name: 'US-05 Dry Yeast',  category: 'Yeast',      amount: 6,    unit: 'packet', cost_per_unit: 3.50, addition_type: 'Fermentation', addition_time: null },
+      { brewery_id: b, recipe_id: ids.recipeHazy, ingredient_id: ids.ingPale,    ingredient_name: 'Pale Malt 2-Row',  amount: 930,  unit: 'lb',     addition_type: 'Mash',        addition_time: null },
+      { brewery_id: b, recipe_id: ids.recipeHazy, ingredient_id: ids.ingOats,    ingredient_name: 'Flaked Oats',      amount: 285,  unit: 'lb',     addition_type: 'Mash',        addition_time: null },
+      { brewery_id: b, recipe_id: ids.recipeHazy, ingredient_id: ids.ingMunich,  ingredient_name: 'White Wheat Malt', amount: 142,  unit: 'lb',     addition_type: 'Mash',        addition_time: null },
+      { brewery_id: b, recipe_id: ids.recipeHazy, ingredient_id: ids.ingCrystal, ingredient_name: 'Carapils',         amount: 71,   unit: 'lb',     addition_type: 'Mash',        addition_time: null },
+      { brewery_id: b, recipe_id: ids.recipeHazy, ingredient_id: ids.ingCitra,   ingredient_name: 'Citra Hops',       amount: 37.5, unit: 'lb',     addition_type: 'Whirlpool',   addition_time: '0' },
+      { brewery_id: b, recipe_id: ids.recipeHazy, ingredient_id: ids.ingCitra,   ingredient_name: 'Citra Hops',       amount: 30,   unit: 'lb',     addition_type: 'Dry Hop',     addition_time: null },
+      { brewery_id: b, recipe_id: ids.recipeHazy, ingredient_id: ids.ingUs05,    ingredient_name: 'US-05 Dry Yeast',  amount: 6,    unit: 'packet', addition_type: 'Fermentation', addition_time: null },
 
       // ── PIVOT PALE ALE (15 bbl) ───────────────────────────────────────────
       // Grain: 80% Pale 2-Row, 10% Crystal 60L, 10% Munich
-      { brewery_id: b, recipe_id: ids.recipePivot, ingredient_id: ids.ingPale,       ingredient_name: 'Pale Malt 2-Row', category: 'Malt/Grain', amount: 1050, unit: 'lb', cost_per_unit: 0.65, addition_type: 'Mash',        addition_time: null },
-      { brewery_id: b, recipe_id: ids.recipePivot, ingredient_id: ids.ingCrystal,    ingredient_name: 'Crystal 60L',     category: 'Malt/Grain', amount: 142,  unit: 'lb', cost_per_unit: 0.95, addition_type: 'Mash',        addition_time: null },
-      { brewery_id: b, recipe_id: ids.recipePivot, ingredient_id: ids.ingMunich,     ingredient_name: 'Munich Malt',     category: 'Malt/Grain', amount: 142,  unit: 'lb', cost_per_unit: 0.85, addition_type: 'Mash',        addition_time: null },
-      { brewery_id: b, recipe_id: ids.recipePivot, ingredient_id: ids.ingCascade,    ingredient_name: 'Cascade Hops',    category: 'Hops',       amount: 15,   unit: 'lb', cost_per_unit: 4.50, addition_type: 'Boil',        addition_time: '60' },
-      { brewery_id: b, recipe_id: ids.recipePivot, ingredient_id: ids.ingCascade,    ingredient_name: 'Cascade Hops',    category: 'Hops',       amount: 10,   unit: 'lb', cost_per_unit: 4.50, addition_type: 'Boil',        addition_time: '10' },
-      { brewery_id: b, recipe_id: ids.recipePivot, ingredient_id: ids.ingCentennial, ingredient_name: 'Centennial Hops', category: 'Hops',       amount: 12,   unit: 'lb', cost_per_unit: 5.00, addition_type: 'Dry Hop',     addition_time: null },
-      { brewery_id: b, recipe_id: ids.recipePivot, ingredient_id: ids.ingUs05,       ingredient_name: 'US-05 Dry Yeast', category: 'Yeast',      amount: 6,    unit: 'packet', cost_per_unit: 3.50, addition_type: 'Fermentation', addition_time: null },
+      { brewery_id: b, recipe_id: ids.recipePivot, ingredient_id: ids.ingPale,       ingredient_name: 'Pale Malt 2-Row', amount: 1050, unit: 'lb',     addition_type: 'Mash',        addition_time: null },
+      { brewery_id: b, recipe_id: ids.recipePivot, ingredient_id: ids.ingCrystal,    ingredient_name: 'Crystal 60L',     amount: 142,  unit: 'lb',     addition_type: 'Mash',        addition_time: null },
+      { brewery_id: b, recipe_id: ids.recipePivot, ingredient_id: ids.ingMunich,     ingredient_name: 'Munich Malt',     amount: 142,  unit: 'lb',     addition_type: 'Mash',        addition_time: null },
+      { brewery_id: b, recipe_id: ids.recipePivot, ingredient_id: ids.ingCascade,    ingredient_name: 'Cascade Hops',    amount: 15,   unit: 'lb',     addition_type: 'Boil',        addition_time: '60' },
+      { brewery_id: b, recipe_id: ids.recipePivot, ingredient_id: ids.ingCascade,    ingredient_name: 'Cascade Hops',    amount: 10,   unit: 'lb',     addition_type: 'Boil',        addition_time: '10' },
+      { brewery_id: b, recipe_id: ids.recipePivot, ingredient_id: ids.ingCentennial, ingredient_name: 'Centennial Hops', amount: 12,   unit: 'lb',     addition_type: 'Dry Hop',     addition_time: null },
+      { brewery_id: b, recipe_id: ids.recipePivot, ingredient_id: ids.ingUs05,       ingredient_name: 'US-05 Dry Yeast', amount: 6,    unit: 'packet', addition_type: 'Fermentation', addition_time: null },
 
       // ── MARGIN STOUT (10 bbl) ─────────────────────────────────────────────
       // Grain: 68% Pale 2-Row, 14% Munich, 11% Roasted Barley, 7% Crystal 60L
-      { brewery_id: b, recipe_id: ids.recipeStout, ingredient_id: ids.ingPale,    ingredient_name: 'Pale Malt 2-Row', category: 'Malt/Grain', amount: 550,  unit: 'lb', cost_per_unit: 0.65, addition_type: 'Mash',        addition_time: null },
-      { brewery_id: b, recipe_id: ids.recipeStout, ingredient_id: ids.ingMunich,  ingredient_name: 'Munich Malt',     category: 'Malt/Grain', amount: 110,  unit: 'lb', cost_per_unit: 0.85, addition_type: 'Mash',        addition_time: null },
-      { brewery_id: b, recipe_id: ids.recipeStout, ingredient_id: ids.ingRoasted, ingredient_name: 'Roasted Barley',  category: 'Malt/Grain', amount: 88,   unit: 'lb', cost_per_unit: 1.10, addition_type: 'Mash',        addition_time: null },
-      { brewery_id: b, recipe_id: ids.recipeStout, ingredient_id: ids.ingCrystal, ingredient_name: 'Crystal 60L',     category: 'Malt/Grain', amount: 55,   unit: 'lb', cost_per_unit: 0.95, addition_type: 'Mash',        addition_time: null },
-      { brewery_id: b, recipe_id: ids.recipeStout, ingredient_id: ids.ingCascade, ingredient_name: 'Cascade Hops',    category: 'Hops',       amount: 10,   unit: 'lb', cost_per_unit: 4.50, addition_type: 'Boil',        addition_time: '60' },
-      { brewery_id: b, recipe_id: ids.recipeStout, ingredient_id: ids.ingUs05,    ingredient_name: 'US-05 Dry Yeast', category: 'Yeast',      amount: 4,    unit: 'packet', cost_per_unit: 3.50, addition_type: 'Fermentation', addition_time: null },
+      { brewery_id: b, recipe_id: ids.recipeStout, ingredient_id: ids.ingPale,    ingredient_name: 'Pale Malt 2-Row', amount: 550,  unit: 'lb',     addition_type: 'Mash',        addition_time: null },
+      { brewery_id: b, recipe_id: ids.recipeStout, ingredient_id: ids.ingMunich,  ingredient_name: 'Munich Malt',     amount: 110,  unit: 'lb',     addition_type: 'Mash',        addition_time: null },
+      { brewery_id: b, recipe_id: ids.recipeStout, ingredient_id: ids.ingRoasted, ingredient_name: 'Roasted Barley',  amount: 88,   unit: 'lb',     addition_type: 'Mash',        addition_time: null },
+      { brewery_id: b, recipe_id: ids.recipeStout, ingredient_id: ids.ingCrystal, ingredient_name: 'Crystal 60L',     amount: 55,   unit: 'lb',     addition_type: 'Mash',        addition_time: null },
+      { brewery_id: b, recipe_id: ids.recipeStout, ingredient_id: ids.ingCascade, ingredient_name: 'Cascade Hops',    amount: 10,   unit: 'lb',     addition_type: 'Boil',        addition_time: '60' },
+      { brewery_id: b, recipe_id: ids.recipeStout, ingredient_id: ids.ingUs05,    ingredient_name: 'US-05 Dry Yeast', amount: 4,    unit: 'packet', addition_type: 'Fermentation', addition_time: null },
 
       // ── BASELINE LAGER (20 bbl) ───────────────────────────────────────────
       // Grain: 88% Pale 2-Row, 12% Munich — clean simple lager
-      { brewery_id: b, recipe_id: ids.recipeBaseline, ingredient_id: ids.ingPale,    ingredient_name: 'Pale Malt 2-Row', category: 'Malt/Grain', amount: 1600, unit: 'lb', cost_per_unit: 0.65, addition_type: 'Mash',        addition_time: null },
-      { brewery_id: b, recipe_id: ids.recipeBaseline, ingredient_id: ids.ingMunich,  ingredient_name: 'Munich Malt',     category: 'Malt/Grain', amount: 200,  unit: 'lb', cost_per_unit: 0.85, addition_type: 'Mash',        addition_time: null },
-      { brewery_id: b, recipe_id: ids.recipeBaseline, ingredient_id: ids.ingCascade, ingredient_name: 'Cascade Hops',    category: 'Hops',       amount: 15,   unit: 'lb', cost_per_unit: 4.50, addition_type: 'Boil',        addition_time: '60' },
-      { brewery_id: b, recipe_id: ids.recipeBaseline, ingredient_id: ids.ingUs05,    ingredient_name: 'US-05 Dry Yeast', category: 'Yeast',      amount: 8,    unit: 'packet', cost_per_unit: 3.50, addition_type: 'Fermentation', addition_time: null },
+      { brewery_id: b, recipe_id: ids.recipeBaseline, ingredient_id: ids.ingPale,    ingredient_name: 'Pale Malt 2-Row', amount: 1600, unit: 'lb',     addition_type: 'Mash',        addition_time: null },
+      { brewery_id: b, recipe_id: ids.recipeBaseline, ingredient_id: ids.ingMunich,  ingredient_name: 'Munich Malt',     amount: 200,  unit: 'lb',     addition_type: 'Mash',        addition_time: null },
+      { brewery_id: b, recipe_id: ids.recipeBaseline, ingredient_id: ids.ingCascade, ingredient_name: 'Cascade Hops',    amount: 15,   unit: 'lb',     addition_type: 'Boil',        addition_time: '60' },
+      { brewery_id: b, recipe_id: ids.recipeBaseline, ingredient_id: ids.ingUs05,    ingredient_name: 'US-05 Dry Yeast', amount: 8,    unit: 'packet', addition_type: 'Fermentation', addition_time: null },
     ])
     check(riErr, 'insert recipe_ingredients')
 
