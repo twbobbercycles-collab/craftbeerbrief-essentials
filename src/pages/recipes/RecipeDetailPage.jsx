@@ -363,14 +363,24 @@ export default function RecipeDetailPage() {
     }
   }, [brewery?.annual_production_estimate]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Load overhead profile defaults from brewery settings
+  // Fetch fresh brewery overhead values directly from DB to bypass any context caching
   useEffect(() => {
-    if (!brewery) return
-    if (brewery.monthly_fixed_overhead    != null) setMonthlyFixedOverhead(String(brewery.monthly_fixed_overhead))
-    if (brewery.batches_per_month         != null) setBatchesPerMonth(String(brewery.batches_per_month))
-    if (brewery.labor_rate_per_hour       != null) setLaborRatePerHour(String(brewery.labor_rate_per_hour))
-    if (brewery.variable_overhead_per_bbl != null) setVariableOverheadPerBbl(String(brewery.variable_overhead_per_bbl))
-  }, [brewery?.id, brewery?.labor_rate_per_hour, brewery?.monthly_fixed_overhead, brewery?.batches_per_month, brewery?.variable_overhead_per_bbl]) // eslint-disable-line react-hooks/exhaustive-deps
+    async function loadBreweryOverhead() {
+      if (!brewery?.id) return
+      const { data } = await supabase
+        .from('breweries')
+        .select('monthly_fixed_overhead, batches_per_month, labor_rate_per_hour, variable_overhead_per_bbl')
+        .eq('id', brewery.id)
+        .single()
+      if (data) {
+        if (data.monthly_fixed_overhead    != null) setMonthlyFixedOverhead(String(data.monthly_fixed_overhead))
+        if (data.batches_per_month         != null) setBatchesPerMonth(String(data.batches_per_month))
+        if (data.labor_rate_per_hour       != null) setLaborRatePerHour(String(data.labor_rate_per_hour))
+        if (data.variable_overhead_per_bbl != null) setVariableOverheadPerBbl(String(data.variable_overhead_per_bbl))
+      }
+    }
+    loadBreweryOverhead()
+  }, [brewery?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Cost calculations (memoized — recomputes only when inputs change) ─────────
 
@@ -2049,7 +2059,7 @@ function PintGlassVisualization({ costs }) {
         <p className="text-sm font-bold text-navy">What's in Your Pint?</p>
         <p className="text-xs text-gray-400">Retail ${suggestedRetail.toFixed(2)}</p>
       </div>
-      <svg viewBox={`0 0 ${VW} ${VH}`} width="100%" height="auto" preserveAspectRatio="xMidYMid meet" style={{ display: 'block' }} className="w-full">
+      <svg viewBox={`0 0 ${VW} ${VH}`} width="100%" preserveAspectRatio="xMidYMid meet" style={{ display: 'block', maxWidth: '100%' }}>
         <defs>
           <clipPath id="glassClip" clipPathUnits="userSpaceOnUse">
             <path d={glassPath} />
