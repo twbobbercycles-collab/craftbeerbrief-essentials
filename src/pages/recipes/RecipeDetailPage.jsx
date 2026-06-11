@@ -2807,17 +2807,15 @@ function AddIngredientModal({
 
   // Unit change — all current form values are passed as explicit arguments so there
   // is no stale closure risk. Batch total is preserved: new_cost = batchTotal / new_amount.
+  // For inventory-mode ingredients form.price_per_unit is empty, so fall back to inventoryPrice.
   const handleUnitChangeExplicit = useCallback((newUnit, currentAmount, currentCost, currentUnit) => {
-    console.log('handleUnitChangeExplicit called with:', { newUnit, currentAmount, currentCost, currentUnit })
-
     const numAmount = parseFloat(currentAmount) || 0
-    const numCost   = parseFloat(currentCost)   || 0
-    const batchTotal = numAmount * numCost
 
-    console.log('Calculated:', { numAmount, numCost, batchTotal })
+    // Use form price if set, otherwise fall back to inventoryPrice (for inventory-mode ingredients)
+    const effectiveCost = parseFloat(currentCost) || inventoryPrice || 0
+    const batchTotal = numAmount * effectiveCost
 
     const amountResult = convertAmount(numAmount, currentUnit, newUnit)
-    console.log('Amount conversion result:', amountResult)
 
     if (amountResult.warning || amountResult.amount <= 0) {
       setForm(prev => ({ ...prev, unit: newUnit }))
@@ -2828,24 +2826,18 @@ function AddIngredientModal({
 
     const newCostPerUnit = batchTotal > 0
       ? parseFloat((batchTotal / amountResult.amount).toFixed(6))
-      : numCost
-
-    console.log('New cost per unit:', newCostPerUnit)
+      : effectiveCost
 
     setForm(prev => ({
       ...prev,
-      unit:          newUnit,
-      amount:        String(parseFloat(amountResult.amount.toFixed(4))),
-      price_per_unit: String(parseFloat(newCostPerUnit.toFixed(6))),
+      unit:           newUnit,
+      amount:         String(parseFloat(amountResult.amount.toFixed(4))),
+      price_per_unit: String(newCostPerUnit),
     }))
 
     setUnitConversionWarning(false)
-    setUnitConversionMsg(
-      batchTotal > 0
-        ? `✓ Amount and cost converted: ${currentUnit} → ${newUnit} (batch total preserved)`
-        : `✓ Amount converted: ${currentUnit} → ${newUnit}`
-    )
-  }, [setForm])
+    setUnitConversionMsg(`✓ Amount and cost converted: ${currentUnit} → ${newUnit}`)
+  }, [setForm, inventoryPrice])
 
   // Cost impact calculations — shown live as the brewer fills in the form
   const effectiveCostPerUnit = mode === 'inventory' && selectedIng
