@@ -324,7 +324,7 @@ export default function RecipeDetailPage() {
     setCarrierCostPerUnit(String(r.carrier_cost_per_unit ?? 0))
     setPackagingYieldPct(String(r.packaging_yield_percentage ?? 85))
     setBrewHours(String(r.brew_hours ?? 0))
-    setLaborRatePerHour(String(r.labor_rate_per_hour ?? 0))
+    // laborRatePerHour is set from the brewery profile fetch — do not overwrite from recipe row
     setUtilitiesCostPerBarrel(String(r.utilities_cost_per_barrel ?? 10))
     setCleaningCostPerBatch(String(r.cleaning_cost_per_batch ?? 15))
     setWaterCostPerBarrel(String(r.water_cost_per_barrel ?? 0.50))
@@ -2030,25 +2030,28 @@ function PintGlassVisualization({ costs }) {
     return { ...layer, topY, h: actualH, midY }
   }).reverse()
 
-  // Spread right-side label Y positions — 30px minimum gap
-  const MIN_GAP = 30
-  const naturalYs = layerRects.map(lr => Math.min(Math.max(lr.midY, GT + 14), GB - 14))
+  // Position labels with guaranteed minimum spacing — operates in layer order (top to bottom)
+  const MIN_SPACING = 32
+  const labelPositions = layerRects.map(lr => ({
+    idealY: Math.min(Math.max(lr.midY, GT + 14), GB - 14),
+    y:      Math.min(Math.max(lr.midY, GT + 14), GB - 14),
+  }))
 
-  function spreadPositions(ys) {
-    const pts = ys.map((y, i) => ({ y, i })).sort((a, b) => a.y - b.y)
-    for (let k = 1; k < pts.length; k++) {
-      if (pts[k].y - pts[k - 1].y < MIN_GAP) pts[k].y = pts[k - 1].y + MIN_GAP
+  // Forward pass: push down if too close to previous
+  for (let i = 1; i < labelPositions.length; i++) {
+    if (labelPositions[i].y < labelPositions[i - 1].y + MIN_SPACING) {
+      labelPositions[i].y = labelPositions[i - 1].y + MIN_SPACING
     }
-    for (let k = pts.length - 2; k >= 0; k--) {
-      if (pts[k + 1].y - pts[k].y < MIN_GAP) pts[k].y = pts[k + 1].y - MIN_GAP
+  }
+  // Backward pass: push up if too close to next
+  for (let i = labelPositions.length - 2; i >= 0; i--) {
+    if (labelPositions[i].y > labelPositions[i + 1].y - MIN_SPACING) {
+      labelPositions[i].y = labelPositions[i + 1].y - MIN_SPACING
     }
-    const out = new Array(ys.length)
-    for (const { y, i } of pts) out[i] = y
-    return out
   }
 
-  const labelYs = spreadPositions(naturalYs)
-  const LABEL_X = 345   // right-side label text start x
+  const LABEL_X  = 345  // right-side label text start x
+  const ELBOW_X  = 330  // x where the connector turns horizontal to the label
 
   return (
     <div>
@@ -2086,20 +2089,27 @@ function PintGlassVisualization({ costs }) {
         {/* Foam label */}
         <text x={CX} y={BT - 7} textAnchor="middle" fontSize="13" fill="#92400E" fontWeight="500">Foam</text>
 
-        {/* Right-side layer labels — single connector from glass right edge to label */}
+        {/* Right-side layer labels — two-segment connector: horizontal from glass then diagonal to label */}
         {layerRects.map((lr, i) => {
-          const lY       = labelYs[i]
-          const anchorX  = gRight(Math.min(Math.max(lr.midY, GT + 1), GB - 1))
-          const anchorY  = lr.midY
-          const pct      = suggestedRetail > 0 ? (lr.costPerPint / suggestedRetail * 100).toFixed(1) : '0.0'
+          const lY      = labelPositions[i].y
+          const anchorX = gRight(Math.min(Math.max(lr.midY, GT + 1), GB - 1))
+          const anchorY = lr.midY   // always anchored at the actual layer midpoint
+          const pct     = suggestedRetail > 0 ? (lr.costPerPint / suggestedRetail * 100).toFixed(1) : '0.0'
           return (
             <g key={lr.label}>
-              {/* Colored dot at glass right edge */}
+              {/* Colored dot at glass right edge at layer midpoint */}
               <circle cx={anchorX} cy={anchorY} r="3.5" fill={lr.color} />
-              {/* Dashed connector: from glass right edge → elbow at x=325 → to label */}
-              <polyline
-                points={`${anchorX + 4},${anchorY} 325,${anchorY} 325,${lY} ${LABEL_X - 4},${lY}`}
-                fill="none" stroke="#CBD5E1" strokeWidth="1" strokeDasharray="3,3"
+              {/* Segment 1: horizontal from glass to elbow x */}
+              <line
+                x1={anchorX + 4} y1={anchorY}
+                x2={ELBOW_X}     y2={anchorY}
+                stroke="#CBD5E1" strokeWidth="1" strokeDasharray="3,3"
+              />
+              {/* Segment 2: diagonal from elbow to label position */}
+              <line
+                x1={ELBOW_X}       y1={anchorY}
+                x2={LABEL_X - 4}   y2={lY}
+                stroke="#CBD5E1" strokeWidth="1" strokeDasharray="3,3"
               />
               {/* Label line 1: name + cost */}
               <text x={LABEL_X} y={lY} textAnchor="start" fontSize="13" fill="#1A2744" fontWeight="600">
