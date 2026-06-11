@@ -2809,15 +2809,9 @@ function AddIngredientModal({
   // is no stale closure risk. Batch total is preserved: new_cost = batchTotal / new_amount.
   // For inventory-mode ingredients form.price_per_unit is empty, so fall back to inventoryPrice.
   const handleUnitChangeExplicit = useCallback((newUnit, currentAmount, currentCost, currentUnit) => {
-    console.log('Unit change:', { newUnit, currentAmount, currentCost, currentUnit, inventoryPrice, selectedIng: selectedIng?.name })
-
     const numAmount = parseFloat(currentAmount) || 0
-
-    // Use form price if set, otherwise fall back to inventoryPrice (for inventory-mode ingredients)
     const effectiveCost = parseFloat(currentCost) || inventoryPrice || 0
     const batchTotal = numAmount * effectiveCost
-
-    console.log('effectiveCost:', effectiveCost, 'batchTotal:', batchTotal)
 
     const amountResult = convertAmount(numAmount, currentUnit, newUnit)
 
@@ -2839,8 +2833,12 @@ function AddIngredientModal({
       price_per_unit: String(newCostPerUnit),
     }))
 
+    // Switch to 'other' mode so the converted cost is visible and editable.
+    // The brewer has changed the unit which overrides the inventory unit.
+    setMode('other')
+
     setUnitConversionWarning(false)
-    setUnitConversionMsg(`✓ Amount and cost converted: ${currentUnit} → ${newUnit}`)
+    setUnitConversionMsg(`✓ Converted: ${currentUnit} → ${newUnit}. Cost updated to $${newCostPerUnit.toFixed(6)}/${newUnit}`)
   }, [setForm, inventoryPrice])
 
   // Cost impact calculations — shown live as the brewer fills in the form
