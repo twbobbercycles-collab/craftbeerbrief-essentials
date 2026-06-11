@@ -2808,11 +2808,16 @@ function AddIngredientModal({
   // Unit change — all current form values are passed as explicit arguments so there
   // is no stale closure risk. Batch total is preserved: new_cost = batchTotal / new_amount.
   const handleUnitChangeExplicit = useCallback((newUnit, currentAmount, currentCost, currentUnit) => {
+    console.log('handleUnitChangeExplicit called with:', { newUnit, currentAmount, currentCost, currentUnit })
+
     const numAmount = parseFloat(currentAmount) || 0
     const numCost   = parseFloat(currentCost)   || 0
     const batchTotal = numAmount * numCost
 
+    console.log('Calculated:', { numAmount, numCost, batchTotal })
+
     const amountResult = convertAmount(numAmount, currentUnit, newUnit)
+    console.log('Amount conversion result:', amountResult)
 
     if (amountResult.warning || amountResult.amount <= 0) {
       setForm(prev => ({ ...prev, unit: newUnit }))
@@ -2824,6 +2829,8 @@ function AddIngredientModal({
     const newCostPerUnit = batchTotal > 0
       ? parseFloat((batchTotal / amountResult.amount).toFixed(6))
       : numCost
+
+    console.log('New cost per unit:', newCostPerUnit)
 
     setForm(prev => ({
       ...prev,
