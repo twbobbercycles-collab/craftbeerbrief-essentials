@@ -138,6 +138,10 @@ Deno.serve(async (req) => {
     }).eq('id', userId)
     await svc.from('breweries').update({
       name: DEMO_BREWERY, state: DEMO_STATE,
+      monthly_fixed_overhead:    28000,
+      batches_per_month:         6,
+      labor_rate_per_hour:       20,
+      variable_overhead_per_bbl: 18,
     }).eq('id', breweryId)
   }
 
@@ -347,11 +351,11 @@ Deno.serve(async (req) => {
 
     // ── Recipes (4 + version 2 of Hazy IPA) ──────────────────────────────────
     const { error: recErr } = await svc.from('recipes').insert([
-      { id: ids.recipeHazy,     brewery_id: b, name: 'Adaptive Hazy IPA', style: '21C: Hazy IPA',          base_batch_size: 15, base_batch_size_unit: 'barrels', target_og: 1.065, target_fg: 1.013, target_abv: 6.8, target_ibu: 40, target_margin_percentage: 65, version: 1, is_current_version: false },
-      { id: ids.recipeHazyV2,   brewery_id: b, name: 'Adaptive Hazy IPA', style: '21C: Hazy IPA',          base_batch_size: 15, base_batch_size_unit: 'barrels', target_og: 1.065, target_fg: 1.013, target_abv: 6.8, target_ibu: 40, target_margin_percentage: 65, version: 2, is_current_version: true,  parent_recipe_id: ids.recipeHazy, version_notes: 'Increased dry hop rate — added Mosaic alongside Citra for more tropical complexity. Switched to WY1318 London Ale III for juicier ester profile.' },
-      { id: ids.recipePivot,    brewery_id: b, name: 'Pivot Pale Ale',    style: '18B: American Pale Ale', base_batch_size: 15, base_batch_size_unit: 'barrels', target_og: 1.052, target_fg: 1.010, target_abv: 5.5, target_ibu: 35, target_margin_percentage: 60, version: 1, is_current_version: true },
-      { id: ids.recipeStout,    brewery_id: b, name: 'Margin Stout',      style: '20B: American Stout',    base_batch_size: 10, base_batch_size_unit: 'barrels', target_og: 1.072, target_fg: 1.016, target_abv: 7.3, target_ibu: 38, target_margin_percentage: 62, version: 1, is_current_version: true },
-      { id: ids.recipeBaseline, brewery_id: b, name: 'Baseline Lager',    style: '1B: American Lager',     base_batch_size: 20, base_batch_size_unit: 'barrels', target_og: 1.048, target_fg: 1.008, target_abv: 5.2, target_ibu: 18, target_margin_percentage: 55, version: 1, is_current_version: true },
+      { id: ids.recipeHazy,     brewery_id: b, name: 'Adaptive Hazy IPA', style: '21C: Hazy IPA',          base_batch_size: 15, base_batch_size_unit: 'barrels', target_og: 1.065, target_fg: 1.013, target_abv: 6.8, target_ibu: 40, target_margin_percentage: 65, version: 1, is_current_version: false, brewers_count: 2, brew_hours_per_brewer: 10, packaging_hours: 6, packaging_labor_rate: 18 },
+      { id: ids.recipeHazyV2,   brewery_id: b, name: 'Adaptive Hazy IPA', style: '21C: Hazy IPA',          base_batch_size: 15, base_batch_size_unit: 'barrels', target_og: 1.065, target_fg: 1.013, target_abv: 6.8, target_ibu: 40, target_margin_percentage: 65, version: 2, is_current_version: true,  parent_recipe_id: ids.recipeHazy, version_notes: 'Increased dry hop rate — added Mosaic alongside Citra for more tropical complexity. Switched to WY1318 London Ale III for juicier ester profile.', brewers_count: 2, brew_hours_per_brewer: 10, packaging_hours: 6, packaging_labor_rate: 18 },
+      { id: ids.recipePivot,    brewery_id: b, name: 'Pivot Pale Ale',    style: '18B: American Pale Ale', base_batch_size: 15, base_batch_size_unit: 'barrels', target_og: 1.052, target_fg: 1.010, target_abv: 5.5, target_ibu: 35, target_margin_percentage: 60, version: 1, is_current_version: true,  brewers_count: 2, brew_hours_per_brewer: 10, packaging_hours: 5, packaging_labor_rate: 18 },
+      { id: ids.recipeStout,    brewery_id: b, name: 'Margin Stout',      style: '20B: American Stout',    base_batch_size: 10, base_batch_size_unit: 'barrels', target_og: 1.072, target_fg: 1.016, target_abv: 7.3, target_ibu: 38, target_margin_percentage: 62, version: 1, is_current_version: true,  brewers_count: 2, brew_hours_per_brewer: 9,  packaging_hours: 4, packaging_labor_rate: 18 },
+      { id: ids.recipeBaseline, brewery_id: b, name: 'Baseline Lager',    style: '1B: American Lager',     base_batch_size: 20, base_batch_size_unit: 'barrels', target_og: 1.048, target_fg: 1.008, target_abv: 5.2, target_ibu: 18, target_margin_percentage: 55, version: 1, is_current_version: true,  brewers_count: 3, brew_hours_per_brewer: 10, packaging_hours: 8, packaging_labor_rate: 18 },
     ])
     check(recErr, 'insert recipes')
 

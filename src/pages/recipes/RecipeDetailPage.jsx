@@ -16,6 +16,7 @@ import LoadingSpinner from '../../components/LoadingSpinner'
 import ModalShell from '../../components/ModalShell'
 import { useReadOnly } from '../../hooks/useReadOnly'
 import { useModalDraft } from '../../hooks/useModalDraft'
+import { usePersistedTab } from '../../hooks/usePersistedTab'
 import {
   convertToBarrels,
   calculateScaledAmount, calculateTotalIngredientCost,
@@ -216,8 +217,8 @@ export default function RecipeDetailPage() {
   // Auto-save status indicator — 'saving' | 'saved' | 'error'
   const [autoSaveStatus, setAutoSaveStatus] = useState('saved')
 
-  // Active tab: 'ingredients' | 'cost' | 'water' | 'history'
-  const [activeTab, setActiveTab] = useState('ingredients')
+  // Active tab: 'ingredients' | 'cost' | 'water' | 'history' — persisted per recipe
+  const [activeTab, setActiveTab] = usePersistedTab(`recipe_tab_${id}`, 'ingredients')
 
   // Inventory / brew-check panel
   const [brewCheckOpen, setBrewCheckOpen] = useState(false)
@@ -332,6 +333,10 @@ export default function RecipeDetailPage() {
     setMarginPct(String(r.target_margin_percentage ?? 65))
     setTaxRate(String(r.tax_rate ?? 0))
     setExciseTaxRatePerBbl(r.excise_tax_rate_per_bbl ?? 3.50)
+    setBrewers(String(r.brewers_count ?? 2))
+    setBrewHoursPerBrewer(String(r.brew_hours_per_brewer ?? 8))
+    setPackagingHours(String(r.packaging_hours ?? 4))
+    setPackagingLaborRate(String(r.packaging_labor_rate ?? 16))
     setLines(linesResult.data ?? [])
     setLibrary(libResult.data ?? [])
     setLoading(false)
@@ -579,6 +584,10 @@ export default function RecipeDetailPage() {
       target_margin_percentage:   safeParse(marginPct,                   65),
       tax_rate:                   safeParse(taxRate,                     0),
       excise_tax_rate_per_bbl:    parseFloat(exciseTaxRatePerBbl) || 3.50,
+      brewers_count:              safeParse(brewers,                     2),
+      brew_hours_per_brewer:      safeParse(brewHoursPerBrewer,          8),
+      packaging_hours:            safeParse(packagingHours,              4),
+      packaging_labor_rate:       safeParse(packagingLaborRate,          16),
     }).eq('id', id)
     setAutoSaveStatus(saveErr ? 'error' : 'saved')
   }
