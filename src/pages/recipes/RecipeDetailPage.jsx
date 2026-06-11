@@ -2159,7 +2159,7 @@ function CostPanel({
   const [packagingOpen, setPackagingOpen] = useState(true)
   const [laborOpen,     setLaborOpen]     = useState(false)
   const [overheadOpen,  setOverheadOpen]  = useState(false)
-  const [overheadInfoOpen, setOverheadInfoOpen] = useState(false)
+
 
   const grossPct    = costs.grossMargin?.percentage ?? 0
   const targetPct   = parseFloat(marginPct) || 65
@@ -2227,21 +2227,32 @@ function CostPanel({
 
       {/* ── Section 4: Overhead ── */}
       <SectionToggle title="Overhead" subtotal={totalOverheadCost} open={overheadOpen} onToggle={() => setOverheadOpen(v => !v)}>
-        {/* Collapsible explainer */}
-        <div className="mb-2">
-          <button
-            type="button"
-            onClick={() => setOverheadInfoOpen(v => !v)}
-            className="text-[10px] text-amber font-medium flex items-center gap-1"
-          >
-            {overheadInfoOpen ? '▾' : '▸'} What counts as overhead?
-          </button>
-          {overheadInfoOpen && (
-            <div className="mt-1 p-2 bg-amber/5 rounded text-[10px] text-gray-500 leading-snug space-y-1">
-              <p><strong>Fixed overhead</strong> — rent, equipment depreciation, insurance, licenses, office admin. Enter your total monthly fixed costs and how many batches you brew per month.</p>
-              <p><strong>Variable overhead</strong> — utilities (electricity, gas, CO2), water &amp; wastewater, cleaning chemicals, QC lab. Enter a per-barrel rate so it scales with batch size.</p>
-            </div>
-          )}
+        {/* Fixed overhead explainer — always visible */}
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-3 text-xs text-gray-700">
+          <p className="font-semibold text-navy mb-2">💡 How to calculate your fixed overhead:</p>
+          <p className="mb-2">Fixed overhead is every monthly brewery bill that does not change based on how much beer you brew. Add up these costs and enter the total below:</p>
+          <div className="grid grid-cols-2 gap-x-4 mb-2">
+            <ul className="space-y-0.5">
+              <li>• Rent or mortgage payments</li>
+              <li>• Equipment loan payments</li>
+              <li>• Insurance (liability, property)</li>
+              <li>• Utilities minimum monthly charges</li>
+            </ul>
+            <ul className="space-y-0.5">
+              <li>• Administrative salaries</li>
+              <li>• Marketing and advertising</li>
+              <li>• License and permit fees ÷ 12</li>
+              <li>• Software subscriptions</li>
+            </ul>
+          </div>
+          <div className="bg-white border border-amber-200 rounded p-2 mt-1">
+            <p className="font-semibold text-navy mb-0.5">Example calculation:</p>
+            <p>Total monthly fixed costs: <strong>$30,000</strong></p>
+            <p>÷ Average batches brewed per month: <strong>8 batches</strong></p>
+            <p>= Overhead allocated per batch: <strong>$3,750</strong></p>
+            <p>÷ Pints in a 15 bbl batch (1,860 pints): <strong>= $2.02 per pint</strong></p>
+            <p className="mt-1 text-gray-500 italic">This is why taproom pints need to sell for $6–9 — ingredients are only part of the story.</p>
+          </div>
         </div>
         <p className="text-[10px] text-gray-400 mb-1">Fixed Overhead</p>
         <NumField
