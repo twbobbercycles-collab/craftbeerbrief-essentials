@@ -1367,7 +1367,7 @@ export default function RecipeDetailPage() {
 
           {/* Cost Calculator tab — 50/50 split: inputs left, pint glass right */}
           {activeTab === 'cost' && (
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+            <div className="grid grid-cols-1 xl:grid-cols-[40%_60%] gap-6 items-start">
               <div className="min-w-0">
                 <CostPanel
                   costs={costs}
@@ -2050,7 +2050,7 @@ function PintGlassVisualization({ costs }) {
     }
   }
 
-  const LABEL_X  = 345  // right-side label text start x
+  const LABEL_X  = 355  // right-side label text start x
   const ELBOW_X  = 330  // x where the connector turns horizontal to the label
 
   return (
@@ -2111,13 +2111,12 @@ function PintGlassVisualization({ costs }) {
                 x2={LABEL_X - 4}   y2={lY}
                 stroke="#CBD5E1" strokeWidth="1" strokeDasharray="3,3"
               />
-              {/* Label line 1: name + cost */}
-              <text x={LABEL_X} y={lY} textAnchor="start" fontSize="13" fill="#1A2744" fontWeight="600">
-                {lr.label} · ${lr.costPerPint.toFixed(3)}
-              </text>
-              {/* Label line 2: percentage */}
-              <text x={LABEL_X} y={lY + 15} textAnchor="start" fontSize="11" fill="#6B7280">
-                {pct}% of retail
+              {/* Single-line label: name  $X.XXXX  XX.X% */}
+              <text x={LABEL_X} y={lY} textAnchor="start" fontSize="13" fontFamily="sans-serif">
+                <tspan fontWeight="600" fill="#1A2744">{lr.label}</tspan>
+                <tspan fill="#1A2744">{'  '}</tspan>
+                <tspan fontWeight="700" fill="#1A2744">${lr.costPerPint.toFixed(4)}</tspan>
+                <tspan fill="#6B7280">{'  '}{pct}%</tspan>
               </text>
             </g>
           )
