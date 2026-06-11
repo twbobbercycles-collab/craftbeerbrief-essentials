@@ -1126,15 +1126,12 @@ export default function RecipeDetailPage() {
         ))}
       </div>
 
-      {/* ── Two-column tab content ── */}
-      <div className="grid grid-cols-1 xl:grid-cols-[55%_45%] gap-6 items-start">
+      {/* ── Tab content ── */}
+      <div>
 
-        {/* LEFT COLUMN */}
-        <div className="min-w-0">
-
-          {/* Ingredient list — shown on 'ingredients' tab and (desktop only) 'cost' tab */}
-          {(activeTab === 'ingredients' || activeTab === 'cost') && (
-          <div className={`space-y-6${activeTab === 'cost' ? ' hidden xl:block' : ''}`}>
+          {/* Ingredients tab */}
+          {activeTab === 'ingredients' && (
+          <div className="space-y-6">
 
           {/* Batch size selector */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
@@ -1293,40 +1290,46 @@ export default function RecipeDetailPage() {
           })}
 
           </div>
-          )}{/* end ingredient list conditional */}
+          )}{/* end ingredients tab */}
 
-          {/* 'cost' tab — mobile: CostPanel + PintGlass in single column */}
+          {/* Cost Calculator tab — CostPanel left (55%), PintGlass right (45%) */}
           {activeTab === 'cost' && (
-            <div className="xl:hidden space-y-6">
-              <CostPanel
-                costs={costs}
-                batchBarrels={costs.batchBarrels}
-                packagingSplits={packagingSplits}
-                onSplitsChange={newSplits => { setPackagingSplits(newSplits); saveCostSettings() }}
-                packagingContainerType={packagingContainerType}
-                packagingCostPerUnit={packagingCostPerUnit}
-                labelCostPerUnit={labelCostPerUnit}
-                carrierCostPerUnit={carrierCostPerUnit}
-                packagingYieldPct={packagingYieldPct}
-                brewHours={brewHours}
-                laborRatePerHour={laborRatePerHour}
-                utilitiesCostPerBarrel={utilitiesCostPerBarrel}
-                cleaningCostPerBatch={cleaningCostPerBatch}
-                waterCostPerBarrel={waterCostPerBarrel}
-                wastewaterCostPerBarrel={wastewaterCostPerBarrel}
-                fixedOverheadPct={fixedOverheadPct}
-                marginPct={marginPct}
-                taxRate={taxRate}
-                exciseTaxRatePerBbl={exciseTaxRatePerBbl}
-                brewery={brewery}
-                onChange={handleCostFieldChange}
-                onBlur={saveCostSettings}
-              />
-              <PintGlassVisualization costs={costs} />
+            <div className="grid grid-cols-1 xl:grid-cols-[55%_45%] gap-6 items-start">
+              <div className="min-w-0">
+                <CostPanel
+                  costs={costs}
+                  batchBarrels={costs.batchBarrels}
+                  packagingSplits={packagingSplits}
+                  onSplitsChange={newSplits => { setPackagingSplits(newSplits); saveCostSettings() }}
+                  packagingContainerType={packagingContainerType}
+                  packagingCostPerUnit={packagingCostPerUnit}
+                  labelCostPerUnit={labelCostPerUnit}
+                  carrierCostPerUnit={carrierCostPerUnit}
+                  packagingYieldPct={packagingYieldPct}
+                  brewHours={brewHours}
+                  laborRatePerHour={laborRatePerHour}
+                  utilitiesCostPerBarrel={utilitiesCostPerBarrel}
+                  cleaningCostPerBatch={cleaningCostPerBatch}
+                  waterCostPerBarrel={waterCostPerBarrel}
+                  wastewaterCostPerBarrel={wastewaterCostPerBarrel}
+                  fixedOverheadPct={fixedOverheadPct}
+                  marginPct={marginPct}
+                  taxRate={taxRate}
+                  exciseTaxRatePerBbl={exciseTaxRatePerBbl}
+                  brewery={brewery}
+                  onChange={handleCostFieldChange}
+                  onBlur={saveCostSettings}
+                />
+              </div>
+              <div className="hidden xl:block min-w-0">
+                <div className="sticky top-4">
+                  <PintGlassVisualization costs={costs} />
+                </div>
+              </div>
             </div>
           )}
 
-          {/* 'water' tab */}
+          {/* Water Chemistry tab */}
           {activeTab === 'water' && (
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden p-5">
               <WaterChemistryTab
@@ -1339,7 +1342,7 @@ export default function RecipeDetailPage() {
             </div>
           )}
 
-          {/* 'history' tab */}
+          {/* Version History tab */}
           {activeTab === 'history' && (
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
               <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
@@ -1394,42 +1397,7 @@ export default function RecipeDetailPage() {
             </div>
           )}
 
-        </div>{/* end left column */}
-
-        {/* RIGHT COLUMN — xl+ only, CostPanel + PintGlass when on cost tab */}
-        <div className="hidden xl:flex xl:flex-col gap-6 min-w-0">
-          {activeTab === 'cost' && (
-            <div className="sticky top-4 space-y-6">
-              <CostPanel
-                costs={costs}
-                batchBarrels={costs.batchBarrels}
-                packagingSplits={packagingSplits}
-                onSplitsChange={newSplits => { setPackagingSplits(newSplits); saveCostSettings() }}
-                packagingContainerType={packagingContainerType}
-                packagingCostPerUnit={packagingCostPerUnit}
-                labelCostPerUnit={labelCostPerUnit}
-                carrierCostPerUnit={carrierCostPerUnit}
-                packagingYieldPct={packagingYieldPct}
-                brewHours={brewHours}
-                laborRatePerHour={laborRatePerHour}
-                utilitiesCostPerBarrel={utilitiesCostPerBarrel}
-                cleaningCostPerBatch={cleaningCostPerBatch}
-                waterCostPerBarrel={waterCostPerBarrel}
-                wastewaterCostPerBarrel={wastewaterCostPerBarrel}
-                fixedOverheadPct={fixedOverheadPct}
-                marginPct={marginPct}
-                taxRate={taxRate}
-                exciseTaxRatePerBbl={exciseTaxRatePerBbl}
-                brewery={brewery}
-                onChange={handleCostFieldChange}
-                onBlur={saveCostSettings}
-              />
-              <PintGlassVisualization costs={costs} />
-            </div>
-          )}
-        </div>
-
-      </div>{/* end two-column grid */}
+      </div>{/* end tab content */}
 
       {/* ── Save New Version modal ── */}
       <ModalShell
@@ -2017,7 +1985,7 @@ function PintGlassVisualization({ costs }) {
       </div>
       <svg viewBox={`0 0 ${VW} ${VH}`} width="100%" height="auto" preserveAspectRatio="xMidYMid meet" style={{ display: 'block' }} className="w-full">
         <defs>
-          <clipPath id="pint-clip">
+          <clipPath id="glassClip" clipPathUnits="userSpaceOnUse">
             <path d={glassPath} />
           </clipPath>
         </defs>
@@ -2026,7 +1994,7 @@ function PintGlassVisualization({ costs }) {
         <path d={glassPath} fill="#EFF6FF" opacity="0.4" />
 
         {/* Beer layers — clipped to glass */}
-        <g clipPath="url(#pint-clip)">
+        <g clipPath="url(#glassClip)">
           {layerRects.map(lr => (
             <rect key={lr.label} x="205" y={lr.topY} width="290" height={lr.h} fill={lr.color} opacity="0.88" />
           ))}
@@ -2038,7 +2006,7 @@ function PintGlassVisualization({ costs }) {
 
         {/* Shine */}
         <line x1={gLeft(GT) + 14} y1={GT + 14} x2={gLeft(GB) + 12} y2={GB - 24}
-          stroke="white" strokeWidth="7" opacity="0.35" clipPath="url(#pint-clip)" />
+          stroke="white" strokeWidth="7" opacity="0.35" clipPath="url(#glassClip)" />
 
         {/* Foam label */}
         <text x={CX} y={BT - 8} textAnchor="middle" fontSize="15" fill="#92400E" fontWeight="500">Foam</text>
