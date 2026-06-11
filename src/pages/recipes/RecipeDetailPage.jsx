@@ -365,21 +365,22 @@ export default function RecipeDetailPage() {
 
   // Fetch fresh brewery overhead values directly from DB to bypass any context caching
   useEffect(() => {
-    async function loadBreweryOverhead() {
+    async function fetchOverhead() {
       if (!brewery?.id) return
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('breweries')
         .select('monthly_fixed_overhead, batches_per_month, labor_rate_per_hour, variable_overhead_per_bbl')
         .eq('id', brewery.id)
-        .single()
-      if (data) {
-        if (data.monthly_fixed_overhead    != null) setMonthlyFixedOverhead(String(data.monthly_fixed_overhead))
-        if (data.batches_per_month         != null) setBatchesPerMonth(String(data.batches_per_month))
-        if (data.labor_rate_per_hour       != null) setLaborRatePerHour(String(data.labor_rate_per_hour))
-        if (data.variable_overhead_per_bbl != null) setVariableOverheadPerBbl(String(data.variable_overhead_per_bbl))
-      }
+        .maybeSingle()
+      if (error) { console.error('fetchOverhead error:', error); return }
+      if (!data) return
+      console.log('Fetched brewery overhead:', data)
+      setMonthlyFixedOverhead(data.monthly_fixed_overhead    != null ? String(data.monthly_fixed_overhead)    : '')
+      setBatchesPerMonth(     data.batches_per_month         != null ? String(data.batches_per_month)         : '4')
+      setLaborRatePerHour(    data.labor_rate_per_hour       != null ? String(data.labor_rate_per_hour)       : '18')
+      setVariableOverheadPerBbl(data.variable_overhead_per_bbl != null ? String(data.variable_overhead_per_bbl) : '15')
     }
-    loadBreweryOverhead()
+    fetchOverhead()
   }, [brewery?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Cost calculations (memoized — recomputes only when inputs change) ─────────
@@ -2000,16 +2001,16 @@ function PintGlassVisualization({ costs }) {
     )
   }
 
-  // SVG coordinate constants — glass shifted left to make room for right-side labels
-  const VW = 700, VH = 600
+  // SVG coordinate constants — wider glass, shifted left for right-side labels
+  const VW = 600, VH = 580
   const GT = 20, GB = 560       // glass top / bottom y (height = 540)
   const GH = GB - GT            // 540
-  const CX = 220                // glass center x (shifted left)
-  const HWT = 110, HWB = 85    // half-widths at top / bottom → 220px top, 170px bottom
+  const CX = 180                // glass center x (shifted left)
+  const HWT = 140, HWB = 110   // half-widths at top / bottom → 280px top, 220px bottom
 
-  const FOAM_H = 60
-  const BT = GT + FOAM_H        // beer top y = 80
-  const BH = GB - BT            // beer height = 480
+  const FOAM_H = 50
+  const BT = GT + FOAM_H        // beer top y = 70
+  const BH = GB - BT            // beer height = 490
 
   function gLeft(y)  { return CX - HWT + (HWT - HWB) * (y - GT) / GH }
   function gRight(y) { return CX + HWT - (HWT - HWB) * (y - GT) / GH }
@@ -2017,8 +2018,8 @@ function PintGlassVisualization({ costs }) {
   const glassPath = `M${CX - HWT},${GT} L${CX + HWT},${GT} L${CX + HWB},${GB} Q${CX},${GB + 14} ${CX - HWB},${GB} Z`
   const foamPath  = [
     `M${gLeft(BT)},${BT}`,
-    `Q${CX - 42},${BT - 26} ${CX},${BT - 22}`,
-    `Q${CX + 42},${BT - 18} ${gRight(BT)},${BT}`,
+    `Q${CX - 52},${BT - 30} ${CX},${BT - 26}`,
+    `Q${CX + 52},${BT - 22} ${gRight(BT)},${BT}`,
     `L${CX + HWT},${GT} L${CX - HWT},${GT} Z`,
   ].join(' ')
 
@@ -2051,7 +2052,7 @@ function PintGlassVisualization({ costs }) {
   }
 
   const labelYs = spreadPositions(naturalYs)
-  const LABEL_X = 348   // right-side label text start x
+  const LABEL_X = 345   // right-side label text start x
 
   return (
     <div>
@@ -2069,11 +2070,13 @@ function PintGlassVisualization({ costs }) {
         {/* Glass background tint */}
         <path d={glassPath} fill="#EFF6FF" opacity="0.4" />
 
-        {/* Beer layers — clipped to glass */}
+        {/* Beer layers — clipped to glass, width interpolated at each layer's top edge */}
         <g clipPath="url(#glassClip)">
-          {layerRects.map(lr => (
-            <rect key={lr.label} x={CX - HWT} y={lr.topY} width={HWT * 2} height={lr.h} fill={lr.color} opacity="0.88" />
-          ))}
+          {layerRects.map(lr => {
+            const lx = gLeft(lr.topY)
+            const rx = gRight(lr.topY)
+            return <rect key={lr.label} x={lx} y={lr.topY} width={rx - lx} height={lr.h} fill={lr.color} opacity="0.88" />
+          })}
           <path d={foamPath} fill="#FFF8E7" />
         </g>
 
@@ -2097,11 +2100,10 @@ function PintGlassVisualization({ costs }) {
             <g key={lr.label}>
               {/* Colored dot at glass right edge */}
               <circle cx={anchorX} cy={anchorY} r="3.5" fill={lr.color} />
-              {/* Dashed connector from glass edge to label */}
-              <line
-                x1={anchorX + 5} y1={anchorY}
-                x2={LABEL_X - 6} y2={lY}
-                stroke="#CBD5E1" strokeWidth="1" strokeDasharray="3,3"
+              {/* Dashed connector: from glass right edge → elbow at x=325 → to label */}
+              <polyline
+                points={`${anchorX + 4},${anchorY} 325,${anchorY} 325,${lY} ${LABEL_X - 4},${lY}`}
+                fill="none" stroke="#CBD5E1" strokeWidth="1" strokeDasharray="3,3"
               />
               {/* Label line 1: name + cost */}
               <text x={LABEL_X} y={lY} textAnchor="start" fontSize="13" fill="#1A2744" fontWeight="600">
