@@ -200,6 +200,15 @@ export default function RecipeDetailPage() {
   const [taxRate,                setTaxRate]                = useState('0')
   const [exciseTaxRatePerBbl,    setExciseTaxRatePerBbl]    = useState(3.50)
 
+  // Expanded labor & overhead — saved to brewery profile
+  const [brewers,               setBrewers]               = useState('2')
+  const [brewHoursPerBrewer,    setBrewHoursPerBrewer]    = useState('8')
+  const [packagingHours,        setPackagingHours]        = useState('4')
+  const [packagingLaborRate,    setPackagingLaborRate]    = useState('16')
+  const [monthlyFixedOverhead,  setMonthlyFixedOverhead]  = useState('')
+  const [batchesPerMonth,       setBatchesPerMonth]       = useState('4')
+  const [variableOverheadPerBbl, setVariableOverheadPerBbl] = useState('15')
+
   // Inline name editing
   const [editingName, setEditingName]   = useState(false)
   const [nameVal, setNameVal]           = useState('')
@@ -349,6 +358,15 @@ export default function RecipeDetailPage() {
     }
   }, [brewery?.annual_production_estimate]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Load overhead profile defaults from brewery settings
+  useEffect(() => {
+    if (!brewery) return
+    if (brewery.monthly_fixed_overhead)    setMonthlyFixedOverhead(String(brewery.monthly_fixed_overhead))
+    if (brewery.batches_per_month)         setBatchesPerMonth(String(brewery.batches_per_month))
+    if (brewery.labor_rate_per_hour)       setLaborRatePerHour(String(brewery.labor_rate_per_hour))
+    if (brewery.variable_overhead_per_bbl) setVariableOverheadPerBbl(String(brewery.variable_overhead_per_bbl))
+  }, [brewery?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Cost calculations (memoized — recomputes only when inputs change) ─────────
 
   const costs = useMemo(() => {
@@ -397,30 +415,48 @@ export default function RecipeDetailPage() {
       )
     }
 
-    const laborCost = calculateLaborCost(parseFloat(brewHours) || 0, parseFloat(laborRatePerHour) || 0)
-    const utilitiesBreakdown = calculateUtilitiesCost(
-      batchBarrels,
-      parseFloat(utilitiesCostPerBarrel)  || 10,
-      parseFloat(cleaningCostPerBatch)    || 15,
-      parseFloat(waterCostPerBarrel)      || 0.50,
-      parseFloat(wastewaterCostPerBarrel) || 0.30,
-    )
-    const breakdown = calculateTotalProductionCost(
-      ingredientCost, packagingCost, laborCost, utilitiesBreakdown.total, parseFloat(fixedOverheadPct) || 15,
-    )
+    const totalPints = batchBarrels * 124
+    const tp1 = totalPints || 1
 
-    const costPerBarrel   = calculateCostPerBarrel(breakdown.totalCost, batchBarrels)
-    const costPerPint     = calculateCostPerPint(costPerBarrel)
+    // Per-pint ingredient and packaging costs
+    const ingredientCostPerPint = ingredientCost / tp1
+    const packagingCostPerPint  = packagingCost  / tp1
 
-    // Federal excise tax — $3.50/bbl small brewer rate, applied per pint
+    // Direct brew labor
+    const totalBrewLaborCost  = (parseFloat(brewers) || 0) * (parseFloat(brewHoursPerBrewer) || 0) * (parseFloat(laborRatePerHour) || 0)
+    const brewLaborPerPint    = totalPints > 0 ? totalBrewLaborCost / totalPints : 0
+
+    // Packaging labor
+    const totalPackagingLaborCost = (parseFloat(packagingHours) || 0) * (parseFloat(packagingLaborRate) || 0)
+    const packagingLaborPerPint   = totalPints > 0 ? totalPackagingLaborCost / totalPints : 0
+
+    // Fixed overhead per batch (monthly fixed costs divided by batches per month)
+    const fixedOverheadPerBatch   = (parseFloat(monthlyFixedOverhead) || 0) / (parseFloat(batchesPerMonth) || 4)
+    const fixedOverheadPerPint    = totalPints > 0 ? fixedOverheadPerBatch / totalPints : 0
+
+    // Variable overhead (utilities, cleaning, QC per barrel)
+    const variableOverheadTotal   = batchBarrels * (parseFloat(variableOverheadPerBbl) || 0)
+    const variableOverheadPerPint = totalPints > 0 ? variableOverheadTotal / totalPints : 0
+
+    const totalOverheadPerPint = brewLaborPerPint + packagingLaborPerPint + fixedOverheadPerPint + variableOverheadPerPint
+
+    // Federal excise tax
     const exciseTaxBatchTotal = batchBarrels * (parseFloat(exciseTaxRatePerBbl) || 3.50)
-    const totalPints = batchBarrels * 124 // as specified: 124 pints per barrel for this calculation
-    const exciseTaxPerPint = totalPints > 0 ? exciseTaxBatchTotal / totalPints : 0
-    const trueCostPerPint = costPerPint + exciseTaxPerPint
+    const exciseTaxPerPint    = totalPints > 0 ? exciseTaxBatchTotal / totalPints : 0
 
-    const suggestedRetail = calculateSuggestedRetail(trueCostPerPint, parseFloat(marginPct) || 65)
+    // True cost per pint — all components combined
+    const trueCostPerPint = ingredientCostPerPint + packagingCostPerPint + totalOverheadPerPint + exciseTaxPerPint
+
+    // Total batch production cost (for per-unit calculations in packaged output)
+    const totalCost = ingredientCost + packagingCost + totalBrewLaborCost + totalPackagingLaborCost + fixedOverheadPerBatch + variableOverheadTotal
+
+    const targetMarginPct = parseFloat(marginPct) || 65
+    const suggestedRetail = targetMarginPct > 0 && targetMarginPct < 100
+      ? trueCostPerPint / (1 - targetMarginPct / 100)
+      : trueCostPerPint * 2
     const taxInclusivePrice = calculateTaxInclusivePrice(suggestedRetail, parseFloat(taxRate) || 0)
-    const grossMargin     = calculateGrossMargin(suggestedRetail, trueCostPerPint)
+    const grossMarginPct    = suggestedRetail > 0 ? ((suggestedRetail - trueCostPerPint) / suggestedRetail) * 100 : 0
+    const grossMargin       = { percentage: grossMarginPct, dollars: suggestedRetail - trueCostPerPint }
 
     // Total units produced across all splits (or single container)
     const unitsProduced = packagingSplits.length > 0
@@ -444,7 +480,7 @@ export default function RecipeDetailPage() {
         parseFloat(split.label_cost_per_unit) || 0,
         parseFloat(split.carrier_cost_per_unit) || 0,
       )
-      const allocatedCost = breakdown.totalCost * (splitPct / 100)
+      const allocatedCost = totalCost * (splitPct / 100)
       const costPerUnit   = units > 0 ? allocatedCost / units : null
       const ppc           = split.container_type && split.container_type !== 'Draft/Taproom'
         ? pintsPerContainer(split.container_type) : null
@@ -453,7 +489,6 @@ export default function RecipeDetailPage() {
     })
 
     // Per-category ingredient costs for pint glass visualization
-    const tp1 = totalPints || 1
     const isGrain = lc => lc.category === 'Malt/Grain' || (lc.name ?? '').toLowerCase().includes('malt') || (lc.name ?? '').toLowerCase().includes('grain')
     const isHops  = lc => lc.category === 'Hops'  || (lc.name ?? '').toLowerCase().includes('hop')
     const isYeast = lc => lc.category === 'Yeast' || (lc.name ?? '').toLowerCase().includes('yeast')
@@ -464,18 +499,28 @@ export default function RecipeDetailPage() {
     const otherIngCostPerPint = lineCosts.filter(isOther).reduce((s, lc) => s + lc.totalCost, 0) / tp1
 
     return {
-      ...breakdown, utilitiesBreakdown,
-      costPerBarrel, costPerPint, exciseTaxBatchTotal, exciseTaxPerPint, trueCostPerPint,
-      suggestedRetail, taxInclusivePrice,
-      grossMargin, batchBarrels, totalPints, unitsProduced, lineCosts, splitOutputs,
+      ingredientCost, packagingCost,
+      ingredientCostPerPint, packagingCostPerPint,
+      totalBrewLaborCost, brewLaborPerPint,
+      totalPackagingLaborCost, packagingLaborPerPint,
+      fixedOverheadPerBatch, fixedOverheadPerPint,
+      variableOverheadTotal, variableOverheadPerPint,
+      totalOverheadPerPint,
+      exciseTaxBatchTotal, exciseTaxPerPint,
+      trueCostPerPint, totalCost,
+      suggestedRetail, taxInclusivePrice, grossMargin,
+      batchBarrels, totalPints, unitsProduced,
+      lineCosts, splitOutputs,
       grainCostPerPint, hopsCostPerPint, yeastCostPerPint, otherIngCostPerPint,
     }
   }, [
     lines, recipe, batchSize,
     packagingSplits,
     packagingContainerType, packagingCostPerUnit, labelCostPerUnit, carrierCostPerUnit, packagingYieldPct,
-    brewHours, laborRatePerHour, utilitiesCostPerBarrel, cleaningCostPerBatch,
-    waterCostPerBarrel, wastewaterCostPerBarrel, fixedOverheadPct,
+    brewers, brewHoursPerBrewer, laborRatePerHour,
+    packagingHours, packagingLaborRate,
+    monthlyFixedOverhead, batchesPerMonth,
+    variableOverheadPerBbl,
     marginPct, taxRate, exciseTaxRatePerBbl,
   ])
 
@@ -493,21 +538,22 @@ export default function RecipeDetailPage() {
 
   function handleCostFieldChange(field, value) {
     const setters = {
-      packagingContainerType: setPackagingContainerType,
-      packagingCostPerUnit:   setPackagingCostPerUnit,
-      labelCostPerUnit:       setLabelCostPerUnit,
-      carrierCostPerUnit:     setCarrierCostPerUnit,
-      packagingYieldPct:      setPackagingYieldPct,
-      brewHours:              setBrewHours,
-      laborRatePerHour:       setLaborRatePerHour,
-      utilitiesCostPerBarrel:  setUtilitiesCostPerBarrel,
-      cleaningCostPerBatch:    setCleaningCostPerBatch,
-      waterCostPerBarrel:      setWaterCostPerBarrel,
-      wastewaterCostPerBarrel: setWastewaterCostPerBarrel,
-      fixedOverheadPct:        setFixedOverheadPct,
-      marginPct:              setMarginPct,
-      taxRate:                setTaxRate,
-      exciseTaxRatePerBbl:    setExciseTaxRatePerBbl,
+      packagingContainerType:  setPackagingContainerType,
+      packagingCostPerUnit:    setPackagingCostPerUnit,
+      labelCostPerUnit:        setLabelCostPerUnit,
+      carrierCostPerUnit:      setCarrierCostPerUnit,
+      packagingYieldPct:       setPackagingYieldPct,
+      brewers:                 setBrewers,
+      brewHoursPerBrewer:      setBrewHoursPerBrewer,
+      laborRatePerHour:        setLaborRatePerHour,
+      packagingHours:          setPackagingHours,
+      packagingLaborRate:      setPackagingLaborRate,
+      monthlyFixedOverhead:    setMonthlyFixedOverhead,
+      batchesPerMonth:         setBatchesPerMonth,
+      variableOverheadPerBbl:  setVariableOverheadPerBbl,
+      marginPct:               setMarginPct,
+      taxRate:                 setTaxRate,
+      exciseTaxRatePerBbl:     setExciseTaxRatePerBbl,
     }
     setters[field]?.(value)
   }
@@ -535,6 +581,18 @@ export default function RecipeDetailPage() {
       excise_tax_rate_per_bbl:    parseFloat(exciseTaxRatePerBbl) || 3.50,
     }).eq('id', id)
     setAutoSaveStatus(saveErr ? 'error' : 'saved')
+  }
+
+  // ── Save overhead defaults to brewery profile ─────────────────────────────────
+
+  async function saveOverheadToBreweryProfile() {
+    if (!brewery?.id) return
+    await supabase.from('breweries').update({
+      labor_rate_per_hour:        safeParse(laborRatePerHour,        0),
+      monthly_fixed_overhead:     safeParse(monthlyFixedOverhead,    0),
+      batches_per_month:          safeParse(batchesPerMonth,         4),
+      variable_overhead_per_bbl:  safeParse(variableOverheadPerBbl,  15),
+    }).eq('id', brewery.id)
   }
 
   // ── Archive / unarchive ───────────────────────────────────────────────────────
@@ -750,24 +808,21 @@ export default function RecipeDetailPage() {
         return [l?.addition_type ?? '', lc.name, lc.scaled.toFixed(4), l?.unit ?? '', formatDollars(lc.effectiveCost), formatDollars(lc.totalCost)]
       }),
       [],
-      ['Ingredient Cost',           formatDollars(costs.ingredientCost)],
-      ['Packaging Cost',            formatDollars(costs.packagingCost)],
-      ['Labor Cost',                formatDollars(costs.laborCost)],
-      ['  Electric, gas & CO2',     formatDollars(costs.utilitiesBreakdown?.utilityCost)],
-      ['  Water',                   formatDollars(costs.utilitiesBreakdown?.waterCost)],
-      ['  Wastewater surcharge',    formatDollars(costs.utilitiesBreakdown?.wastewaterCost)],
-      ['  Cleaning chemicals',      formatDollars(costs.utilitiesBreakdown?.cleaningCost)],
-      ['Utilities Total',           formatDollars(costs.utilitiesCost)],
-      ['Direct Costs',              formatDollars(costs.directCosts)],
-      ['Fixed Overhead',     formatDollars(costs.overhead)],
-      ['Total Production Cost', formatDollars(costs.totalCost)],
-      ['Cost per Barrel',                formatDollars(costs.costPerBarrel)],
-      ['Production Cost per Pint',       formatDollars(costs.costPerPint)],
-      ['Federal Excise Tax per Pint',    formatDollars(costs.exciseTaxPerPint)],
-      ['True Cost per Pint',             formatDollars(costs.trueCostPerPint)],
-      ['Suggested Retail (pre-tax)',     formatDollars(costs.suggestedRetail)],
-      ['Suggested Retail (tax-incl.)',   formatDollars(costs.taxInclusivePrice)],
-      ['Gross Margin',                   formatPct(costs.grossMargin?.percentage)],
+      ['Ingredient Cost',              formatDollars(costs.ingredientCost)],
+      ['Packaging Cost',               formatDollars(costs.packagingCost)],
+      ['Brew Labor',                   formatDollars(costs.totalBrewLaborCost)],
+      ['Packaging Labor',              formatDollars(costs.totalPackagingLaborCost)],
+      ['Fixed Overhead (per batch)',   formatDollars(costs.fixedOverheadPerBatch)],
+      ['Variable Overhead',            formatDollars(costs.variableOverheadTotal)],
+      ['Total Production Cost',        formatDollars(costs.totalCost)],
+      ['Ingredient Cost per Pint',     formatDollars(costs.ingredientCostPerPint)],
+      ['Packaging Cost per Pint',      formatDollars(costs.packagingCostPerPint)],
+      ['Labor & Overhead per Pint',    formatDollars(costs.totalOverheadPerPint)],
+      ['Federal Excise Tax per Pint',  formatDollars(costs.exciseTaxPerPint)],
+      ['True Cost per Pint',           formatDollars(costs.trueCostPerPint)],
+      ['Suggested Retail (pre-tax)',   formatDollars(costs.suggestedRetail)],
+      ['Suggested Retail (tax-incl.)', formatDollars(costs.taxInclusivePrice)],
+      ['Gross Margin',                 formatPct(costs.grossMargin?.percentage)],
     ]
 
     const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n')
@@ -1306,19 +1361,21 @@ export default function RecipeDetailPage() {
                   labelCostPerUnit={labelCostPerUnit}
                   carrierCostPerUnit={carrierCostPerUnit}
                   packagingYieldPct={packagingYieldPct}
-                  brewHours={brewHours}
+                  brewers={brewers}
+                  brewHoursPerBrewer={brewHoursPerBrewer}
                   laborRatePerHour={laborRatePerHour}
-                  utilitiesCostPerBarrel={utilitiesCostPerBarrel}
-                  cleaningCostPerBatch={cleaningCostPerBatch}
-                  waterCostPerBarrel={waterCostPerBarrel}
-                  wastewaterCostPerBarrel={wastewaterCostPerBarrel}
-                  fixedOverheadPct={fixedOverheadPct}
+                  packagingHours={packagingHours}
+                  packagingLaborRate={packagingLaborRate}
+                  monthlyFixedOverhead={monthlyFixedOverhead}
+                  batchesPerMonth={batchesPerMonth}
+                  variableOverheadPerBbl={variableOverheadPerBbl}
                   marginPct={marginPct}
                   taxRate={taxRate}
                   exciseTaxRatePerBbl={exciseTaxRatePerBbl}
                   brewery={brewery}
                   onChange={handleCostFieldChange}
                   onBlur={saveCostSettings}
+                  onSaveToProfile={saveOverheadToBreweryProfile}
                 />
               </div>
               <div className="hidden xl:block min-w-0">
@@ -1891,26 +1948,27 @@ function IngredientRow({
 function PintGlassVisualization({ costs }) {
   const {
     suggestedRetail = 0, trueCostPerPint = 0, exciseTaxPerPint = 0,
-    totalPints = 0, packagingCost = 0, laborCost = 0, overhead = 0,
-    utilitiesBreakdown, grainCostPerPint = 0, hopsCostPerPint = 0,
+    grainCostPerPint = 0, hopsCostPerPint = 0,
     yeastCostPerPint = 0, otherIngCostPerPint = 0,
+    packagingCostPerPint = 0,
+    brewLaborPerPint = 0, packagingLaborPerPint = 0,
+    fixedOverheadPerPint = 0, variableOverheadPerPint = 0,
   } = costs
 
-  const tp              = totalPints || 1
-  const utilitiesCost   = utilitiesBreakdown?.total ?? costs.utilitiesCost ?? 0
-  const packagingCPP    = packagingCost / tp
-  const laborOvhdCPP    = (laborCost + utilitiesCost + overhead) / tp
-  const marginCPP       = Math.max(0, suggestedRetail - trueCostPerPint)
+  const marginCPP = Math.max(0, suggestedRetail - trueCostPerPint)
 
   const allLayers = [
-    { label: 'Grain & Malt',      color: '#92400E', costPerPint: grainCostPerPint },
-    { label: 'Hops',              color: '#16A34A', costPerPint: hopsCostPerPint },
-    { label: 'Yeast',             color: '#CA8A04', costPerPint: yeastCostPerPint },
-    { label: 'Other Ingredients', color: '#2563EB', costPerPint: otherIngCostPerPint },
-    { label: 'Packaging',         color: '#64748B', costPerPint: packagingCPP },
-    { label: 'Labor & Overhead',  color: '#EA580C', costPerPint: laborOvhdCPP },
-    { label: 'Excise Tax',        color: '#D97706', costPerPint: exciseTaxPerPint },
-    { label: "Brewer's Margin",   color: '#1A2744', costPerPint: marginCPP },
+    { label: 'Grain & Malt',       color: '#92400E', costPerPint: grainCostPerPint },
+    { label: 'Hops',               color: '#16A34A', costPerPint: hopsCostPerPint },
+    { label: 'Yeast',              color: '#CA8A04', costPerPint: yeastCostPerPint },
+    { label: 'Other Ingredients',  color: '#2563EB', costPerPint: otherIngCostPerPint },
+    { label: 'Packaging',          color: '#64748B', costPerPint: packagingCostPerPint },
+    { label: 'Brew Labor',         color: '#EA580C', costPerPint: brewLaborPerPint },
+    { label: 'Packaging Labor',    color: '#F97316', costPerPint: packagingLaborPerPint },
+    { label: 'Fixed Overhead',     color: '#7C3AED', costPerPint: fixedOverheadPerPint },
+    { label: 'Variable Overhead',  color: '#A855F7', costPerPint: variableOverheadPerPint },
+    { label: 'Excise Tax',         color: '#D97706', costPerPint: exciseTaxPerPint },
+    { label: "Brewer's Margin",    color: '#1A2744', costPerPint: marginCPP },
   ]
   const filledLayers   = allLayers.filter(l => l.costPerPint > 0.000001)
   const hasEmptyLayers = filledLayers.length < allLayers.length
@@ -2058,15 +2116,16 @@ function CostPanel({
   batchBarrels,
   packagingSplits, onSplitsChange,
   packagingContainerType, packagingCostPerUnit, labelCostPerUnit, carrierCostPerUnit, packagingYieldPct,
-  brewHours, laborRatePerHour,
-  utilitiesCostPerBarrel, cleaningCostPerBatch, waterCostPerBarrel, wastewaterCostPerBarrel,
-  fixedOverheadPct, marginPct, taxRate, exciseTaxRatePerBbl, brewery,
-  onChange, onBlur,
+  brewers, brewHoursPerBrewer, laborRatePerHour,
+  packagingHours, packagingLaborRate,
+  monthlyFixedOverhead, batchesPerMonth, variableOverheadPerBbl,
+  marginPct, taxRate, exciseTaxRatePerBbl, brewery,
+  onChange, onBlur, onSaveToProfile,
 }) {
-  const [packagingOpen,  setPackagingOpen]  = useState(true)
-  const [laborOpen,      setLaborOpen]      = useState(false)
-  const [utilitiesOpen,  setUtilitiesOpen]  = useState(false)
-  const [overheadOpen,   setOverheadOpen]   = useState(false)
+  const [packagingOpen, setPackagingOpen] = useState(true)
+  const [laborOpen,     setLaborOpen]     = useState(false)
+  const [overheadOpen,  setOverheadOpen]  = useState(false)
+  const [overheadInfoOpen, setOverheadInfoOpen] = useState(false)
 
   const grossPct    = costs.grossMargin?.percentage ?? 0
   const targetPct   = parseFloat(marginPct) || 65
@@ -2076,13 +2135,15 @@ function CostPanel({
   const hasSplits     = packagingSplits && packagingSplits.length > 0
   const unitsProduced = costs.unitsProduced
 
-  // Single-container per-unit retail (only used when no splits are defined)
   const ppc              = !hasSplits && packagingContainerType ? pintsPerContainer(packagingContainerType) : null
   const retailPerUnit    = ppc != null ? costs.suggestedRetail * ppc : null
   const costPerUnit      = !hasSplits && unitsProduced > 0 ? costs.totalCost / unitsProduced : null
   const projectedRevenue = retailPerUnit != null && unitsProduced ? retailPerUnit * unitsProduced : null
   const projectedProfit  = costPerUnit != null && retailPerUnit != null && unitsProduced
     ? (retailPerUnit - costPerUnit) * unitsProduced : null
+
+  const totalLaborCost    = (costs.totalBrewLaborCost ?? 0) + (costs.totalPackagingLaborCost ?? 0)
+  const totalOverheadCost = (costs.fixedOverheadPerBatch ?? 0) + (costs.variableOverheadTotal ?? 0)
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden text-xs">
@@ -2091,7 +2152,7 @@ function CostPanel({
         <h3 className="font-bold text-navy text-sm">Cost Calculator</h3>
       </div>
 
-      {/* ── Section 1: Ingredient Costs (always expanded) ── */}
+      {/* ── Section 1: Ingredient Costs ── */}
       <div className="px-4 py-3 space-y-1.5">
         <p className="font-semibold text-gray-500 uppercase tracking-wide">Ingredient Costs</p>
         {(costs.lineCosts ?? []).filter(lc => lc.totalCost > 0 || lc.effectiveCost > 0).map(lc => (
@@ -2103,7 +2164,7 @@ function CostPanel({
         <CostRow label="Ingredient subtotal" value={costs.ingredientCost} bold />
       </div>
 
-      {/* ── Section 2: Packaging Costs — multi-split editor ── */}
+      {/* ── Section 2: Packaging ── */}
       <SectionToggle title="Packaging" subtotal={costs.packagingCost} open={packagingOpen} onToggle={() => setPackagingOpen(v => !v)}>
         <PackagingSplitsEditor
           splits={packagingSplits ?? []}
@@ -2114,74 +2175,96 @@ function CostPanel({
         <CostRow label="Packaging subtotal" value={costs.packagingCost} bold />
       </SectionToggle>
 
-      {/* ── Section 3: Direct Labor ── */}
-      <SectionToggle title="Direct Labor" subtotal={costs.laborCost} open={laborOpen} onToggle={() => setLaborOpen(v => !v)}>
-        <NumField label="Brew day hours" value={brewHours} onChange={v => onChange('brewHours', v)} onBlur={onBlur} />
+      {/* ── Section 3: Production Labor ── */}
+      <SectionToggle title="Production Labor" subtotal={totalLaborCost} open={laborOpen} onToggle={() => setLaborOpen(v => !v)}>
+        <p className="text-[10px] text-gray-400 mb-2">Brew Labor</p>
+        <NumField label="Brewers on shift" value={brewers} onChange={v => onChange('brewers', v)} onBlur={onBlur} />
+        <NumField label="Hours per brewer" value={brewHoursPerBrewer} onChange={v => onChange('brewHoursPerBrewer', v)} onBlur={onBlur} />
         <NumField label="Labor rate/hour ($)" value={laborRatePerHour} onChange={v => onChange('laborRatePerHour', v)} onBlur={onBlur} />
-        <CostRow label="Labor subtotal" value={costs.laborCost} bold />
-      </SectionToggle>
-
-      {/* ── Section 4: Utilities & Supplies ── */}
-      <SectionToggle title="Utilities & Supplies" subtotal={costs.utilitiesCost} open={utilitiesOpen} onToggle={() => setUtilitiesOpen(v => !v)}>
-        <NumField
-          label="Electric, gas & CO2/barrel ($)"
-          tooltip="Covers electricity, natural gas, and CO2 per barrel of beer produced."
-          value={utilitiesCostPerBarrel}
-          onChange={v => onChange('utilitiesCostPerBarrel', v)}
-          onBlur={onBlur}
-        />
-        <NumField
-          label="Water cost/barrel ($)"
-          tooltip="Municipal water cost per barrel of beer produced including brewing, cleaning, and cooling water. Average US brewery pays between $0.003 and $0.01 per gallon."
-          value={waterCostPerBarrel}
-          onChange={v => onChange('waterCostPerBarrel', v)}
-          onBlur={onBlur}
-        />
-        <NumField
-          label="Wastewater surcharge/barrel ($)"
-          tooltip="Many municipalities charge breweries wastewater surcharges based on discharge volume. Check your municipal utility bill for your actual rate."
-          value={wastewaterCostPerBarrel}
-          onChange={v => onChange('wastewaterCostPerBarrel', v)}
-          onBlur={onBlur}
-        />
-        <NumField label="Cleaning chemicals/batch ($)" value={cleaningCostPerBatch} onChange={v => onChange('cleaningCostPerBatch', v)} onBlur={onBlur} />
-        {/* Utilities sub-breakdown */}
-        <div className="space-y-1 pt-1 border-t border-gray-100">
-          <CostRow label="Electric, gas & CO2" value={costs.utilitiesBreakdown?.utilityCost} />
-          <CostRow label="Water and wastewater" value={(costs.utilitiesBreakdown?.waterCost ?? 0) + (costs.utilitiesBreakdown?.wastewaterCost ?? 0)} />
-          <CostRow label="Cleaning and supplies" value={costs.utilitiesBreakdown?.cleaningCost} />
-          <CostRow label="Utilities subtotal" value={costs.utilitiesCost} bold />
+        <CostRow label="Brew labor subtotal" value={costs.totalBrewLaborCost} />
+        <p className="text-[10px] text-gray-400 mt-2 mb-1">Packaging Labor</p>
+        <NumField label="Packaging hours/batch" value={packagingHours} onChange={v => onChange('packagingHours', v)} onBlur={onBlur} />
+        <NumField label="Packaging labor rate/hour ($)" value={packagingLaborRate} onChange={v => onChange('packagingLaborRate', v)} onBlur={onBlur} />
+        <CostRow label="Packaging labor subtotal" value={costs.totalPackagingLaborCost} />
+        <div className="border-t border-gray-100 pt-1 mt-1">
+          <CostRow label="Total labor" value={totalLaborCost} bold />
         </div>
       </SectionToggle>
 
-      {/* ── Section 5: Fixed Overhead ── */}
-      <SectionToggle title="Fixed Overhead" subtotal={costs.overhead} open={overheadOpen} onToggle={() => setOverheadOpen(v => !v)}>
+      {/* ── Section 4: Overhead ── */}
+      <SectionToggle title="Overhead" subtotal={totalOverheadCost} open={overheadOpen} onToggle={() => setOverheadOpen(v => !v)}>
+        {/* Collapsible explainer */}
+        <div className="mb-2">
+          <button
+            type="button"
+            onClick={() => setOverheadInfoOpen(v => !v)}
+            className="text-[10px] text-amber font-medium flex items-center gap-1"
+          >
+            {overheadInfoOpen ? '▾' : '▸'} What counts as overhead?
+          </button>
+          {overheadInfoOpen && (
+            <div className="mt-1 p-2 bg-amber/5 rounded text-[10px] text-gray-500 leading-snug space-y-1">
+              <p><strong>Fixed overhead</strong> — rent, equipment depreciation, insurance, licenses, office admin. Enter your total monthly fixed costs and how many batches you brew per month.</p>
+              <p><strong>Variable overhead</strong> — utilities (electricity, gas, CO2), water &amp; wastewater, cleaning chemicals, QC lab. Enter a per-barrel rate so it scales with batch size.</p>
+            </div>
+          )}
+        </div>
+        <p className="text-[10px] text-gray-400 mb-1">Fixed Overhead</p>
         <NumField
-          label="Fixed overhead %"
-          tooltip="Added on top of all direct costs to cover fixed expenses like rent, equipment depreciation, insurance, and licenses. 15% is a reasonable starting point."
-          value={fixedOverheadPct}
-          onChange={v => onChange('fixedOverheadPct', v)}
+          label="Monthly fixed costs ($)"
+          tooltip="Rent, equipment depreciation, insurance, licenses, loan payments — costs that don't change with batch volume."
+          value={monthlyFixedOverhead}
+          onChange={v => onChange('monthlyFixedOverhead', v)}
           onBlur={onBlur}
-          suffix="%"
         />
-        <CostRow label="Overhead amount" value={costs.overhead} bold />
+        <NumField
+          label="Batches brewed per month"
+          tooltip="Used to allocate your monthly fixed overhead across individual batches."
+          value={batchesPerMonth}
+          onChange={v => onChange('batchesPerMonth', v)}
+          onBlur={onBlur}
+        />
+        <CostRow label="Fixed overhead per batch" value={costs.fixedOverheadPerBatch} />
+        <p className="text-[10px] text-gray-400 mt-2 mb-1">Variable Overhead</p>
+        <NumField
+          label="Variable overhead/barrel ($)"
+          tooltip="Utilities, water, wastewater, cleaning chemicals, and QC costs per barrel produced. Scales with batch size."
+          value={variableOverheadPerBbl}
+          onChange={v => onChange('variableOverheadPerBbl', v)}
+          onBlur={onBlur}
+        />
+        <CostRow label="Variable overhead this batch" value={costs.variableOverheadTotal} />
+        <div className="border-t border-gray-100 pt-1 mt-1">
+          <CostRow label="Total overhead" value={totalOverheadCost} bold />
+        </div>
+        {onSaveToProfile && (
+          <button
+            type="button"
+            onClick={onSaveToProfile}
+            className="mt-2 text-[10px] text-amber font-medium hover:underline"
+          >
+            Save labor &amp; overhead as brewery defaults →
+          </button>
+        )}
       </SectionToggle>
 
-      {/* ── Summary ── */}
+      {/* ── Cost Summary ── */}
       <div className="px-4 py-3 space-y-1">
         <p className="font-semibold text-gray-500 uppercase tracking-wide mb-2">Cost Summary</p>
-        <CostRow label="Ingredient costs"     value={costs.ingredientCost} />
-        <CostRow label="Packaging costs"      value={costs.packagingCost} />
-        <CostRow label="Labor"                value={costs.laborCost} />
-        <CostRow label="Utilities & supplies" value={costs.utilitiesCost} />
-        <CostRow label="Direct costs subtotal" value={costs.directCosts} bold />
-        <CostRow label={`Fixed overhead (${fixedOverheadPct}%)`} value={costs.overhead} />
+        <CostRow label="Ingredient costs"    value={costs.ingredientCost} />
+        <CostRow label="Packaging costs"     value={costs.packagingCost} />
+        <CostRow label="Production labor"    value={totalLaborCost} />
+        <CostRow label="Overhead"            value={totalOverheadCost} />
         <CostRow label="Total production cost" value={costs.totalCost} bold />
-        <div className="border-t border-gray-100 pt-1">
-          <CostRow label="Cost per barrel" value={costs.costPerBarrel} />
-          <CostRow label="Production cost per pint" value={costs.costPerPint} />
-          <div className="flex justify-between gap-2 text-xs text-amber font-medium">
-            <span>+ Federal excise tax/pint</span>
+        <div className="border-t border-gray-100 pt-1 mt-1">
+          <p className="text-[10px] text-gray-400 mb-1">Per pint breakdown</p>
+          <CostRow label="Ingredients"        value={costs.ingredientCostPerPint} />
+          <CostRow label="Packaging"          value={costs.packagingCostPerPint} />
+          <CostRow label="Labor"              value={(costs.brewLaborPerPint ?? 0) + (costs.packagingLaborPerPint ?? 0)} />
+          <CostRow label="Fixed overhead"     value={costs.fixedOverheadPerPint} />
+          <CostRow label="Variable overhead"  value={costs.variableOverheadPerPint} />
+          <div className="flex justify-between gap-2 text-amber font-medium">
+            <span>Federal excise tax</span>
             <span>+${(costs.exciseTaxPerPint ?? 0).toFixed(4)}</span>
           </div>
           <CostRow label="True cost per pint" value={costs.trueCostPerPint} bold />
@@ -2189,7 +2272,7 @@ function CostPanel({
       </div>
 
       {/* ── Federal Excise Tax ── */}
-      <div className="mx-3 my-2 bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs">
+      <div className="mx-3 my-2 bg-amber-50 border border-amber-200 rounded-lg p-3">
         <div className="flex items-center justify-between mb-2">
           <span className="font-semibold text-navy text-xs">Federal Excise Tax</span>
           <span className="text-gray-500 text-[10px]">
@@ -2230,7 +2313,7 @@ function CostPanel({
           </p>
         )}
         <p className="text-gray-400 mt-2 leading-tight">
-          Federal excise tax is owed when beer leaves your brewery for sale. Small brewers under 2M bbl annual production pay $3.50/bbl on the first 60,000 bbl removed per year.
+          Federal excise tax is owed when beer leaves your brewery for sale. Small brewers pay $3.50/bbl on the first 60,000 bbl removed per year.
         </p>
       </div>
 
@@ -2265,7 +2348,7 @@ function CostPanel({
             const rate = code !== undefined ? STATE_SALES_TAX[code] : undefined
             return rate !== undefined ? (
               <p className="text-[10px] text-gray-400 leading-tight">
-                Pre-populated with {brewery.state} base state rate ({rate}%). Adjust for local city/county taxes. Applied to suggested retail for customer display only.
+                Pre-populated with {brewery.state} base state rate ({rate}%). Adjust for local city/county taxes.
               </p>
             ) : null
           })()}
@@ -2276,7 +2359,7 @@ function CostPanel({
         </div>
       </div>
 
-      {/* ── Gross margin ── */}
+      {/* ── Gross Margin ── */}
       <div className={`px-4 py-3 border-t ${marginBg}`}>
         <div className="flex items-center justify-between">
           <span className="font-semibold">Gross Margin</span>
@@ -2290,7 +2373,7 @@ function CostPanel({
         )}
       </div>
 
-      {/* ── Packaged output — per split when splits defined, single when not ── */}
+      {/* ── Packaged output ── */}
       {hasSplits && (costs.splitOutputs ?? []).length > 0 ? (
         <div className="px-4 py-3 bg-amber/5 space-y-4">
           <p className="font-semibold text-gray-500 uppercase tracking-wide">Packaged Output by Split</p>
