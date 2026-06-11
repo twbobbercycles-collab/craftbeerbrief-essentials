@@ -114,7 +114,16 @@ Deno.serve(async (req) => {
   if (!profile?.brewery_id) {
     const { data: brewery, error: bErr } = await svc
       .from('breweries')
-      .insert({ name: DEMO_BREWERY, state: DEMO_STATE, production_volume: '500_1000', staff_count: '4_10' })
+      .insert({
+        name: DEMO_BREWERY,
+        state: DEMO_STATE,
+        production_volume: '500_1000',
+        staff_count: '4_10',
+        monthly_fixed_overhead:    28000,
+        batches_per_month:         6,
+        labor_rate_per_hour:       20,
+        variable_overhead_per_bbl: 18,
+      })
       .select('id')
       .single()
     check(bErr, 'create brewery')
