@@ -363,24 +363,22 @@ export default function RecipeDetailPage() {
     }
   }, [brewery?.annual_production_estimate]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch fresh brewery overhead values directly from DB to bypass any context caching
+  // Fetch brewery overhead defaults fresh from DB on mount (bypasses stale context cache)
   useEffect(() => {
-    async function fetchOverhead() {
-      if (!brewery?.id) return
-      const { data, error } = await supabase
-        .from('breweries')
-        .select('monthly_fixed_overhead, batches_per_month, labor_rate_per_hour, variable_overhead_per_bbl')
-        .eq('id', brewery.id)
-        .maybeSingle()
-      if (error) { console.error('fetchOverhead error:', error); return }
-      if (!data) return
-      console.log('Fetched brewery overhead:', data)
-      setMonthlyFixedOverhead(data.monthly_fixed_overhead    != null ? String(data.monthly_fixed_overhead)    : '')
-      setBatchesPerMonth(     data.batches_per_month         != null ? String(data.batches_per_month)         : '4')
-      setLaborRatePerHour(    data.labor_rate_per_hour       != null ? String(data.labor_rate_per_hour)       : '18')
-      setVariableOverheadPerBbl(data.variable_overhead_per_bbl != null ? String(data.variable_overhead_per_bbl) : '15')
-    }
-    fetchOverhead()
+    if (!brewery?.id) return
+    supabase
+      .from('breweries')
+      .select('monthly_fixed_overhead, batches_per_month, labor_rate_per_hour, variable_overhead_per_bbl')
+      .eq('id', brewery.id)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        console.log('[RecipeDetail] brewery overhead fetch:', { data, error, breweryId: brewery.id })
+        if (!data) return
+        if (data.monthly_fixed_overhead    != null) setMonthlyFixedOverhead(String(data.monthly_fixed_overhead))
+        if (data.batches_per_month         != null) setBatchesPerMonth(String(data.batches_per_month))
+        if (data.labor_rate_per_hour       != null) setLaborRatePerHour(String(data.labor_rate_per_hour))
+        if (data.variable_overhead_per_bbl != null) setVariableOverheadPerBbl(String(data.variable_overhead_per_bbl))
+      })
   }, [brewery?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Cost calculations (memoized — recomputes only when inputs change) ─────────
@@ -1367,9 +1365,9 @@ export default function RecipeDetailPage() {
           </div>
           )}{/* end ingredients tab */}
 
-          {/* Cost Calculator tab — CostPanel left (55%), PintGlass right (45%) */}
+          {/* Cost Calculator tab — 50/50 split: inputs left, pint glass right */}
           {activeTab === 'cost' && (
-            <div className="grid grid-cols-1 xl:grid-cols-[55%_45%] gap-6 items-start">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
               <div className="min-w-0">
                 <CostPanel
                   costs={costs}
@@ -1398,10 +1396,8 @@ export default function RecipeDetailPage() {
                   onSaveToProfile={saveOverheadToBreweryProfile}
                 />
               </div>
-              <div className="hidden xl:block min-w-0">
-                <div className="sticky top-4">
-                  <PintGlassVisualization costs={costs} />
-                </div>
+              <div className="min-w-0 xl:sticky xl:top-4">
+                <PintGlassVisualization costs={costs} />
               </div>
             </div>
           )}
