@@ -255,7 +255,7 @@ function PackagingTracker() {
                     {/* Yield percentage — color-coded */}
                     <td className={`px-4 py-3 font-medium ${yieldColor(run.packaging_yield_percentage)}`}>
                       {run.packaging_yield_percentage != null
-                        ? `${Number(run.packaging_yield_percentage).toFixed(1)}%`
+                        ? `${Number(run.packaging_yield_percentage).toFixed(2)}%`
                         : '—'}
                     </td>
 
@@ -303,7 +303,7 @@ function PackagingTracker() {
 
                 {run.packaging_yield_percentage != null && (
                   <p className={`text-sm font-medium ${yieldColor(run.packaging_yield_percentage)}`}>
-                    Yield: {Number(run.packaging_yield_percentage).toFixed(1)}%
+                    Yield: {Number(run.packaging_yield_percentage).toFixed(2)}%
                   </p>
                 )}
 

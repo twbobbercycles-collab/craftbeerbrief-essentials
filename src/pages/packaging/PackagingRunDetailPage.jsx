@@ -1184,6 +1184,11 @@ function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brew
                       <span className="text-[10px] text-gray-400 mt-0.5 block text-center">
                         {volumePerUnitLabel(s.package_type) || unit}
                       </span>
+                      {s.package_type && !PKG_TYPE_DEFAULTS[s.package_type] && !isReadOnly && (
+                        <span className="text-[10px] text-amber block text-center leading-tight mt-0.5">
+                          Volume per unit not recognized — please enter manually.
+                        </span>
+                      )}
                     </td>
 
                     {/* Total volume — auto-computed in barrels, display only */}

@@ -58,9 +58,10 @@ const SIZE_SPECS = {
   '24-Pack/Case':  ['24-pack 12oz'],
 }
 
-// Determines if a package_type string represents a returnable keg
+// Determines if a package_type string represents a returnable keg or barrel
 function isKegType(type) {
-  return (type || '').toLowerCase().includes('keg')
+  const t = (type || '').toLowerCase()
+  return t.includes('keg') || t.includes('barrel')
 }
 
 // ── Utility helpers ────────────────────────────────────────────────────────────
@@ -662,8 +663,8 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
         packaging_cost_per_unit:     pkgCost,
         distribution_cost_per_unit:  distCost,
         notes:                       r.notes || null,
-        returnable_kegs:             r.keg_return_expected,
-        keg_return_date:             r.keg_return_expected && r.keg_return_date ? r.keg_return_date : null,
+        returnable_kegs:             isKegType(r.package_type) ? r.keg_return_expected : false,
+        keg_return_date:             isKegType(r.package_type) && r.keg_return_expected && r.keg_return_date ? r.keg_return_date : null,
       }
 
       if (r.existing_record_id) {
@@ -821,29 +822,31 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
                         </div>
                       </div>
 
-                      {/* Keg return */}
-                      <div className="flex flex-wrap items-center gap-4">
-                        <label className="flex items-center gap-1.5 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            className="w-3.5 h-3.5 accent-amber"
-                            checked={row.keg_return_expected}
-                            onChange={e => updateRow(i, 'keg_return_expected', e.target.checked)}
-                          />
-                          <span className="text-xs text-gray-600">Keg return expected</span>
-                        </label>
-                        {row.keg_return_expected && (
-                          <div className="flex items-center gap-2">
-                            <label className="text-xs text-gray-500">Return by:</label>
+                      {/* Keg return — only for keg/barrel package types */}
+                      {isKegType(row.package_type) && (
+                        <div className="flex flex-wrap items-center gap-4">
+                          <label className="flex items-center gap-1.5 cursor-pointer">
                             <input
-                              type="date"
-                              className="border border-gray-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-amber"
-                              value={row.keg_return_date || ''}
-                              onChange={e => updateRow(i, 'keg_return_date', e.target.value)}
+                              type="checkbox"
+                              className="w-3.5 h-3.5 accent-amber"
+                              checked={row.keg_return_expected}
+                              onChange={e => updateRow(i, 'keg_return_expected', e.target.checked)}
                             />
-                          </div>
-                        )}
-                      </div>
+                            <span className="text-xs text-gray-600">Keg return expected</span>
+                          </label>
+                          {row.keg_return_expected && (
+                            <div className="flex items-center gap-2">
+                              <label className="text-xs text-gray-500">Return by:</label>
+                              <input
+                                type="date"
+                                className="border border-gray-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-amber"
+                                value={row.keg_return_date || ''}
+                                onChange={e => updateRow(i, 'keg_return_date', e.target.value)}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                       {/* Notes */}
                       <div>
@@ -1634,15 +1637,12 @@ function AccountsTab({ accounts, onRefresh, isReadOnly }) {
 
 function PricingEditor({ pricing, onChange }) {
   function addRow() {
-    onChange([...pricing, { package_type: '', size_spec: '', price_per_unit: '' }])
+    onChange([...pricing, { package_type: '', price_per_unit: '' }])
   }
   function updateRow(idx, field, val) {
     const next = pricing.map((r, i) => {
       if (i !== idx) return r
-      const updated = { ...r, [field]: val }
-      // Reset size_spec when package_type changes
-      if (field === 'package_type') updated.size_spec = ''
-      return updated
+      return { ...r, [field]: val }
     })
     onChange(next)
   }
@@ -1654,69 +1654,43 @@ function PricingEditor({ pricing, onChange }) {
     <div className="space-y-2">
       {pricing.length > 0 && (
         <div className="grid grid-cols-12 gap-2 text-xs text-gray-400 font-medium px-1">
-          <div className="col-span-4">Package Type</div>
-          <div className="col-span-4">Size / Spec</div>
-          <div className="col-span-3">Price / Unit</div>
+          <div className="col-span-7">Package Type</div>
+          <div className="col-span-4">Price / Unit</div>
           <div className="col-span-1" />
         </div>
       )}
-      {pricing.map((row, idx) => {
-        const sizeOptions = SIZE_SPECS[row.package_type] || []
-        return (
-          <div key={idx} className="grid grid-cols-12 gap-2 items-center">
-            {/* Package type */}
-            <div className="col-span-4">
-              <select
-                value={row.package_type}
-                onChange={e => updateRow(idx, 'package_type', e.target.value)}
-                className={INPUT_CLS}
-              >
-                <option value="">Type…</option>
-                {PRICEABLE_PACKAGE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-            </div>
-
-            {/* Size / spec */}
-            <div className="col-span-4">
-              {sizeOptions.length > 0 ? (
-                <select
-                  value={row.size_spec}
-                  onChange={e => updateRow(idx, 'size_spec', e.target.value)}
-                  className={INPUT_CLS}
-                >
-                  <option value="">Size…</option>
-                  {sizeOptions.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-              ) : (
-                <input
-                  type="text"
-                  value={row.size_spec}
-                  onChange={e => updateRow(idx, 'size_spec', e.target.value)}
-                  placeholder="Spec…"
-                  className={INPUT_CLS}
-                />
-              )}
-            </div>
-
-            {/* Price per unit */}
-            <div className="col-span-3 relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-              <input
-                type="number" step="0.01" min="0"
-                value={row.price_per_unit}
-                onChange={e => updateRow(idx, 'price_per_unit', e.target.value)}
-                placeholder="0.00"
-                className={INPUT_CLS + ' pl-6'}
-              />
-            </div>
-
-            {/* Remove */}
-            <div className="col-span-1 flex justify-center">
-              <button onClick={() => removeRow(idx)} className="text-danger text-xs hover:underline">✕</button>
-            </div>
+      {pricing.map((row, idx) => (
+        <div key={idx} className="grid grid-cols-12 gap-2 items-center">
+          {/* Package type */}
+          <div className="col-span-7">
+            <select
+              value={row.package_type}
+              onChange={e => updateRow(idx, 'package_type', e.target.value)}
+              className={INPUT_CLS}
+            >
+              <option value="">Type…</option>
+              {PRICEABLE_PACKAGE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
           </div>
-        )
-      })}
+
+          {/* Price per unit */}
+          <div className="col-span-4 relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+            <input
+              type="number" step="0.01" min="0"
+              value={row.price_per_unit}
+              onChange={e => updateRow(idx, 'price_per_unit', e.target.value)}
+              placeholder="0.00"
+              className={INPUT_CLS + ' pl-6'}
+            />
+          </div>
+
+          {/* Remove */}
+          <div className="col-span-1 flex justify-center">
+            <button onClick={() => removeRow(idx)} className="text-danger text-xs hover:underline">✕</button>
+          </div>
+        </div>
+      ))}
       <button onClick={addRow} className="text-amber text-sm font-medium hover:underline">
         + Add pricing row
       </button>

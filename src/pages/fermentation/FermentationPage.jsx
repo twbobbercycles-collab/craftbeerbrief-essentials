@@ -1938,6 +1938,9 @@ function FermentationDetailModal({ fermentation: initialFerm, vessels, available
   const [showLogForm, setShowLogForm] = useState(false)
   const [logForm, setLogForm] = useState({ date: new Date().toISOString().slice(0, 10), gravity: '', temperature: '', notes: '' })
   const [logError, setLogError] = useState('')
+  const [editingReading, setEditingReading] = useState(null)
+  const [editReadingForm, setEditReadingForm] = useState({ date: '', gravity: '', temperature: '', notes: '' })
+  const [editReadingError, setEditReadingError] = useState('')
 
   // Part 2B: brew day yeast strain fallback
   const [brewDayYeastStrain, setBrewDayYeastStrain] = useState(null)
@@ -2087,7 +2090,7 @@ function FermentationDetailModal({ fermentation: initialFerm, vessels, available
     }
 
     if (newStatus === 'conditioning' && !ferm.actual_fg) {
-      setStatusError('Please log a final gravity reading before moving to conditioning. Update the Actual FG in the Overview tab first.')
+      setStatusError('Enter Final Gravity before moving to Conditioning.')
       return
     }
 
@@ -2259,6 +2262,38 @@ function FermentationDetailModal({ fermentation: initialFerm, vessels, available
     if (!window.confirm('Delete this reading?')) return
     await supabase.from('gravity_readings').delete().eq('id', readingId)
     setReadings(prev => prev.filter(r => r.id !== readingId))
+    onReadingChanged()
+  }
+
+  function startEditReading(r) {
+    setEditingReading(r.id)
+    setEditReadingForm({
+      date:        r.reading_date,
+      gravity:     String(r.gravity),
+      temperature: r.temperature != null ? String(r.temperature) : '',
+      notes:       r.notes ?? '',
+    })
+    setEditReadingError('')
+  }
+
+  async function saveEditedReading() {
+    const g = parseFloat(editReadingForm.gravity)
+    if (!editReadingForm.gravity || isNaN(g) || g < 0.99 || g > 1.2) {
+      setEditReadingError('Enter a valid gravity between 0.990 and 1.200')
+      return
+    }
+    const { data, error } = await supabase.from('gravity_readings').update({
+      reading_date: editReadingForm.date,
+      gravity:      g,
+      temperature:  editReadingForm.temperature ? parseFloat(editReadingForm.temperature) : null,
+      notes:        editReadingForm.notes.trim() || null,
+    }).eq('id', editingReading).select().single()
+    if (error) { setEditReadingError(error.message); return }
+    setReadings(prev =>
+      prev.map(r => r.id === editingReading ? data : r)
+          .sort((a, b) => a.reading_date.localeCompare(b.reading_date))
+    )
+    setEditingReading(null)
     onReadingChanged()
   }
 
@@ -2835,12 +2870,18 @@ function FermentationDetailModal({ fermentation: initialFerm, vessels, available
                   {nextStatuses.map(ns => {
                     const blocked = ns === 'conditioning' && ferm.status === 'fermenting' && !ferm.actual_fg
                     return (
-                      <button key={ns} onClick={() => changeStatus(ns)}
-                        disabled={statusChanging || isReadOnly || blocked}
-                        title={blocked ? 'Set Actual FG in the Overview tab first' : undefined}
-                        className="text-xs bg-navy text-white rounded-lg px-3 py-1.5 hover:bg-navy-light transition-colors disabled:opacity-50">
-                        → {STATUS_LABELS[ns]}
-                      </button>
+                      <div key={ns} className="flex flex-col items-start gap-0.5">
+                        <button onClick={() => changeStatus(ns)}
+                          disabled={statusChanging || isReadOnly || blocked}
+                          className="text-xs bg-navy text-white rounded-lg px-3 py-1.5 hover:bg-navy-light transition-colors disabled:opacity-50">
+                          → {STATUS_LABELS[ns]}
+                        </button>
+                        {ns === 'conditioning' && ferm.status === 'fermenting' && (
+                          <span className="text-[10px] text-amber leading-tight">
+                            Enter Final Gravity before moving to Conditioning.
+                          </span>
+                        )}
+                      </div>
                     )
                   })}
                   {!['packaged', 'dumped'].includes(ferm.status) && (
@@ -2932,18 +2973,65 @@ function FermentationDetailModal({ fermentation: initialFerm, vessels, available
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {readings.map(r => (
-                      <tr key={r.id}>
-                        <td className="py-2 text-gray-600">
-                          {new Date(r.reading_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                        </td>
-                        <td className="py-2 text-right font-mono font-semibold text-navy">{parseFloat(r.gravity).toFixed(3)}</td>
-                        <td className="py-2 text-right text-gray-500">{r.temperature ?? '—'}</td>
-                        <td className="py-2 pl-4 text-gray-500 text-xs">{r.notes ?? ''}</td>
-                        <td className="py-2 text-right">
-                          <button onClick={() => deleteReading(r.id)} disabled={isReadOnly}
-                            className="text-xs text-gray-300 hover:text-danger transition-colors disabled:opacity-30">✕</button>
-                        </td>
-                      </tr>
+                      editingReading === r.id ? (
+                        <tr key={r.id} className="bg-amber/5">
+                          <td colSpan={5} className="py-3 px-2">
+                            {editReadingError && <p className="text-xs text-danger mb-2">{editReadingError}</p>}
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2">
+                              <div>
+                                <label className={LBL}>Date</label>
+                                <input type="date" className={INPUT_CLS} value={editReadingForm.date}
+                                  onChange={e => setEditReadingForm(p => ({ ...p, date: e.target.value }))} />
+                              </div>
+                              <div>
+                                <label className={LBL}>Gravity</label>
+                                <input type="number" step="0.001" min="0.990" max="1.200" className={INPUT_CLS}
+                                  value={editReadingForm.gravity}
+                                  onChange={e => { setEditReadingError(''); setEditReadingForm(p => ({ ...p, gravity: e.target.value })) }} />
+                              </div>
+                              <div>
+                                <label className={LBL}>Temp °F</label>
+                                <input type="number" step="0.1" className={INPUT_CLS}
+                                  value={editReadingForm.temperature}
+                                  onChange={e => setEditReadingForm(p => ({ ...p, temperature: e.target.value }))} />
+                              </div>
+                              <div>
+                                <label className={LBL}>Notes</label>
+                                <input className={INPUT_CLS} value={editReadingForm.notes}
+                                  onChange={e => setEditReadingForm(p => ({ ...p, notes: e.target.value }))} />
+                              </div>
+                            </div>
+                            <div className="flex gap-2">
+                              <button onClick={() => setEditingReading(null)}
+                                className="text-sm border border-gray-300 text-gray-600 rounded-lg px-3 py-1.5 hover:bg-white transition-colors">
+                                Cancel
+                              </button>
+                              <button onClick={saveEditedReading}
+                                className="text-sm bg-amber hover:bg-amber-dark text-white font-semibold rounded-lg px-3 py-1.5 transition-colors">
+                                Save
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : (
+                        <tr key={r.id}>
+                          <td className="py-2 text-gray-600">
+                            {new Date(r.reading_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          </td>
+                          <td className="py-2 text-right font-mono font-semibold text-navy">{parseFloat(r.gravity).toFixed(3)}</td>
+                          <td className="py-2 text-right text-gray-500">{r.temperature ?? '—'}</td>
+                          <td className="py-2 pl-4 text-gray-500 text-xs">{r.notes ?? ''}</td>
+                          <td className="py-2 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <button onClick={() => startEditReading(r)} disabled={isReadOnly}
+                                className="text-xs text-gray-300 hover:text-amber transition-colors disabled:opacity-30"
+                                title="Edit reading">✎</button>
+                              <button onClick={() => deleteReading(r.id)} disabled={isReadOnly}
+                                className="text-xs text-gray-300 hover:text-danger transition-colors disabled:opacity-30">✕</button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
                     ))}
                   </tbody>
                 </table>

@@ -894,7 +894,8 @@ function AddAssetModal({ breweryId, editAsset, onClose, onSuccess }) {
   const [contacts, setContacts] = useState(() => {
     if (isEdit) {
       const c = editAsset.contacts
-      return Array.isArray(c) && c.length > 0 ? c : [{ ...EMPTY_CONTACT }]
+      if (Array.isArray(c) && c.length > 0) return c.map(ct => ({ ...EMPTY_CONTACT, ...ct }))
+      return [{ ...EMPTY_CONTACT }]
     }
     return savedDraft?.contacts ?? [{ ...EMPTY_CONTACT }]
   })
@@ -934,7 +935,7 @@ function AddAssetModal({ breweryId, editAsset, onClose, onSuccess }) {
     setSaving(true)
 
     // Strip blank contacts before saving
-    const cleanContacts = contacts.filter(c => c.name.trim() || c.phone.trim() || c.email.trim())
+    const cleanContacts = contacts.filter(c => c.name?.trim() || c.phone?.trim() || c.email?.trim())
 
     const payload = {
       brewery_id:               breweryId,

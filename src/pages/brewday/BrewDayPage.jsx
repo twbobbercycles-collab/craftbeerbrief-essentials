@@ -17,7 +17,7 @@ import { useModalDraft } from '../../hooks/useModalDraft'
 import { useReadOnly } from '../../hooks/useReadOnly'
 
 // Exact column widths shared by the table header and every data row
-const COL_TEMPLATE = '90px 1fr 110px 120px 100px 110px 70px 70px 130px'
+const COL_TEMPLATE = '90px 1fr 110px 120px 100px 110px 70px 70px 220px'
 
 // Status badge colors — maps status string to Tailwind classes
 const STATUS_STYLES = {
@@ -153,6 +153,12 @@ export default function BrewDayPage() {
   const [saveError, setSaveError]   = useState('')
   const [recipeWarning, setRecipeWarning] = useState('')
   const draft = useModalDraft('modal_draft_brew_day')
+
+  // Complete brew day modal state
+  const [completeTarget, setCompleteTarget] = useState(null)
+  const [completeFields, setCompleteFields] = useState({ actual_og: '', actual_brewhouse_efficiency: '', volume_into_fermenter: '' })
+  const [completeError, setCompleteError]   = useState('')
+  const [completing, setCompleting]         = useState(false)
 
   // Load all brew days for this brewery
   const loadBrewDays = useCallback(async () => {
@@ -300,6 +306,10 @@ export default function BrewDayPage() {
     if (!form.batch_number.trim()) { setSaveError('Batch number is required.'); return }
     if (!form.brew_date)           { setSaveError('Brew date is required.'); return }
     if (!form.brewer_name.trim())  { setSaveError('Brewer name is required.'); return }
+    if (form.planned_batch_size !== '' && parseFloat(form.planned_batch_size) <= 0) {
+      setSaveError('Batch size must be greater than 0.')
+      return
+    }
 
     setSaving(true); setSaveError('')
 
@@ -340,6 +350,60 @@ export default function BrewDayPage() {
     if (!window.confirm(`Cancel brew day ${bd.batch_number}?`)) return
     await supabase.from('brew_days').update({ status: 'cancelled' }).eq('id', bd.id)
     setBrewDays(prev => prev.map(b => b.id === bd.id ? { ...b, status: 'cancelled' } : b))
+  }
+
+  // Mark a brew day as completed. If required actuals are missing, open the completion modal.
+  function handleMarkComplete(bd) {
+    const missing = !bd.actual_og || !bd.actual_brewhouse_efficiency || !bd.volume_into_fermenter
+    if (missing) {
+      setCompleteTarget(bd)
+      setCompleteFields({
+        actual_og:                    bd.actual_og != null ? String(bd.actual_og) : '',
+        actual_brewhouse_efficiency:  bd.actual_brewhouse_efficiency != null ? String(bd.actual_brewhouse_efficiency) : '',
+        volume_into_fermenter:        bd.volume_into_fermenter != null ? String(bd.volume_into_fermenter) : '',
+      })
+      setCompleteError('')
+    } else {
+      confirmMarkComplete(bd, {})
+    }
+  }
+
+  async function confirmMarkComplete(bd, extra) {
+    setCompleting(true)
+    await supabase.from('brew_days').update({ status: 'completed', ...extra }).eq('id', bd.id)
+    setBrewDays(prev => prev.map(b => b.id === bd.id ? { ...b, status: 'completed', ...extra } : b))
+    setCompleteTarget(null)
+    setCompleting(false)
+  }
+
+  async function submitCompleteModal() {
+    if (!completeFields.actual_og || !completeFields.actual_brewhouse_efficiency || !completeFields.volume_into_fermenter) {
+      setCompleteError('All three fields are required to mark a brew day as completed.')
+      return
+    }
+    await confirmMarkComplete(completeTarget, {
+      actual_og:                   parseFloat(completeFields.actual_og),
+      actual_brewhouse_efficiency: parseFloat(completeFields.actual_brewhouse_efficiency),
+      volume_into_fermenter:       parseFloat(completeFields.volume_into_fermenter),
+    })
+  }
+
+  // Delete a brew day, with a warning if a fermentation record is linked.
+  async function handleDeleteBrewDay(bd) {
+    const { data: linked } = await supabase
+      .from('fermentations')
+      .select('id')
+      .eq('brew_day_id', bd.id)
+      .limit(1)
+
+    const hasLinked = linked && linked.length > 0
+    const msg = hasLinked
+      ? `This brew day has a linked fermentation record. Deleting it will not delete the fermentation, but it will lose its brew day link. Continue?`
+      : `Delete brew day ${bd.batch_number}? This cannot be undone.`
+
+    if (!window.confirm(msg)) return
+    await supabase.from('brew_days').delete().eq('id', bd.id)
+    setBrewDays(prev => prev.filter(b => b.id !== bd.id))
   }
 
   // Save filter preferences to localStorage whenever they change
@@ -461,6 +525,8 @@ export default function BrewDayPage() {
           rows={visible}
           onView={id => navigate(`/brewday/${id}`)}
           onCancel={handleCancel}
+          onMarkComplete={handleMarkComplete}
+          onDelete={handleDeleteBrewDay}
           isReadOnly={isReadOnly}
           ReadOnlyTooltip={ReadOnlyTooltip}
         />
@@ -785,13 +851,76 @@ export default function BrewDayPage() {
           </div>
         </form>
       </ModalShell>
+
+      {/* ── Complete Brew Day Modal ── */}
+      {completeTarget && (
+        <ModalShell
+          isOpen
+          onClose={() => setCompleteTarget(null)}
+          title={`Complete Brew Day — ${completeTarget.batch_number}`}
+          maxWidth="max-w-md"
+        >
+          <div className="space-y-4 pb-2">
+            <p className="text-sm text-gray-600">
+              The following values are required to mark this brew day as completed. Please fill in any missing fields.
+            </p>
+            {completeError && (
+              <div className="bg-red-50 border border-danger text-danger rounded-lg px-4 py-3 text-sm">
+                {completeError}
+              </div>
+            )}
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Actual OG</label>
+              <input
+                type="number" step="0.001" min="0.990" max="1.200"
+                placeholder="1.048"
+                value={completeFields.actual_og}
+                onChange={e => setCompleteFields(p => ({ ...p, actual_og: e.target.value }))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Actual Brewhouse Efficiency %</label>
+              <input
+                type="number" step="0.1" min="0" max="100"
+                placeholder="72"
+                value={completeFields.actual_brewhouse_efficiency}
+                onChange={e => setCompleteFields(p => ({ ...p, actual_brewhouse_efficiency: e.target.value }))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Volume into Fermenter (bbl)</label>
+              <input
+                type="number" step="0.01" min="0"
+                placeholder="10"
+                value={completeFields.volume_into_fermenter}
+                onChange={e => setCompleteFields(p => ({ ...p, volume_into_fermenter: e.target.value }))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber"
+              />
+            </div>
+            <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">
+              <button type="button" onClick={() => setCompleteTarget(null)} className="text-sm text-gray-500 hover:text-gray-700 px-4 py-2">
+                Cancel
+              </button>
+              <button
+                onClick={submitCompleteModal}
+                disabled={completing}
+                className="bg-amber hover:bg-amber-dark text-white font-semibold px-6 py-2 rounded-lg text-sm transition-colors disabled:opacity-60"
+              >
+                {completing ? 'Saving...' : 'Mark Complete'}
+              </button>
+            </div>
+          </div>
+        </ModalShell>
+      )}
     </>
   )
 }
 
 // ─── BrewDayTable ─────────────────────────────────────────────────────────────
 
-function BrewDayTable({ rows, onView, onCancel, isReadOnly, ReadOnlyTooltip }) {
+function BrewDayTable({ rows, onView, onCancel, onMarkComplete, onDelete, isReadOnly, ReadOnlyTooltip }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
       {/* Desktop header */}
@@ -815,6 +944,8 @@ function BrewDayTable({ rows, onView, onCancel, isReadOnly, ReadOnlyTooltip }) {
             isEven={idx % 2 === 1}
             onView={() => onView(bd.id)}
             onCancel={() => onCancel(bd)}
+            onMarkComplete={() => onMarkComplete(bd)}
+            onDelete={() => onDelete(bd)}
             isReadOnly={isReadOnly}
             ReadOnlyTooltip={ReadOnlyTooltip}
           />
@@ -826,7 +957,7 @@ function BrewDayTable({ rows, onView, onCancel, isReadOnly, ReadOnlyTooltip }) {
 
 // ─── BrewDayRow ───────────────────────────────────────────────────────────────
 
-function BrewDayRow({ bd, isEven, onView, onCancel, isReadOnly, ReadOnlyTooltip }) {
+function BrewDayRow({ bd, isEven, onView, onCancel, onMarkComplete, onDelete, isReadOnly, ReadOnlyTooltip }) {
   const [expanded, setExpanded] = useState(false)
 
   const isActive = bd.status === 'scheduled' || bd.status === 'in_progress'
@@ -912,23 +1043,39 @@ function BrewDayRow({ bd, isEven, onView, onCancel, isReadOnly, ReadOnlyTooltip 
         </div>
 
         {/* Actions */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
           <button
             onClick={onView}
             className="text-xs bg-amber hover:bg-amber-dark text-white font-semibold px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap"
           >
             {actionLabel}
           </button>
+          {bd.status === 'in_progress' && !isReadOnly && (
+            <button
+              onClick={onMarkComplete}
+              className="text-xs text-success border border-success px-2 py-1.5 rounded-lg transition-colors hover:bg-green-50 whitespace-nowrap"
+              title="Mark as Completed"
+            >
+              ✓ Complete
+            </button>
+          )}
+          {!isReadOnly && bd.status !== 'cancelled' && (
+            <button
+              onClick={onDelete}
+              className="text-xs text-danger border border-danger/40 px-2 py-1.5 rounded-lg transition-colors hover:bg-red-50"
+              title="Delete brew day"
+            >
+              Delete
+            </button>
+          )}
           {isActive && !isReadOnly && (
-            <ReadOnlyTooltip isReadOnly={isReadOnly}>
-              <button
-                onClick={onCancel}
-                className="text-xs text-gray-400 hover:text-danger border border-gray-200 px-2 py-1.5 rounded-lg transition-colors"
-                title="Cancel brew day"
-              >
-                ✕
-              </button>
-            </ReadOnlyTooltip>
+            <button
+              onClick={onCancel}
+              className="text-xs text-gray-400 hover:text-danger border border-gray-200 px-2 py-1.5 rounded-lg transition-colors"
+              title="Cancel brew day"
+            >
+              ✕
+            </button>
           )}
         </div>
       </div>
@@ -998,14 +1145,23 @@ function BrewDayRow({ bd, isEven, onView, onCancel, isReadOnly, ReadOnlyTooltip 
                 <span className="text-[10px] font-semibold bg-teal-50 text-teal-700 px-1.5 py-0.5 rounded">Linked</span>
               </div>
             )}
-            {isActive && !isReadOnly && (
-              <div className="col-span-2 pt-1">
-                <button
-                  onClick={onCancel}
-                  className="text-xs text-gray-400 hover:text-danger transition-colors"
-                >
-                  Cancel this brew day
-                </button>
+            {!isReadOnly && (
+              <div className="col-span-2 pt-1 flex flex-wrap gap-3">
+                {bd.status === 'in_progress' && (
+                  <button onClick={onMarkComplete} className="text-xs text-success hover:underline">
+                    ✓ Mark Complete
+                  </button>
+                )}
+                {bd.status !== 'cancelled' && (
+                  <button onClick={onDelete} className="text-xs text-danger hover:underline">
+                    Delete brew day
+                  </button>
+                )}
+                {isActive && (
+                  <button onClick={onCancel} className="text-xs text-gray-400 hover:text-danger transition-colors">
+                    Cancel this brew day
+                  </button>
+                )}
               </div>
             )}
           </div>
