@@ -38,7 +38,7 @@ const ACCOUNT_TYPES = [
 const PRICEABLE_PACKAGE_TYPES = [
   'Can', 'Bottle',
   'Keg Sixth Barrel', 'Keg Quarter Barrel', 'Keg Half Barrel',
-  'Draft/Taproom',
+  'Taproom Draft',
   'Growler', 'Crowler',
   '4-Pack', '6-Pack', '12-Pack', '24-Pack/Case',
 ]
@@ -49,7 +49,7 @@ const PRICEABLE_PACKAGE_TYPES = [
 const SIZE_SPECS = {
   'Can':           ['8oz', '10oz', '12oz', '16oz', '19.2oz', '32oz'],
   'Bottle':        ['12oz', '16oz', '22oz', '375ml', '500ml', '750ml'],
-  'Draft/Taproom': ['12oz pour', '16oz pint', '20oz imperial pint'],
+  'Taproom Draft': ['12oz pour', '16oz pint', '20oz imperial pint'],
   'Growler':       ['32oz', '64oz'],
   'Crowler':       ['16oz', '32oz'],
   '4-Pack':        ['4-pack 12oz', '4-pack 16oz'],
@@ -532,8 +532,29 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
     // Re-assign mode always uses fresh rows pre-populated from existing records
     if (reAssign) return buildDefaultRows()
     const draft = loadDraft(false)
-    if (draft?.rows) return draft.rows
-    return buildDefaultRows()
+    const fresh = buildDefaultRows()
+    if (draft?.rows) {
+      // Merge draft with fresh split data instead of restoring the draft wholesale.
+      // package_type, size_spec, units_packaged, volume, and cost fields are derived
+      // from the packaging run's splits and may have been corrected in Packaging
+      // since the draft was saved — those must always reflect the current run data.
+      // Only genuinely user-entered fields are restored from the draft.
+      return fresh.map((freshRow, i) => {
+        const draftRow = draft.rows[i]
+        if (!draftRow) return freshRow
+        return {
+          ...freshRow,
+          account_id:          draftRow.account_id ?? freshRow.account_id,
+          delivery_date:       draftRow.delivery_date ?? freshRow.delivery_date,
+          sale_price:          draftRow.sale_price ?? freshRow.sale_price,
+          distribution_cost:   draftRow.distribution_cost ?? freshRow.distribution_cost,
+          notes:               draftRow.notes ?? freshRow.notes,
+          keg_return_expected: draftRow.keg_return_expected ?? freshRow.keg_return_expected,
+          keg_return_date:     draftRow.keg_return_date ?? freshRow.keg_return_date,
+        }
+      })
+    }
+    return fresh
   })
 
   const [saving, setSaving] = useState(false)
@@ -550,7 +571,7 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
     const sizeSpec    = rows[idx].size_spec || ''
     const ptLower     = (packageType || '').toLowerCase()
     const ssLower     = sizeSpec.toLowerCase()
-    // First word of package_type for loose matching: 'Draft/Taproom' → 'draft', 'Keg Half Barrel' → 'keg'
+    // First word of package_type for loose matching: 'Taproom Draft' → 'taproom', 'Keg Half Barrel' → 'keg'
     const ptFirst     = ptLower.split(/[\s/\-]/)[0]
     let autoPrice = ''
 

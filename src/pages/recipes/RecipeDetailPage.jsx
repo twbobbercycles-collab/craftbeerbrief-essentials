@@ -496,7 +496,7 @@ export default function RecipeDetailPage() {
       )
       const allocatedCost = totalCost * (splitPct / 100)
       const costPerUnit   = units > 0 ? allocatedCost / units : null
-      const ppc           = split.container_type && split.container_type !== 'Draft/Taproom'
+      const ppc           = split.container_type && split.container_type !== 'Taproom Draft'
         ? pintsPerContainer(split.container_type) : null
       const retailPerUnit = ppc != null ? suggestedRetail * ppc : null
       return { ...split, splitPct, units, splitPackCost, allocatedCost, costPerUnit, retailPerUnit }
@@ -2480,7 +2480,7 @@ function CostPanel({
 // (barrels) as the primary input. Percentage is calculated read-only.
 
 const SPLIT_CONTAINER_CATEGORIES = [
-  'Draft/Taproom', 'Can', 'Bottle', 'Growler', 'Crowler',
+  'Taproom Draft', 'Can', 'Bottle', 'Growler', 'Crowler',
   'Keg Half Barrel', 'Keg Quarter Barrel', 'Keg Sixth Barrel', 'Barrel Aging',
   '4-Pack (Cans)', '6-Pack (Cans)', '12-Pack (Cans)', '24-Pack / Case (Cans)',
 ]
@@ -2526,7 +2526,7 @@ const CONTAINER_SIZE_OPTIONS = {
     { label: 'Port Barrel',    ozPerUnit: null },
     { label: 'Rum Barrel',     ozPerUnit: null },
   ],
-  'Draft/Taproom': [
+  'Taproom Draft': [
     { label: '12oz pour', ozPerUnit: 12 },
     { label: '16oz pour', ozPerUnit: 16 },
     { label: '20oz pour', ozPerUnit: 20 },

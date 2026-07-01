@@ -45,7 +45,7 @@ const PACKAGE_TYPES = [
   'Keg Half Barrel', 'Keg Quarter Barrel', 'Keg Sixth Barrel',
   'Growler 64oz', 'Crowler 32oz',
   '4-Pack (Cans)', '6-Pack (Cans)', '12-Pack (Cans)', '24-Pack / Case (Cans)',
-  'Taproom Draft', 'Draft/Taproom', 'Barrel', 'Other',
+  'Taproom Draft', 'Barrel', 'Other',
 ]
 
 const DESTINATIONS = ['Taproom', 'Distribution', 'Storage', 'Event', 'Other']
@@ -158,7 +158,7 @@ const PKG_TYPE_DEFAULTS = {
   // Small containers — oz per unit
   'Growler 64oz':           '64',
   'Crowler 32oz':           '32',
-  'Draft/Taproom':          '16',      // 16 oz pour
+  'Taproom Draft':          '16',      // 16 oz pour
   // Multi-pack formats — bbl per pack (each pack contains N × 12oz cans)
   '4-Pack (Cans)':          String((4  * 12 / 3968).toFixed(5)),
   '6-Pack (Cans)':          String((6  * 12 / 3968).toFixed(5)),
@@ -172,8 +172,8 @@ function volumePerUnitLabel(packageType) {
   if (!packageType) return ''
   const pt = packageType.toLowerCase()
   if (pt.includes('pack') || pt.includes('case')) return 'bbl/pack'
-  // Draft/Taproom uses oz/unit (16 oz serving), other taproom/draft/keg formats use bbl/unit
-  if (packageType === 'Draft/Taproom') return 'oz/unit'
+  // Taproom Draft uses oz/unit (16 oz serving), other taproom/draft/keg formats use bbl/unit
+  if (packageType === 'Taproom Draft') return 'oz/unit'
   if (pt.includes('keg') || pt === 'barrel' || pt.includes('taproom') || pt.includes('draft')) return 'bbl/unit'
   if (pt.includes('can') || pt.includes('bottle') || pt.includes('growler') || pt.includes('crowler')) return 'oz/unit'
   return 'unit'
@@ -856,6 +856,10 @@ function TransferSection({ run, isReadOnly, saveField, setRun }) {
 
 // Section 2 — planned splits (read-only) vs actual splits (editable inline)
 function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brewery, targetMarginPct, recipeCostPerPint, recipeRetailPerPint }) {
+  // Once a run is complete, its actual_splits are treated as data that has
+  // physically left the building — permanently locked, no admin override.
+  const isLocked = run.status === 'complete'
+
   // actualSplits mirrors run.actual_splits but is editable locally before saving.
   // Pre-populate from planned_splits (normalised to handle both recipe and native formats).
   const [actualSplits, setActualSplits] = useState(() => {
@@ -924,6 +928,7 @@ function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brew
   // package types, recalculates units_packaged from total_volume on type change,
   // and recomputes total_volume when quantity fields change.
   function updateSplit(index, field, value) {
+    if (isLocked) return
     setActualSplits(prev => {
       const next = [...prev]
       next[index] = { ...next[index], [field]: value }
@@ -1011,6 +1016,7 @@ function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brew
 
   // Schedule a debounced auto-save of splits — triggered after each split field change
   function scheduleSplitSave(newSplits) {
+    if (isLocked) return
     setSplitSaveStatus('pending')
     clearTimeout(saveDebounceRef.current)
     saveDebounceRef.current = setTimeout(() => {
@@ -1021,6 +1027,10 @@ function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brew
   // Save all actual_splits plus recomputed totals in one DB update
   // splitsToSave: the array of splits to persist (passed explicitly for debounce correctness)
   async function saveSplitsData(splitsToSave) {
+    // Guard against a stale debounced call landing after the run was marked
+    // complete (e.g. an edit made just before completion whose 500ms timer
+    // fires afterward) — the lock must hold even for in-flight requests.
+    if (isLocked) return
     setSaving(true)
     setSplitError(null)
 
@@ -1082,6 +1092,13 @@ function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brew
     <section className="bg-white border border-gray-200 rounded-xl p-5 space-y-5">
       <h2 className="text-base font-bold text-navy">Section 2 — Package Splits</h2>
 
+      {/* Locked notice — shown once the run is complete; splits become permanently non-editable */}
+      {isLocked && (
+        <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-sm text-gray-600">
+          This packaging run is complete. Package splits cannot be edited.
+        </div>
+      )}
+
       {/* No packaging plan message — shown when recipe has no splits and no actuals entered yet */}
       {(!run.planned_splits || run.planned_splits.length === 0) && (run.actual_splits || []).length === 0 && (
         <div className="bg-gray-50 rounded-lg p-4 text-sm text-gray-500 mb-3">
@@ -1101,8 +1118,8 @@ function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brew
               <col style={{ width: '11%' }} />   {/* Vol/Unit */}
               <col style={{ width: '11%' }} />   {/* Total Vol */}
               <col style={{ width: '16%' }} />   {/* Destination */}
-              <col style={{ width: isReadOnly ? '18%' : '12%' }} />  {/* Notes */}
-              {!isReadOnly && <col style={{ width: '6%' }} />}        {/* Remove */}
+              <col style={{ width: (isReadOnly || isLocked) ? '18%' : '12%' }} />  {/* Notes */}
+              {!isReadOnly && !isLocked && <col style={{ width: '6%' }} />}        {/* Remove */}
             </colgroup>
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
@@ -1114,7 +1131,7 @@ function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brew
                 <th className="px-3 py-2 text-left text-xs font-semibold text-amber uppercase tracking-wide">Total Vol</th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Destination</th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Notes</th>
-                {!isReadOnly && <th className="px-3 py-2" />}
+                {!isReadOnly && !isLocked && <th className="px-3 py-2" />}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -1133,7 +1150,7 @@ function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brew
                           <select
                             className={`${INPUT_CLS} ${!s.package_type && parseFloat(s.units_packaged) > 0 ? 'border-danger' : ''}`}
                             value={s.package_type}
-                            disabled={isReadOnly}
+                            disabled={isReadOnly || isLocked}
                             onChange={e => updateSplit(i, 'package_type', e.target.value)}
                           >
                             <option value="">— Select —</option>
@@ -1177,7 +1194,7 @@ function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brew
                         className={INPUT_CLS}
                         placeholder="0"
                         value={s.units_packaged}
-                        disabled={isReadOnly}
+                        disabled={isReadOnly || isLocked}
                         onChange={e => updateSplit(i, 'units_packaged', e.target.value)}
                       />
                     </td>
@@ -1191,13 +1208,13 @@ function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brew
                         className={INPUT_CLS}
                         placeholder="0"
                         value={s.volume_per_unit}
-                        disabled={isReadOnly}
+                        disabled={isReadOnly || isLocked}
                         onChange={e => updateSplit(i, 'volume_per_unit', e.target.value)}
                       />
                       <span className="text-[10px] text-gray-400 mt-0.5 block text-center">
                         {volumePerUnitLabel(s.package_type) || unit}
                       </span>
-                      {s.package_type && !PKG_TYPE_DEFAULTS[s.package_type] && !isReadOnly && (
+                      {s.package_type && !PKG_TYPE_DEFAULTS[s.package_type] && !isReadOnly && !isLocked && (
                         <span className="text-[10px] text-amber block text-center leading-tight mt-0.5">
                           Volume per unit not recognized — please enter manually.
                         </span>
@@ -1214,7 +1231,7 @@ function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brew
                       <select
                         className={INPUT_CLS}
                         value={s.destination}
-                        disabled={isReadOnly}
+                        disabled={isReadOnly || isLocked}
                         onChange={e => updateSplit(i, 'destination', e.target.value)}
                       >
                         <option value="">— Select —</option>
@@ -1229,13 +1246,13 @@ function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brew
                         className={INPUT_CLS}
                         placeholder="Optional"
                         value={s.notes}
-                        disabled={isReadOnly}
+                        disabled={isReadOnly || isLocked}
                         onChange={e => updateSplit(i, 'notes', e.target.value)}
                       />
                     </td>
 
                     {/* Remove button — only for extra (non-plan) rows */}
-                    {!isReadOnly && (
+                    {!isReadOnly && !isLocked && (
                       <td className="px-3 py-2">
                         {!s._fromPlan && (
                           <button
@@ -1269,7 +1286,7 @@ function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brew
       )}
 
       {/* Add split button + auto-save status indicator */}
-      {!isReadOnly && (
+      {!isReadOnly && !isLocked && (
         <div className="flex flex-wrap items-center gap-3">
           <button
             onClick={addExtraSplit}
