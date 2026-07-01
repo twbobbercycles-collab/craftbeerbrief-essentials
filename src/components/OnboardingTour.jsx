@@ -144,8 +144,8 @@ export default function OnboardingTour({ onComplete }) {
       {
         target: 'a[href="/staff"]',
         placement: 'right',
-        title: 'Staff & Certifications',
-        body: "Manage your entire team and their certifications in a single unified view. Each staff card shows the employee's role, contact info, and all their certifications with color-coded status — green for current, amber for expiring within 60 days, red for expired. Add staff from a comprehensive brewery role list and track certifications from alcohol service training to OSHA safety to Cicerone credentials.",
+        title: 'Staff & Training',
+        body: "Manage your entire team, their certifications, and their training in one place. Each staff card shows the employee's role, contact info, and all their certifications with color-coded status — green for current, amber for expiring within 60 days, red for expired. A separate Training tab tracks training programs, staff assignments, and completion records, with a compliance matrix showing who is current and who needs attention.",
       },
       {
         target: 'a[href="/ttb"]',
@@ -233,7 +233,7 @@ export default function OnboardingTour({ onComplete }) {
         target: null,
         title: 'Full Suite — Business Growth & Advocacy Tools',
         body: fullSuitePaid
-          ? 'Your Full Suite subscription includes 7 additional modules for business development and legislative advocacy — on top of everything in Essentials and Operations.'
+          ? 'Your Full Suite subscription includes 6 additional modules for business development and legislative advocacy — on top of everything in Essentials and Operations.'
           : 'Your trial includes access to all Full Suite modules. Upgrade to Full Suite at $19.99/month to keep access after your trial ends.',
       },
       {
@@ -247,12 +247,6 @@ export default function OnboardingTour({ onComplete }) {
         placement: 'right',
         title: 'Wholesale Account Manager',
         body: 'Manage wholesale relationships and track account performance. Contact info, follow-ups, and order history pulled automatically from your Distribution data.',
-      },
-      {
-        target: 'a[href="/training"]',
-        placement: 'right',
-        title: 'Staff Training & Development',
-        body: 'Track training programs, assign staff, and monitor certification compliance. The compliance matrix shows who is current and who needs attention at a glance.',
       },
       {
         target: 'a[href="/benchmarking"]',

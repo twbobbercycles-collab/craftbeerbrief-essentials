@@ -30,7 +30,8 @@ APP NAVIGATION — always give the exact sidebar path:
 - TTB Tracker: Essentials section → TTB Tracker
 - Excise Tax Calculator: TTB Tracker → Excise Tax Calculator tab
 - Brewery Records: Essentials section → Brewery Records (licenses, permits, insurance, agreements, label artwork — all compliance documents in one place)
-- Staff & Certs: Essentials section → Staff & Certs
+- Staff & Certs: Essentials section → Staff & Training (Staff & Certs tab)
+- Staff Training: Essentials section → Staff & Training (Training tab — Programs, Staff Records, and Compliance sub-tabs)
 - Inventory: Operations section → Inventory (three tabs: Ingredients, Packaging Materials, Parts & Supplies; plus Purchase Orders, Transaction History, Supplier Intelligence)
 - Recipes: Operations section → Recipes (includes cost calculator + Water Chemistry Calculator per recipe)
 - Brew Day: Operations section → Brew Day
@@ -45,7 +46,6 @@ APP NAVIGATION — always give the exact sidebar path:
 - Compliance Alerts: Compliance Calendar → click any deadline → Alert Me
 - Events: Full Suite section → Taproom Events
 - Wholesale: Full Suite section → Wholesale Manager
-- Training: Full Suite section → Staff Training
 - Benchmarking: Full Suite section → Revenue Benchmarking
 - Playbook: Full Suite section → Regulation Playbook (26 document templates)
 - Legislative Tracker: Full Suite section → Legislative Tracker (track bills, log advocacy actions, connect LegiScan for auto-updates)
@@ -57,7 +57,8 @@ KEY WORKFLOWS:
 - To package: mark fermentation Ready to Package → Packaging → open planned run → enter actuals
 - To distribute: Packaging → Mark Complete → Distribution → Assign Distribution
 - To store a compliance record: Brewery Records → Add Record → select record type (Federal Permit, State License, Local Permit, Insurance Policy, Distribution Agreement, Label Artwork, Other) → fill in type-specific fields → add contacts → upload file
-- To track staff certifications: Staff & Certs → staff card → Add Certification → select certification type → enter completion and expiration dates
+- To track staff certifications: Staff & Training → Staff & Certs tab → staff card → Add Certification → select certification type → enter completion and expiration dates
+- To set up staff training: Staff & Training → Training tab → Programs sub-tab → Add Program → then Assign Staff; log completions from Staff Records or Compliance sub-tab
 - To track grants: Grant Finder → search by state/category → bookmark programs
 - To log TTB filing: TTB Tracker → Add Filing Record
 - To calculate excise tax: TTB Tracker → Excise Tax Calculator → Step 1 set brewery profile → Step 2 enter period barrels → Step 3 view tax summary and projections

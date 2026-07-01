@@ -18,6 +18,7 @@ const ESSENTIALS_FEATURES = [
   'Grant & Funding Finder (90+ curated programs)',
   'License Document Storage',
   'Staff Certification Tracker',
+  'Staff Training & Development Tracker',
   'Insurance Policy Tracker',
   'Local Permit Tracker',
 ]
@@ -35,7 +36,6 @@ const OPERATIONS_FEATURES = [
 const FULL_SUITE_FEATURES = [
   'Taproom Event Planner & ROI Tracker',
   'Wholesale Account Manager',
-  'Staff Training & Development Tracker',
   'Taproom Revenue Benchmarking Dashboard',
   'Regulation, Policy & Advocacy Playbook (PDF)',
 ]

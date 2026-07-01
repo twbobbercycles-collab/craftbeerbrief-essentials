@@ -1,11 +1,14 @@
 /**
- * StaffPage — Staff & Certifications
+ * StaffPage — Staff & Training
  *
- * Unified view: summary cards, warning banners, search/filter bar, and a
- * responsive staff card grid. Each card shows the staff member's details and
- * all of their certifications color-coded by expiration status.
+ * Two tabs: "Staff & Certs" (summary cards, warning banners, search/filter
+ * bar, and a responsive staff card grid — each card shows the staff
+ * member's details and all of their certifications color-coded by
+ * expiration status) and "Training" (training programs, assignments, and
+ * completion records — see TrainingSection.jsx).
  */
 import { useEffect, useState, useMemo, useRef } from 'react'
+import { useLocation } from 'react-router-dom'
 import { supabase } from '../../services/supabase'
 import { useAuth } from '../../context/AuthContext'
 import LoadingSpinner from '../../components/LoadingSpinner'
@@ -15,6 +18,8 @@ import DraftNoticeBar from '../../components/DraftNoticeBar'
 import EmptyState from '../../components/EmptyState'
 import { useModalDraft } from '../../hooks/useModalDraft'
 import { useReadOnly } from '../../hooks/useReadOnly'
+import { usePersistedTab } from '../../hooks/usePersistedTab'
+import TrainingSection from './TrainingSection'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -564,6 +569,16 @@ function AddCertificationModal({ isOpen, onClose, onSuccess, breweryId, activeSt
 export default function StaffPage() {
   const { brewery } = useAuth()
   const { isReadOnly, ReadOnlyTooltip } = useReadOnly()
+  const location = useLocation()
+
+  // ── Page-level tab state (Staff & Certs vs Training) ─────────────────────
+  const [activeTab, setActiveTab] = usePersistedTab('staff_page_active_tab', 'staff')
+
+  // Deep-link support: dashboard widgets / onboarding tour can navigate here
+  // with navigate('/staff', { state: { activeTab: 'training' } })
+  useEffect(() => {
+    if (location.state?.activeTab) setActiveTab(location.state.activeTab)
+  }, [location.state])
 
   // ── Data state ───────────────────────────────────────────────────────────
   const [staffMembers,   setStaffMembers]   = useState([])
@@ -761,28 +776,49 @@ export default function StaffPage() {
 
   // ── Render ───────────────────────────────────────────────────────────────
 
-  if (loading) return <LoadingSpinner message="Loading staff & certifications…" />
+  if (loading) return <LoadingSpinner message="Loading staff & training…" />
 
   return (
     <div className="space-y-5">
+      {/* Page header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h2 className="text-xl font-bold text-navy">Staff &amp; Training</h2>
+          <p className="text-sm text-gray-500 mt-0.5">Manage your team, certifications, and staff development in one place.</p>
+        </div>
+        {activeTab === 'staff' && (
+          <ReadOnlyTooltip isReadOnly={isReadOnly}>
+            <button onClick={openAddStaff}
+              className="bg-amber hover:bg-amber-dark text-white text-sm font-semibold px-4 py-2.5 rounded-lg transition-colors">
+              + Add Staff Member
+            </button>
+          </ReadOnlyTooltip>
+        )}
+      </div>
+
+      {/* Tab bar */}
+      <div className="flex gap-1 border-b border-gray-200">
+        {[['staff', 'Staff & Certs'], ['training', 'Training']].map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setActiveTab(key)}
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === key ? 'border-amber text-amber' : 'border-transparent text-gray-500 hover:text-navy'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'training' && <TrainingSection />}
+
+      {activeTab === 'staff' && (
+      <>
       <DismissibleDisclaimer
         storageKey="disclaimer_staff_dismissed"
         text="Certification tracking is provided as a convenience only. Always verify staff certification requirements with your state licensing authority and consult legal counsel regarding compliance obligations."
       />
-
-      {/* Page header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h2 className="text-xl font-bold text-navy">Staff &amp; Certifications</h2>
-          <p className="text-sm text-gray-500 mt-0.5">Manage your team and track certifications and compliance requirements.</p>
-        </div>
-        <ReadOnlyTooltip isReadOnly={isReadOnly}>
-          <button onClick={openAddStaff}
-            className="bg-amber hover:bg-amber-dark text-white text-sm font-semibold px-4 py-2.5 rounded-lg transition-colors">
-            + Add Staff Member
-          </button>
-        </ReadOnlyTooltip>
-      </div>
 
       {loadError && (
         <div className="bg-red-50 border border-danger text-danger rounded-lg px-4 py-3 text-sm flex items-center justify-between gap-3">
@@ -978,6 +1014,8 @@ export default function StaffPage() {
         onDismissDraft={certDraft.dismissDraftBanner}
         onSaveDraft={certDraft.saveDraft}
       />
+      </>
+      )}
     </div>
   )
 }

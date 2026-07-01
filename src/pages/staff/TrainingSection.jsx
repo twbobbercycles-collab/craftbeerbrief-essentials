@@ -1,15 +1,11 @@
-// TrainingPage v2.1 — Full Suite Staff Training & Development Tracker
+// TrainingSection — Training tab within the combined Staff & Training page
 /**
  * Tracks training programs, assignments, and staff completion records.
- * Three tabs: Programs (library) | Staff Records (matrix + log) | Compliance (gaps + export)
- *
- * v2.1 changes: staff dropdowns pull from Essentials staff_members table.
- * v2.0 changes: assignment support, Compliance tab crash fix (undefined STATUS_LABEL key).
+ * Three sub-tabs: Programs (library) | Staff Records (matrix + log) | Compliance (gaps + export)
  */
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../services/supabase'
-import TierGate from '../../components/TierGate'
 import ModalShell from '../../components/ModalShell'
 import { usePersistedTab } from '../../hooks/usePersistedTab'
 import { useModalDraft } from '../../hooks/useModalDraft'
@@ -103,17 +99,7 @@ function recordsToCsv(records) {
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
-export default function TrainingPage() {
-  return (
-    <TierGate requiredTier="full_suite" featureKey="staff_training_tracker">
-      <TrainingManager />
-    </TierGate>
-  )
-}
-
-// ── TrainingManager — root component inside the gate ──────────────────────────
-
-function TrainingManager() {
+export default function TrainingSection() {
   const { brewery } = useAuth()
   const [activeTab, setTab] = usePersistedTab('training_active_tab', 'programs')
 
@@ -159,14 +145,7 @@ function TrainingManager() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h2 className="text-xl font-bold text-navy">Staff Training & Development</h2>
-        <p className="text-sm text-gray-500 mt-0.5">
-          Track training programs, certifications, and development progress for your entire team.
-        </p>
-      </div>
-
-      {/* Tab bar */}
+      {/* Sub-tab bar */}
       <div className="flex gap-1 border-b border-gray-200">
         {[['programs','Programs'],['staff-records','Staff Records'],['compliance','Compliance']].map(([key, label]) => (
           <button

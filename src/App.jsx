@@ -42,7 +42,6 @@ const DistributionPage        = lazy(() => import('./pages/distribution/Distribu
 const TaproomPage             = lazy(() => import('./pages/drafttap/TaproomPage'))
 const EventsPage              = lazy(() => import('./pages/events/EventsPage'))
 const WholesalePage           = lazy(() => import('./pages/wholesale/WholesalePage'))
-const TrainingPage            = lazy(() => import('./pages/training/TrainingPage'))
 const BenchmarkingPage        = lazy(() => import('./pages/benchmarking/BenchmarkingPage'))
 const PlaybookPage            = lazy(() => import('./pages/playbook/PlaybookPage'))
 const BatchProfitabilityPage  = lazy(() => import('./pages/reports/BatchProfitabilityPage'))
@@ -110,6 +109,8 @@ export default function App() {
           <Route path="insurance"  element={<Navigate to="/records" replace />} />
           <Route path="permits"    element={<Navigate to="/records" replace />} />
           <Route path="staff"      element={<StaffPage />} />
+          {/* Legacy redirect — Staff Training was merged into Staff & Certs (now "Staff & Training") */}
+          <Route path="training"   element={<Navigate to="/staff" state={{ activeTab: 'training' }} replace />} />
           <Route path="ttb"        element={<TtbPage />} />
           <Route path="grants"   element={<GrantsPage />} />
           <Route path="account"  element={<AccountPage />} />
@@ -124,7 +125,6 @@ export default function App() {
           <Route path="taproom"        element={<TaproomPage />} />
           <Route path="events"         element={<EventsPage />} />
           <Route path="wholesale"      element={<WholesalePage />} />
-          <Route path="training"        element={<TrainingPage />} />
           <Route path="benchmarking"   element={<BenchmarkingPage />} />
           <Route path="playbook"       element={<PlaybookPage />} />
           <Route path="recipes"  element={<RecipesPage />} />

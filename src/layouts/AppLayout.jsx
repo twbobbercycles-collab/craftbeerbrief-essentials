@@ -18,7 +18,7 @@ const MAIN_NAV = [
   { path: '/dashboard',  label: 'Dashboard',           icon: '🏠' },
   { path: '/compliance', label: 'Compliance Calendar', icon: '📅' },
   { path: '/records',    label: 'Brewery Records',     icon: '🗂️' },
-  { path: '/staff',      label: 'Staff & Certs',       icon: '👥' },
+  { path: '/staff',      label: 'Staff & Training',    icon: '👥' },
   { path: '/ttb',        label: 'TTB Tracker',         icon: '📊' },
   { path: '/grants',     label: 'Grant Finder',        icon: '💰' },
 ]
@@ -48,7 +48,6 @@ const BOTTOM_NAV = [
 const FULL_SUITE_NAV = [
   { path: '/events',       label: 'Taproom Events',       icon: '🎪' },
   { path: '/wholesale',    label: 'Wholesale Manager',    icon: '🤝' },
-  { path: '/training',     label: 'Staff Training',       icon: '🎓' },
   { path: '/benchmarking', label: 'Revenue Benchmarking', icon: '📈' },
   { path: '/analytics',   label: 'Analytics',            icon: '📊' },
   { path: '/legislative', label: 'Legislative Tracker',  icon: '⚖️' },
@@ -158,7 +157,7 @@ export default function AppLayout() {
         .eq('brewery_id', brewery.id)
         .not('keg_return_date', 'is', null)
         .eq('kegs_returned', false),
-      // Staff certifications: for sidebar dot on Staff & Certs nav item
+      // Staff certifications: for sidebar dot on Staff & Training nav item
       supabase.from('staff_certifications').select('staff_member_id, expiration_date')
         .eq('brewery_id', brewery.id)
         .not('expiration_date', 'is', null),

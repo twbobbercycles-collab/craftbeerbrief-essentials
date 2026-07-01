@@ -136,7 +136,7 @@ const CATEGORIES = [
   },
   {
     id: 'staff-certifications',
-    label: 'Staff & Certifications',
+    label: 'Staff & Training',
     items: [
       {
         q: 'How does the unified staff view work?',
@@ -148,7 +148,19 @@ const CATEGORIES = [
       },
       {
         q: 'How do expiration warnings work for certifications?',
-        a: 'The Staff & Certifications page shows warning banners at the top for expired certifications (red) and certifications expiring within 60 days (amber). The sidebar also shows a colored dot next to Staff & Certs when action is needed. The dashboard shows a certification alert widget for all tiers so you never miss a renewal.',
+        a: 'The Staff & Certs tab shows warning banners at the top for expired certifications (red) and certifications expiring within 60 days (amber). The sidebar also shows a colored dot next to Staff & Training when action is needed. The dashboard shows a certification alert widget for all tiers so you never miss a renewal.',
+      },
+      {
+        q: 'How do I set up training programs?',
+        a: 'Go to Staff & Training in the sidebar, open the Training tab, then click the Programs sub-tab. Click Add Program to create a new training program with a name, type (Safety, Compliance, Beer Knowledge, etc.), duration, whether it is required for certain roles, and whether it needs periodic renewal. Once a program exists you can assign it to specific staff members and track completion.',
+      },
+      {
+        q: 'How do I assign training to staff members?',
+        a: 'On any program card click Assign Staff. A checklist appears showing all your staff members pulled from the Staff & Certs tab. Select the staff members who need to complete this program and set a required completion date. The compliance matrix in the Staff Records sub-tab then tracks who has completed it and who has not.',
+      },
+      {
+        q: 'What does the compliance matrix show?',
+        a: 'The compliance matrix is a grid showing every staff member on the rows and every required training program on the columns. Each cell shows a green checkmark if the staff member has completed and is current, an amber warning if their certification expires within 60 days, a red X if expired or overdue, and a gray dash with an A if assigned but not yet completed. The Compliance sub-tab shows your overall completion rate and lists everyone who needs attention.',
       },
     ],
   },
@@ -316,11 +328,11 @@ const CATEGORIES = [
     items: [
       {
         q: 'What is the Full Suite tier and what does it include?',
-        a: 'The Full Suite tier ($19.99/month or $199.99/year) includes everything in Essentials and Operations plus four additional modules: Taproom Event Planner & ROI Tracker, Wholesale Account Manager, Staff Training & Development Tracker, Taproom Revenue Benchmarking Dashboard, and the complete Regulation Policy & Advocacy Playbook with 26 downloadable document templates. Full Suite is designed for breweries that want a complete management and advocacy toolkit in one place.',
+        a: 'The Full Suite tier ($19.99/month or $199.99/year) includes everything in Essentials and Operations plus four additional modules: Taproom Event Planner & ROI Tracker, Wholesale Account Manager, Taproom Revenue Benchmarking Dashboard, and the complete Regulation Policy & Advocacy Playbook with 26 downloadable document templates. Full Suite is designed for breweries that want a complete management and advocacy toolkit in one place.',
       },
       {
         q: 'How is Full Suite different from Operations?',
-        a: 'Operations covers your core brewery workflow from recipe to distribution. Full Suite adds business development and advocacy tools on top of that — event planning and ROI tracking, wholesale CRM, staff training management, taproom benchmarking against industry data, and the complete legislative and regulatory playbook with customizable Word document templates.',
+        a: 'Operations covers your core brewery workflow from recipe to distribution. Full Suite adds business development and advocacy tools on top of that — event planning and ROI tracking, wholesale CRM, taproom benchmarking against industry data, and the complete legislative and regulatory playbook with customizable Word document templates.',
       },
       {
         q: 'Can I upgrade from Operations to Full Suite?',
@@ -361,24 +373,6 @@ const CATEGORIES = [
       {
         q: 'What are follow-ups and how do I track them?',
         a: 'Each wholesale account has a Next Follow-up Date field. The Follow-Ups tab in the Wholesale module shows all accounts organized by urgency — overdue, due today, due this week, and upcoming. When you log a contact interaction it records the date and notes and prompts you to set the next follow-up date. This keeps your sales relationships active without requiring a dedicated CRM system.',
-      },
-    ],
-  },
-  {
-    id: 'staff-training',
-    label: 'Staff Training & Development',
-    items: [
-      {
-        q: 'How do I set up training programs?',
-        a: 'Go to Staff Training in the sidebar and click the Programs tab. Click Add Program to create a new training program with a name, type (Safety, Compliance, Beer Knowledge, etc.), duration, whether it is required for certain roles, and whether it needs periodic renewal. Once a program exists you can assign it to specific staff members and track completion.',
-      },
-      {
-        q: 'How do I assign training to staff members?',
-        a: 'On any program card click Assign Staff. A checklist appears showing all your staff members pulled from the Essentials Staff & Certifications module. Select the staff members who need to complete this program and set a required completion date. The compliance matrix in the Staff Records tab then tracks who has completed it and who has not.',
-      },
-      {
-        q: 'What does the compliance matrix show?',
-        a: 'The compliance matrix is a grid showing every staff member on the rows and every required training program on the columns. Each cell shows a green checkmark if the staff member has completed and is current, an amber warning if their certification expires within 60 days, a red X if expired or overdue, and a gray dash with an A if assigned but not yet completed. The Compliance tab shows your overall completion rate and lists everyone who needs attention.',
       },
     ],
   },

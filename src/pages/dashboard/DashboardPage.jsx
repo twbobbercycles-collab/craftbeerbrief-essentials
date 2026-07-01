@@ -117,22 +117,20 @@ export default function DashboardPage() {
       : Promise.resolve([{ count: 0 }, { count: 0 }, { count: 0 }, { count: 0 }])
 
     // Active taproom handles: draft/taproom records not yet kicked, last 90 days
-    // Staff training records for Full Suite users — expired and expiring in 30 days
+    // Staff training records — expired and expiring in 30 days
     const thirtyFromNow = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10)
-    const trainingPromise = hasAccess('full_suite')
-      ? Promise.all([
-          supabase
-            .from('staff_training_records')
-            .select('expiration_date')
-            .eq('brewery_id', brewery.id)
-            .not('expiration_date', 'is', null),
-          supabase
-            .from('training_assignments')
-            .select('id')
-            .eq('brewery_id', brewery.id)
-            .eq('status', 'assigned'),
-        ])
-      : Promise.resolve([{ data: [] }, { data: [] }])
+    const trainingPromise = Promise.all([
+      supabase
+        .from('staff_training_records')
+        .select('expiration_date')
+        .eq('brewery_id', brewery.id)
+        .not('expiration_date', 'is', null),
+      supabase
+        .from('training_assignments')
+        .select('id')
+        .eq('brewery_id', brewery.id)
+        .eq('status', 'assigned'),
+    ])
 
     // Wholesale accounts for Full Suite users — follow-ups and at-risk counts
     const wholesalePromise = hasAccess('full_suite')
@@ -928,18 +926,14 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Staff Training widget — Full Suite only */}
-          {hasAccess('full_suite') && (
-            <div className="bg-white rounded-xl border border-gray-200 p-5">
+          {/* Staff Training widget */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <span className="text-xl">🎓</span>
                   <h3 className="font-semibold text-navy">Staff Training</h3>
-                  <span className="bg-amber/20 text-amber text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide">
-                    Full Suite
-                  </span>
                 </div>
-                <Link to="/training" className="text-amber text-sm hover:underline">View tracker →</Link>
+                <Link to="/staff" state={{ activeTab: 'training' }} className="text-amber text-sm hover:underline">View tracker →</Link>
               </div>
               <div className="grid grid-cols-3 gap-4">
                 <div>
@@ -970,8 +964,7 @@ export default function DashboardPage() {
                   )}
                 </div>
               </div>
-            </div>
-          )}
+          </div>
 
           {/* Revenue Benchmarking widget — Full Suite only */}
           {hasAccess('full_suite') && (
