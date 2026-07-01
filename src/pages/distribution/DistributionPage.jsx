@@ -740,27 +740,42 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
                   key={row.key}
                   className={`rounded-xl border ${assigned ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-gray-50'} p-4 space-y-3`}
                 >
-                  {/* Row header: package type + units */}
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <span className="font-semibold text-gray-800 text-sm">{row.package_type || 'Unknown'}</span>
-                    {row.units_packaged !== '' && (
-                      <span className="bg-navy/10 text-navy text-xs px-2 py-0.5 rounded-full">
-                        {row.units_packaged} units
-                      </span>
+                  {/* Row header: package type (primary) + units */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {row.package_type ? (
+                        <span className="font-bold text-navy text-base leading-tight">{row.package_type}</span>
+                      ) : (
+                        <span className="font-bold text-amber-dark text-base leading-tight flex items-center gap-1">
+                          ⚠ Package type not set
+                        </span>
+                      )}
+                      {assigned && (
+                        <span className="bg-green-100 text-success text-xs font-semibold px-2 py-0.5 rounded-full ml-auto">
+                          Already Assigned ✓
+                        </span>
+                      )}
+                      {!assigned && row.existing_record_id && (
+                        <span className="bg-blue-50 text-blue-600 text-xs font-semibold px-2 py-0.5 rounded-full ml-auto">
+                          Re-assigning ✎
+                        </span>
+                      )}
+                    </div>
+                    {!row.package_type && (
+                      <p className="text-xs text-amber-dark">
+                        This split has no package type recorded. Edit the packaging run in the Packaging module to set it before assigning.
+                      </p>
                     )}
-                    {row.volume != null && row.volume !== '' && (
-                      <span className="text-xs text-gray-400">{row.volume} {run.volume_unit || 'bbl'}</span>
-                    )}
-                    {assigned && (
-                      <span className="bg-green-100 text-success text-xs font-semibold px-2 py-0.5 rounded-full ml-auto">
-                        Already Assigned ✓
-                      </span>
-                    )}
-                    {!assigned && row.existing_record_id && (
-                      <span className="bg-blue-50 text-blue-600 text-xs font-semibold px-2 py-0.5 rounded-full ml-auto">
-                        Re-assigning ✎
-                      </span>
-                    )}
+                    <div className="flex items-center gap-3 flex-wrap">
+                      {row.units_packaged !== '' && (
+                        <span className="bg-navy/10 text-navy text-xs px-2 py-0.5 rounded-full">
+                          {row.units_packaged} units
+                        </span>
+                      )}
+                      {row.volume != null && row.volume !== '' && (
+                        <span className="text-xs text-gray-400">{row.volume} {run.volume_unit || 'bbl'}</span>
+                      )}
+                    </div>
                   </div>
 
                   {!assigned && (
