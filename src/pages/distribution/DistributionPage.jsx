@@ -1252,6 +1252,12 @@ function EditDeliveryModal({ record, accounts, onClose, onSaved }) {
     const price     = form.sale_price_per_unit !== ''        ? parseFloat(form.sale_price_per_unit)        : null
     const distCostV = form.distribution_cost_per_unit !== '' ? parseFloat(form.distribution_cost_per_unit) : null
 
+    // Keg return fields only apply to keg/barrel package types — force false/null
+    // for anything else regardless of what the (hidden) form state holds.
+    const isKeg           = isKegType(record.package_type)
+    const returnableKegs  = isKeg && form.returnable_kegs
+    const kegsReturned    = isKeg && form.kegs_returned
+
     const { error: err } = await supabase
       .from('distribution_records')
       .update({
@@ -1260,10 +1266,10 @@ function EditDeliveryModal({ record, accounts, onClose, onSaved }) {
         quantity:                    units,
         sale_price_per_unit:         price,
         distribution_cost_per_unit:  distCostV,
-        returnable_kegs:             form.returnable_kegs,
-        keg_return_date:             form.returnable_kegs && form.keg_return_date ? form.keg_return_date : null,
-        kegs_returned:               form.kegs_returned,
-        keg_returned_date:           form.kegs_returned && form.keg_returned_date ? form.keg_returned_date : null,
+        returnable_kegs:             returnableKegs,
+        keg_return_date:             returnableKegs && form.keg_return_date ? form.keg_return_date : null,
+        kegs_returned:               kegsReturned,
+        keg_returned_date:           kegsReturned && form.keg_returned_date ? form.keg_returned_date : null,
         notes:                       form.notes || null,
       })
       .eq('id', record.id)
@@ -1416,55 +1422,59 @@ function EditDeliveryModal({ record, accounts, onClose, onSaved }) {
           )}
         </div>
 
-        {/* Keg return tracking */}
-        <div className="flex items-center gap-3">
-          <input
-            type="checkbox"
-            id="edit-keg-expected"
-            className="w-4 h-4 accent-amber"
-            checked={form.returnable_kegs}
-            onChange={e => set('returnable_kegs', e.target.checked)}
-          />
-          <label htmlFor="edit-keg-expected" className="text-sm text-gray-700 font-medium">
-            Keg Return Expected
-          </label>
-        </div>
+        {/* Keg return tracking — only applies to keg/barrel package types */}
+        {isKegType(record.package_type) && (
+          <>
+            <div className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                id="edit-keg-expected"
+                className="w-4 h-4 accent-amber"
+                checked={form.returnable_kegs}
+                onChange={e => set('returnable_kegs', e.target.checked)}
+              />
+              <label htmlFor="edit-keg-expected" className="text-sm text-gray-700 font-medium">
+                Keg Return Expected
+              </label>
+            </div>
 
-        {form.returnable_kegs && (
-          <div>
-            <label className={LBL}>Expected Return Date</label>
-            <input
-              type="date"
-              className={INPUT_CLS}
-              value={form.keg_return_date}
-              onChange={e => set('keg_return_date', e.target.value)}
-            />
-          </div>
-        )}
+            {form.returnable_kegs && (
+              <div>
+                <label className={LBL}>Expected Return Date</label>
+                <input
+                  type="date"
+                  className={INPUT_CLS}
+                  value={form.keg_return_date}
+                  onChange={e => set('keg_return_date', e.target.value)}
+                />
+              </div>
+            )}
 
-        <div className="flex items-center gap-3">
-          <input
-            type="checkbox"
-            id="edit-keg-returned"
-            className="w-4 h-4 accent-amber"
-            checked={form.kegs_returned}
-            onChange={e => set('kegs_returned', e.target.checked)}
-          />
-          <label htmlFor="edit-keg-returned" className="text-sm text-gray-700 font-medium">
-            Kegs Returned
-          </label>
-        </div>
+            <div className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                id="edit-keg-returned"
+                className="w-4 h-4 accent-amber"
+                checked={form.kegs_returned}
+                onChange={e => set('kegs_returned', e.target.checked)}
+              />
+              <label htmlFor="edit-keg-returned" className="text-sm text-gray-700 font-medium">
+                Kegs Returned
+              </label>
+            </div>
 
-        {form.kegs_returned && (
-          <div>
-            <label className={LBL}>Actual Return Date</label>
-            <input
-              type="date"
-              className={INPUT_CLS}
-              value={form.keg_returned_date}
-              onChange={e => set('keg_returned_date', e.target.value)}
-            />
-          </div>
+            {form.kegs_returned && (
+              <div>
+                <label className={LBL}>Actual Return Date</label>
+                <input
+                  type="date"
+                  className={INPUT_CLS}
+                  value={form.keg_returned_date}
+                  onChange={e => set('keg_returned_date', e.target.value)}
+                />
+              </div>
+            )}
+          </>
         )}
 
         <div>

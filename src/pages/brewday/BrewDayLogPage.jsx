@@ -212,6 +212,14 @@ export default function BrewDayLogPage() {
   }
 
   async function markComplete() {
+    const missingFields = []
+    if (!bd.actual_og) missingFields.push('Actual OG')
+    if (!bd.actual_brewhouse_efficiency) missingFields.push('Brewhouse Efficiency')
+    if (!bd.volume_into_fermenter) missingFields.push('Volume into Fermenter')
+    if (missingFields.length > 0) {
+      showToast('warning', `Cannot mark complete — missing required field${missingFields.length !== 1 ? 's' : ''}: ${missingFields.join(', ')}. Enter these in Post-Brew Actuals first.`)
+      return
+    }
     if (!window.confirm('Mark this brew day as complete?')) return
     const now    = new Date().toTimeString().slice(0, 5)
     const update = { status: 'completed', ...(!bd.brew_end_time && { brew_end_time: now }) }

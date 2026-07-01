@@ -885,7 +885,17 @@ function AddAssetModal({ breweryId, editAsset, onClose, onSuccess }) {
   })()
 
   const [form, setForm] = useState(() => {
-    if (isEdit) return { ...EMPTY_FORM, ...editAsset, status: editAsset.status ?? 'Active' }
+    if (isEdit) {
+      // Coalesce null DB columns back to EMPTY_FORM's defaults ('' for text fields) —
+      // spreading editAsset directly would overwrite those defaults with null, and
+      // handleSave calls .trim() on several of these fields, which throws on null.
+      const normalized = { ...EMPTY_FORM }
+      for (const key of Object.keys(EMPTY_FORM)) {
+        normalized[key] = editAsset[key] ?? EMPTY_FORM[key]
+      }
+      normalized.status = editAsset.status ?? 'Active'
+      return normalized
+    }
     if (savedDraft) { draft.loadDraft() }  // trigger the draft-restored banner
     return savedDraft ?? EMPTY_FORM
   })
@@ -934,39 +944,45 @@ function AddAssetModal({ breweryId, editAsset, onClose, onSuccess }) {
     setError('')
     setSaving(true)
 
-    // Strip blank contacts before saving
-    const cleanContacts = contacts.filter(c => c.name?.trim() || c.phone?.trim() || c.email?.trim())
+    try {
+      // Strip blank contacts before saving
+      const cleanContacts = contacts.filter(c => c.name?.trim() || c.phone?.trim() || c.email?.trim())
 
-    const payload = {
-      brewery_id:               breweryId,
-      asset_name:               form.asset_name.trim(),
-      asset_category:           form.asset_category,
-      asset_type:               form.asset_type,
-      status:                   form.status,
-      location:                 form.location.trim() || null,
-      capacity_specs:           form.capacity_specs.trim() || null,
-      manufacturer:             form.manufacturer.trim() || null,
-      model_number:             form.model_number.trim() || null,
-      serial_number:            form.serial_number.trim() || null,
-      purchase_date:            form.purchase_date || null,
-      purchase_price:           form.purchase_price ? parseFloat(form.purchase_price) : null,
-      warranty_expiration_date: form.warranty_expiration_date || null,
-      vendor_name:              form.vendor_name.trim() || null,
-      contacts:                 cleanContacts,
-      notes:                    form.notes.trim() || null,
+      const payload = {
+        brewery_id:               breweryId,
+        asset_name:               form.asset_name.trim(),
+        asset_category:           form.asset_category,
+        asset_type:               form.asset_type,
+        status:                   form.status,
+        location:                 (form.location || '').trim() || null,
+        capacity_specs:           (form.capacity_specs || '').trim() || null,
+        manufacturer:             (form.manufacturer || '').trim() || null,
+        model_number:             (form.model_number || '').trim() || null,
+        serial_number:            (form.serial_number || '').trim() || null,
+        purchase_date:            form.purchase_date || null,
+        purchase_price:           form.purchase_price ? parseFloat(form.purchase_price) : null,
+        warranty_expiration_date: form.warranty_expiration_date || null,
+        vendor_name:              (form.vendor_name || '').trim() || null,
+        contacts:                 cleanContacts,
+        notes:                    (form.notes || '').trim() || null,
+      }
+
+      let res
+      if (isEdit) {
+        res = await supabase.from('equipment_assets').update(payload).eq('id', editAsset.id)
+      } else {
+        res = await supabase.from('equipment_assets').insert(payload)
+      }
+
+      if (res.error) { setError(res.error.message); return }
+      draft.clearDraft()
+      onSuccess()
+    } catch (err) {
+      console.error('Asset save failed:', err)
+      setError(err.message || 'Could not save asset. Please try again.')
+    } finally {
+      setSaving(false)
     }
-
-    let res
-    if (isEdit) {
-      res = await supabase.from('equipment_assets').update(payload).eq('id', editAsset.id)
-    } else {
-      res = await supabase.from('equipment_assets').insert(payload)
-    }
-
-    setSaving(false)
-    if (res.error) return setError(res.error.message)
-    draft.clearDraft()
-    onSuccess()
   }
 
   const typeOptions = ASSET_TYPES[form.asset_category] ?? ['Other Equipment']
