@@ -589,10 +589,13 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
       }
 
       // 4. Substring match (e.g. pricing 'Keg' matches split 'Keg Half Barrel')
-      if (!priceRow) {
+      // Guard against ptLower being empty — every string "includes" '', which
+      // would otherwise spuriously match the first pricing row for a split
+      // with no package type recorded.
+      if (!priceRow && ptLower) {
         priceRow = account.pricing.find(p => {
           const pl = (p.package_type || '').toLowerCase()
-          return ptLower.includes(pl) || pl.includes(ptLower)
+          return pl && (ptLower.includes(pl) || pl.includes(ptLower))
         })
       }
 

@@ -415,6 +415,14 @@ function PackagingRunDetail() {
       return
     }
 
+    // Validate: every split with units packaged must have a package type selected —
+    // otherwise Distribution has no way to tell the brewer what's being assigned.
+    const missingType = actualSplits.some(s => parseFloat(s.units_packaged) > 0 && !s.package_type)
+    if (missingType) {
+      alert('Please select a package type for every split with units packaged before completing.')
+      return
+    }
+
     if (!window.confirm('Mark this packaging run as complete? This will create a distribution record.')) return
 
     setCompleting(true)
@@ -1121,15 +1129,20 @@ function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brew
                       {s._fromPlan && planned ? (
                         <span className="text-gray-700 font-medium">{s.package_type}</span>
                       ) : (
-                        <select
-                          className={INPUT_CLS}
-                          value={s.package_type}
-                          disabled={isReadOnly}
-                          onChange={e => updateSplit(i, 'package_type', e.target.value)}
-                        >
-                          <option value="">— Select —</option>
-                          {PACKAGE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                        </select>
+                        <>
+                          <select
+                            className={`${INPUT_CLS} ${!s.package_type && parseFloat(s.units_packaged) > 0 ? 'border-danger' : ''}`}
+                            value={s.package_type}
+                            disabled={isReadOnly}
+                            onChange={e => updateSplit(i, 'package_type', e.target.value)}
+                          >
+                            <option value="">— Select —</option>
+                            {PACKAGE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                          </select>
+                          {!s.package_type && parseFloat(s.units_packaged) > 0 && (
+                            <span className="text-[10px] text-danger block mt-0.5">Required before completing</span>
+                          )}
+                        </>
                       )}
                     </td>
 
