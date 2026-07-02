@@ -8,20 +8,6 @@ const GALLONS_PER_BARREL = 31
 const OZ_PER_GALLON      = 128
 const PINTS_PER_BARREL   = 248
 
-// Units per gallon for each container type.
-// Simplified names — brewer enters their specific cost/unit; these defaults
-// represent the most common size for each type and drive the unit count estimate.
-// Can/Bottle → 12 fl oz, Growler → 64 fl oz, Crowler → 32 fl oz, Kegs by barrel volume.
-const CONTAINER_VOLUMES = {
-  'Can':               OZ_PER_GALLON / 12,   // 12 oz standard
-  'Bottle':            OZ_PER_GALLON / 12,   // 12 oz standard
-  'Growler':           OZ_PER_GALLON / 64,   // 64 oz (half-gallon)
-  'Crowler':           OZ_PER_GALLON / 32,   // 32 oz
-  'Keg Half Barrel':   1 / 15.5,
-  'Keg Quarter Barrel':1 / 7.75,
-  'Keg Sixth Barrel':  1 / 5.16,
-}
-
 // ── Batch conversion ──────────────────────────────────────────────────────────
 
 export function convertToBarrels(amount, unit) {
@@ -64,38 +50,43 @@ export function calculateTotalIngredientCost(ingredients, currentBatchSize, base
 
 // ── Packaging costing ─────────────────────────────────────────────────────────
 
+// unitsFromPackageableGallons — shared by the three functions below. Takes the exact
+// per-unit size (oz or bbl, mutually exclusive) instead of inferring it from a fixed
+// per-type default, so cost/unit estimates actually reflect the size a brewer picked
+// (e.g. a 12oz can and a 32oz can no longer produce identical estimates).
+function unitsFromPackageableGallons(packageableGal, sizeOz, sizeBbl) {
+  if (sizeBbl) return (packageableGal / GALLONS_PER_BARREL) / sizeBbl
+  if (sizeOz)  return (packageableGal * OZ_PER_GALLON) / sizeOz
+  return null
+}
+
 export function calculatePackagingCostPerBatch(
-  splitVolumeBarrels, packagingYieldPercentage, containerType,
+  splitVolumeBarrels, packagingYieldPercentage, sizeOz, sizeBbl,
   packagingCostPerUnit, labelCostPerUnit, carrierCostPerUnit,
 ) {
-  if (!containerType || containerType === 'Draft Only') return 0
-  const unitsPerGallon = CONTAINER_VOLUMES[containerType]
-  if (!unitsPerGallon) return 0
-  const gallons          = (parseFloat(splitVolumeBarrels) || 0) * GALLONS_PER_BARREL
-  const packageableGal   = gallons * ((parseFloat(packagingYieldPercentage) || 85) / 100)
-  const totalUnits       = packageableGal * unitsPerGallon
-  const costPerUnit      = (parseFloat(packagingCostPerUnit) || 0)
-                         + (parseFloat(labelCostPerUnit)     || 0)
-                         + (parseFloat(carrierCostPerUnit)   || 0)
+  const gallons        = (parseFloat(splitVolumeBarrels) || 0) * GALLONS_PER_BARREL
+  const packageableGal = gallons * ((parseFloat(packagingYieldPercentage) || 85) / 100)
+  const totalUnits      = unitsFromPackageableGallons(packageableGal, sizeOz, sizeBbl)
+  if (totalUnits == null) return 0
+  const costPerUnit    = (parseFloat(packagingCostPerUnit) || 0)
+                       + (parseFloat(labelCostPerUnit)     || 0)
+                       + (parseFloat(carrierCostPerUnit)   || 0)
   return totalUnits * costPerUnit
 }
 
-/** Returns whole-number unit count, or null for Draft Only / unknown container. */
-export function calculateUnitsProduced(splitVolumeBarrels, packagingYieldPercentage, containerType) {
-  if (!containerType || containerType === 'Draft Only') return null
-  const unitsPerGallon = CONTAINER_VOLUMES[containerType]
-  if (!unitsPerGallon) return null
+/** Returns whole-number unit count, or null when no size is set. */
+export function calculateUnitsProduced(splitVolumeBarrels, packagingYieldPercentage, sizeOz, sizeBbl) {
   const gallons        = (parseFloat(splitVolumeBarrels) || 0) * GALLONS_PER_BARREL
   const packageableGal = gallons * ((parseFloat(packagingYieldPercentage) || 85) / 100)
-  return Math.floor(packageableGal * unitsPerGallon)
+  const totalUnits      = unitsFromPackageableGallons(packageableGal, sizeOz, sizeBbl)
+  return totalUnits == null ? null : Math.floor(totalUnits)
 }
 
-/** Pints per unit for a given container type (used to price per-unit retail). */
-export function pintsPerContainer(containerType) {
-  const unitsPerGallon = CONTAINER_VOLUMES[containerType]
-  if (!unitsPerGallon) return null
-  const ozPerUnit = OZ_PER_GALLON / unitsPerGallon
-  return ozPerUnit / 16
+/** Pints per unit for a given size (used to price per-unit retail). */
+export function pintsPerContainer(sizeOz, sizeBbl) {
+  if (sizeBbl) return (sizeBbl * GALLONS_PER_BARREL * OZ_PER_GALLON) / 16
+  if (sizeOz)  return sizeOz / 16
+  return null
 }
 
 // ── Direct labor ──────────────────────────────────────────────────────────────

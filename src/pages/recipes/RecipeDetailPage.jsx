@@ -26,6 +26,9 @@ import {
   calculateSuggestedRetail, calculateTaxInclusivePrice, calculateGrossMargin,
   formatDollars, formatPct,
 } from './recipeUtils'
+import {
+  PACKAGE_TYPES, PACKAGE_SIZE_OPTIONS, DEFAULT_SIZE_BY_TYPE, unitNoun,
+} from '../../utils/packagingTypes'
 import WaterChemistryTab from './WaterChemistryTab'
 
 // State abbreviation lookup — brewery.state is stored as a full name (e.g. "California")
@@ -63,13 +66,6 @@ const FEDERAL_EXCISE_TAX_RATES = {
   STANDARD:     16.00,  // Over 2 million barrels (essentially no craft brewery)
   THRESHOLD_BARRELS: 60000,
 }
-
-// Container type options — simplified names, synced with 016 migration constraint.
-// Default volume for unit count estimates uses the most common size per type.
-const CONTAINER_TYPES = [
-  'Can', 'Bottle', 'Growler', 'Crowler',
-  'Keg Half Barrel', 'Keg Quarter Barrel', 'Keg Sixth Barrel',
-]
 
 // The ordered list of addition type sections shown in the ingredient editor
 const ADDITION_TYPES = [
@@ -180,7 +176,7 @@ export default function RecipeDetailPage() {
   // Current batch size (local — decoupled from the stored base batch size)
   const [batchSize, setBatchSize] = useState('')
 
-  // Packaging splits — array of { container_type, percentage, container_size,
+  // Packaging splits — array of { type, size, size_oz, size_bbl, volume_barrels, units,
   // packaging_cost_per_unit, label_cost_per_unit, carrier_cost_per_unit, packaging_yield }
   const [packagingSplits, setPackagingSplits] = useState([])
 
@@ -414,15 +410,18 @@ export default function RecipeDetailPage() {
         const splitBbls = parseFloat(split.volume_barrels) || 0
         const yld = parseFloat(split.packaging_yield) || defaultYield
         return total + calculatePackagingCostPerBatch(
-          splitBbls, yld, split.container_type,
+          splitBbls, yld, split.size_oz, split.size_bbl,
           parseFloat(split.packaging_cost_per_unit) || 0,
           parseFloat(split.label_cost_per_unit) || 0,
           parseFloat(split.carrier_cost_per_unit) || 0,
         )
       }, 0)
     } else {
+      // Single-container mode has no separate size selector — fall back to the
+      // per-type default size (matches the old CONTAINER_VOLUMES-implied behavior).
+      const defaultSize = DEFAULT_SIZE_BY_TYPE[packagingContainerType]
       packagingCost = calculatePackagingCostPerBatch(
-        batchBarrels, defaultYield, packagingContainerType,
+        batchBarrels, defaultYield, defaultSize?.ozPerUnit, defaultSize?.bblPerUnit,
         parseFloat(packagingCostPerUnit) || 0,
         parseFloat(labelCostPerUnit) || 0,
         parseFloat(carrierCostPerUnit) || 0,
@@ -477,27 +476,31 @@ export default function RecipeDetailPage() {
       ? packagingSplits.reduce((total, split) => {
           const splitBbls = parseFloat(split.volume_barrels) || 0
           const yld = parseFloat(split.packaging_yield) || defaultYield
-          const u = calculateUnitsProduced(splitBbls, yld, split.container_type)
+          const u = calculateUnitsProduced(splitBbls, yld, split.size_oz, split.size_bbl)
           return total + (u ?? 0)
         }, 0)
-      : calculateUnitsProduced(batchBarrels, defaultYield, packagingContainerType)
+      : calculateUnitsProduced(
+          batchBarrels, defaultYield,
+          DEFAULT_SIZE_BY_TYPE[packagingContainerType]?.ozPerUnit,
+          DEFAULT_SIZE_BY_TYPE[packagingContainerType]?.bblPerUnit,
+        )
 
     // Per-split output details (only populated when splits are defined)
     const splitOutputs = packagingSplits.map(split => {
       const splitBbls = parseFloat(split.volume_barrels) || 0
       const yld = parseFloat(split.packaging_yield) || defaultYield
       const splitPct = batchBarrels > 0 ? (splitBbls / batchBarrels) * 100 : 0
-      const units = calculateUnitsProduced(splitBbls, yld, split.container_type)
+      const units = calculateUnitsProduced(splitBbls, yld, split.size_oz, split.size_bbl)
       const splitPackCost = calculatePackagingCostPerBatch(
-        splitBbls, yld, split.container_type,
+        splitBbls, yld, split.size_oz, split.size_bbl,
         parseFloat(split.packaging_cost_per_unit) || 0,
         parseFloat(split.label_cost_per_unit) || 0,
         parseFloat(split.carrier_cost_per_unit) || 0,
       )
       const allocatedCost = totalCost * (splitPct / 100)
       const costPerUnit   = units > 0 ? allocatedCost / units : null
-      const ppc           = split.container_type && split.container_type !== 'Taproom Draft'
-        ? pintsPerContainer(split.container_type) : null
+      const ppc           = split.type && split.type !== 'Taproom Draft'
+        ? pintsPerContainer(split.size_oz, split.size_bbl) : null
       const retailPerUnit = ppc != null ? suggestedRetail * ppc : null
       return { ...split, splitPct, units, splitPackCost, allocatedCost, costPerUnit, retailPerUnit }
     })
@@ -2169,7 +2172,9 @@ function CostPanel({
   const hasSplits     = packagingSplits && packagingSplits.length > 0
   const unitsProduced = costs.unitsProduced
 
-  const ppc              = !hasSplits && packagingContainerType ? pintsPerContainer(packagingContainerType) : null
+  const defaultSize       = DEFAULT_SIZE_BY_TYPE[packagingContainerType]
+  const ppc               = !hasSplits && defaultSize
+    ? pintsPerContainer(defaultSize.ozPerUnit, defaultSize.bblPerUnit) : null
   const retailPerUnit    = ppc != null ? costs.suggestedRetail * ppc : null
   const costPerUnit      = !hasSplits && unitsProduced > 0 ? costs.totalCost / unitsProduced : null
   const projectedRevenue = retailPerUnit != null && unitsProduced ? retailPerUnit * unitsProduced : null
@@ -2425,8 +2430,8 @@ function CostPanel({
           {costs.splitOutputs.map((s, idx) => (
             <div key={idx} className="space-y-1 border-t border-amber/10 pt-2 first:border-t-0 first:pt-0">
               <p className="font-semibold text-navy text-xs">
-                {s.container_type || 'Split ' + (idx + 1)}
-                {s.container_size_label ? ` — ${s.container_size_label}` : ''}
+                {s.type || 'Split ' + (idx + 1)}
+                {s.size ? ` — ${s.size}` : ''}
                 {s.units != null ? ` (~${s.units.toLocaleString()} units)` : ''}
               </p>
               <div className="flex justify-between text-xs">
@@ -2479,78 +2484,16 @@ function CostPanel({
 // Lets the brewer split one batch across multiple container types using volume
 // (barrels) as the primary input. Percentage is calculated read-only.
 
-const SPLIT_CONTAINER_CATEGORIES = [
-  'Taproom Draft', 'Can', 'Bottle', 'Growler', 'Crowler',
-  'Keg Half Barrel', 'Keg Quarter Barrel', 'Keg Sixth Barrel', 'Barrel Aging',
-  '4-Pack (Cans)', '6-Pack (Cans)', '12-Pack (Cans)', '24-Pack / Case (Cans)',
-]
-
-// Size options per container category.
-// ozPerUnit: fluid ounces per container (for cans, bottles, pours, growlers).
-// bblPerUnit: barrels per container (for kegs).
-// ozPerUnit: null means no unit calculation (barrel aging).
-const CONTAINER_SIZE_OPTIONS = {
-  'Can': [
-    { label: '8oz',    ozPerUnit: 8 },
-    { label: '10oz',   ozPerUnit: 10 },
-    { label: '12oz',   ozPerUnit: 12 },
-    { label: '16oz',   ozPerUnit: 16 },
-    { label: '19.2oz', ozPerUnit: 19.2 },
-    { label: '32oz',   ozPerUnit: 32 },
-  ],
-  'Bottle': [
-    { label: '12oz',  ozPerUnit: 12 },
-    { label: '16oz',  ozPerUnit: 16 },
-    { label: '22oz',  ozPerUnit: 22 },
-    { label: '375ml', ozPerUnit: 12.68 },
-    { label: '500ml', ozPerUnit: 16.91 },
-    { label: '750ml', ozPerUnit: 25.36 },
-    { label: '1L',    ozPerUnit: 33.81 },
-  ],
-  'Growler': [
-    { label: '32oz', ozPerUnit: 32 },
-    { label: '64oz', ozPerUnit: 64 },
-  ],
-  'Crowler': [
-    { label: '32oz', ozPerUnit: 32 },
-  ],
-  'Keg Half Barrel':    [{ label: '1/2 bbl (15.5 gal)',   bblPerUnit: 0.5 }],
-  'Keg Quarter Barrel': [{ label: '1/4 bbl (7.75 gal)',   bblPerUnit: 0.25 }],
-  'Keg Sixth Barrel':   [
-    { label: '1/6 bbl (5.16 gal)',  bblPerUnit: 0.167 },
-    { label: 'Slim 1/4 (7.75 gal)', bblPerUnit: 0.25 },
-  ],
-  'Barrel Aging': [
-    { label: 'Bourbon Barrel', ozPerUnit: null },
-    { label: 'Wine Barrel',    ozPerUnit: null },
-    { label: 'Port Barrel',    ozPerUnit: null },
-    { label: 'Rum Barrel',     ozPerUnit: null },
-  ],
-  'Taproom Draft': [
-    { label: '12oz pour', ozPerUnit: 12 },
-    { label: '16oz pour', ozPerUnit: 16 },
-    { label: '20oz pour', ozPerUnit: 20 },
-  ],
-  '4-Pack (Cans)': [
-    { label: '4-Pack 12oz',  ozPerPack: 4  * 12 },
-    { label: '4-Pack 16oz',  ozPerPack: 4  * 16 },
-  ],
-  '6-Pack (Cans)': [
-    { label: '6-Pack 12oz',  ozPerPack: 6  * 12 },
-    { label: '6-Pack 16oz',  ozPerPack: 6  * 16 },
-  ],
-  '12-Pack (Cans)': [
-    { label: '12-Pack 12oz', ozPerPack: 12 * 12 },
-    { label: '12-Pack 16oz', ozPerPack: 12 * 16 },
-  ],
-  '24-Pack / Case (Cans)': [
-    { label: 'Case 12oz (24)',  ozPerPack: 24 * 12 },
-    { label: 'Case 16oz (24)',  ozPerPack: 24 * 16 },
-  ],
-}
+// Container type + size options now live in the shared src/utils/packagingTypes.js
+// module (PACKAGE_TYPES, PACKAGE_SIZE_OPTIONS) so the Recipe Builder and the
+// Packaging module read from one canonical list instead of two independently
+// maintained ones.
 
 // Calculate estimated units from a volume + size option + yield percentage.
 // Returns null when a calculation is not possible (no size, barrel aging, etc.).
+// sizeOption.ozPerUnit doubles as "oz per pack" for multi-pack/case types — the pack
+// count is what's being produced, and PACKAGE_SIZE_OPTIONS already encodes the total
+// oz contained in one pack (e.g. 6-Pack 12oz = 72 oz) under that same field.
 function calcUnitsFromSize(volumeBarrels, sizeOption, packagingYield) {
   if (!sizeOption || !volumeBarrels) return null
   const bbls = parseFloat(volumeBarrels) || 0
@@ -2565,22 +2508,10 @@ function calcUnitsFromSize(volumeBarrels, sizeOption, packagingYield) {
     const totalOz = bbls * GALLONS_PER_BBL * OZ_PER_GAL * yld
     return Math.floor(totalOz / sizeOption.ozPerUnit)
   }
-  if (sizeOption.ozPerPack) {
-    // ozPerPack = total oz per pack (e.g. 6-Pack 12oz = 72oz)
-    const totalOz = bbls * GALLONS_PER_BBL * OZ_PER_GAL * yld
-    return Math.floor(totalOz / sizeOption.ozPerPack)
-  }
   return null
 }
 
 function PackagingSplitsEditor({ splits, defaultYield, batchBarrels, onChange }) {
-  function unitLabel(ct) {
-    if (!ct) return 'units'
-    if (ct.startsWith('Keg'))         return 'kegs'
-    if (ct === 'Barrel Aging')        return 'barrels'
-    if (ct.includes('Pack') || ct.includes('Case')) return 'packs'
-    return 'units'
-  }
   const bbls = parseFloat(batchBarrels) || 0
   const totalAllocated = splits.reduce((s, sp) => s + (parseFloat(sp.volume_barrels) || 0), 0)
   const remaining  = bbls - totalAllocated
@@ -2588,7 +2519,7 @@ function PackagingSplitsEditor({ splits, defaultYield, batchBarrels, onChange })
 
   function addSplit() {
     onChange([...splits, {
-      container_type: '', volume_barrels: '', container_size_label: '', units: null,
+      type: '', volume_barrels: '', size: '', size_oz: null, size_bbl: null, units: null,
       packaging_cost_per_unit: '', label_cost_per_unit: '',
       carrier_cost_per_unit: '', packaging_yield: String(defaultYield ?? 85),
     }])
@@ -2599,15 +2530,25 @@ function PackagingSplitsEditor({ splits, defaultYield, batchBarrels, onChange })
     const current = splits[idx]
     let updated = { ...current, [field]: val }
 
-    // When container_type changes, reset size label (sizes differ per category)
-    if (field === 'container_type') {
-      updated = { ...updated, container_size_label: '', units: null }
+    // When type changes, reset size (sizes differ per type)
+    if (field === 'type') {
+      updated = { ...updated, size: '', size_oz: null, size_bbl: null, units: null }
     }
 
-    // Recalculate units whenever size label, volume, or yield changes
-    if (field === 'container_size_label' || field === 'volume_barrels' || field === 'packaging_yield') {
-      const sizeLabel = field === 'container_size_label' ? val : updated.container_size_label
-      const sizeOptions = CONTAINER_SIZE_OPTIONS[updated.container_type] ?? []
+    // When size changes, look up its numeric oz/bbl-per-unit value from the shared table
+    if (field === 'size') {
+      const sizeOption = PACKAGE_SIZE_OPTIONS[updated.type]?.find(o => o.label === val) ?? null
+      updated = {
+        ...updated,
+        size_oz:  sizeOption?.ozPerUnit  ?? null,
+        size_bbl: sizeOption?.bblPerUnit ?? null,
+      }
+    }
+
+    // Recalculate units whenever size, volume, or yield changes
+    if (field === 'size' || field === 'volume_barrels' || field === 'packaging_yield') {
+      const sizeLabel   = field === 'size' ? val : updated.size
+      const sizeOptions = PACKAGE_SIZE_OPTIONS[updated.type] ?? []
       const sizeOption  = sizeOptions.find(o => o.label === sizeLabel) ?? null
       updated = {
         ...updated,
@@ -2638,12 +2579,12 @@ function PackagingSplitsEditor({ splits, defaultYield, batchBarrels, onChange })
               <div>
                 <label className="text-gray-500 mb-0.5 block">Container type</label>
                 <select
-                  value={split.container_type}
-                  onChange={e => updateSplit(idx, 'container_type', e.target.value)}
+                  value={split.type}
+                  onChange={e => updateSplit(idx, 'type', e.target.value)}
                   className="w-full border border-gray-200 rounded px-1.5 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-amber"
                 >
                   <option value="">Select...</option>
-                  {SPLIT_CONTAINER_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  {PACKAGE_TYPES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
               <div>
@@ -2657,7 +2598,7 @@ function PackagingSplitsEditor({ splits, defaultYield, batchBarrels, onChange })
                 />
                 {split.units != null && (
                   <p className="text-[11px] mt-0.5 font-medium text-amber">
-                    ≈ {split.units.toLocaleString()} {unitLabel(split.container_type)}
+                    ≈ {split.units.toLocaleString()} {unitNoun(split.type)}
                   </p>
                 )}
               </div>
@@ -2673,12 +2614,12 @@ function PackagingSplitsEditor({ splits, defaultYield, batchBarrels, onChange })
               <div>
                 <label className="text-gray-500 mb-0.5 block">Container size</label>
                 <select
-                  value={split.container_size_label || ''}
-                  onChange={e => updateSplit(idx, 'container_size_label', e.target.value)}
+                  value={split.size || ''}
+                  onChange={e => updateSplit(idx, 'size', e.target.value)}
                   className="w-full border border-gray-200 rounded px-1.5 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-amber"
                 >
                   <option value="">Select size…</option>
-                  {(CONTAINER_SIZE_OPTIONS[split.container_type] ?? []).map(opt => (
+                  {(PACKAGE_SIZE_OPTIONS[split.type] ?? []).map(opt => (
                     <option key={opt.label} value={opt.label}>{opt.label}</option>
                   ))}
                 </select>
