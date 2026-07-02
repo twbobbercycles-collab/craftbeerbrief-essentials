@@ -43,6 +43,30 @@ const PRICEABLE_PACKAGE_TYPES = [
   '4-Pack', '6-Pack', '12-Pack', '24-Pack/Case',
 ]
 
+// Narrow, explicit variant map for pricing.package_type values saved before they matched
+// PRICEABLE_PACKAGE_TYPES exactly (e.g. old seed data, or a size-specific string a brewer
+// typed elsewhere). Deliberately short and specific — not a fuzzy matcher — so it only
+// resolves known variants instead of guessing at an unfamiliar string.
+const PACKAGE_TYPE_VARIANTS = [
+  { test: s => s.includes('can'),
+    canonical: 'Can' },
+  { test: s => (s.includes('sixth') || s.includes('1/6')) && (s.includes('keg') || s.includes('barrel')),
+    canonical: 'Keg Sixth Barrel' },
+  { test: s => s.includes('taproom') || s.includes('draft'),
+    canonical: 'Taproom Draft' },
+]
+
+// Resolve a saved package_type to a canonical PRICEABLE_PACKAGE_TYPES value.
+// Returns the exact value if already canonical, a mapped value via PACKAGE_TYPE_VARIANTS
+// if a known variant matches, or null if nothing can be confidently resolved.
+function resolvePackageType(raw) {
+  if (!raw) return ''
+  if (PRICEABLE_PACKAGE_TYPES.includes(raw)) return raw
+  const lower = raw.toLowerCase()
+  const variant = PACKAGE_TYPE_VARIANTS.find(v => v.test(lower))
+  return variant ? variant.canonical : null
+}
+
 // Size specs per package type — values mirror what the recipe builder stores in splits
 // so that exact matching works in handleAccountChange.
 // Keg types omitted: their size is already encoded in the package_type name.
@@ -1710,16 +1734,33 @@ function PricingEditor({ pricing, onChange }) {
       )}
       {pricing.map((row, idx) => (
         <div key={idx} className="grid grid-cols-12 gap-2 items-center">
-          {/* Package type */}
+          {/* Package type — resolves near-mismatches (e.g. old seed/legacy strings) to a
+              canonical option instead of silently showing blank; unresolvable values are
+              shown as read-only text so the saved data stays visible rather than hidden. */}
           <div className="col-span-7">
-            <select
-              value={row.package_type}
-              onChange={e => updateRow(idx, 'package_type', e.target.value)}
-              className={INPUT_CLS}
-            >
-              <option value="">Type…</option>
-              {PRICEABLE_PACKAGE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
+            {(() => {
+              const resolved = resolvePackageType(row.package_type)
+              if (resolved !== null) {
+                return (
+                  <select
+                    value={resolved}
+                    onChange={e => updateRow(idx, 'package_type', e.target.value)}
+                    className={INPUT_CLS}
+                  >
+                    <option value="">Type…</option>
+                    {PRICEABLE_PACKAGE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                )
+              }
+              return (
+                <div>
+                  <div className={INPUT_CLS + ' bg-gray-50 text-gray-500'}>{row.package_type}</div>
+                  <span className="text-[10px] text-amber block mt-0.5">
+                    Saved package type does not match current options — please re-select.
+                  </span>
+                </div>
+              )
+            })()}
           </div>
 
           {/* Price per unit */}
