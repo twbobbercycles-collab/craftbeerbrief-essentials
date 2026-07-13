@@ -21,6 +21,7 @@ import LoadingSpinner from '../../components/LoadingSpinner'
 import WorkflowWarningBanner from '../../components/WorkflowWarningBanner'
 import { useModalDraft } from '../../hooks/useModalDraft'
 import { useReadOnly } from '../../hooks/useReadOnly'
+import { packageTypeLabel } from '../../utils/packagingTypes'
 
 // ── Shared CSS helpers ─────────────────────────────────────────────────────────
 
@@ -86,6 +87,25 @@ const SIZE_SPECS = {
 function isKegType(type) {
   const t = (type || '').toLowerCase()
   return t.includes('keg') || t.includes('barrel')
+}
+
+// Build a comparison key for matching a packaging split against a distribution_records
+// row on (package_type, size_spec) instead of package_type alone. Pre-migration rows
+// predate the size_spec column: size was embedded directly in package_type (e.g.
+// "Can 16oz", "Keg Half Barrel") and size_spec is NULL. Post-migration rows use a bare
+// package_type ("Can") plus a populated size_spec ("16oz").
+//
+// The key degrades to package_type alone whenever size_spec is absent on a given side,
+// so two legacy-shaped values keep matching each other exactly as they always have, and
+// two new-shaped values match precisely on both fields instead of colliding across
+// different sizes of the same type. This deliberately does NOT try to decompose a legacy
+// combined string into type+size — the concatenation convention isn't uniform (keg names
+// embed size with no separator; taproom has no size suffix; multi-pack formats varied)
+// so parsing it back out would be guessing, not matching.
+function splitMatchKey(packageType, sizeSpec) {
+  const pt = (packageType || '').trim().toLowerCase()
+  const ss = (sizeSpec || '').trim().toLowerCase()
+  return ss ? `${pt}::${ss}` : pt
 }
 
 // ── Utility helpers ────────────────────────────────────────────────────────────
@@ -396,7 +416,7 @@ function AssignTab({ packagingRuns, accounts, distRecords, breweryId, onRefresh,
                       const hasAssigned = splits.some(s =>
                         distRecords.some(d =>
                           d.batch_package_id === run.batch_package_id &&
-                          d.package_type === s.package_type
+                          splitMatchKey(d.package_type, d.size_spec) === splitMatchKey(s.package_type, s.size_spec)
                         )
                       )
                       return (
@@ -529,7 +549,7 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
       // Pre-populate from any existing distribution record for this split
       const existing = distRecords.find(
         d => d.batch_package_id === run.batch_package_id &&
-             d.package_type     === (s.package_type || '')
+             splitMatchKey(d.package_type, d.size_spec) === splitMatchKey(s.package_type, s.size_spec)
       )
       return {
         key:                   i,
@@ -662,9 +682,10 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
     ))
   }
 
-  function isAlreadyAssigned(packageType) {
+  function isAlreadyAssigned(packageType, sizeSpec) {
     return distRecords.some(
-      d => d.batch_package_id === run.batch_package_id && d.package_type === packageType
+      d => d.batch_package_id === run.batch_package_id &&
+           splitMatchKey(d.package_type, d.size_spec) === splitMatchKey(packageType, sizeSpec)
     )
   }
 
@@ -704,6 +725,7 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
         contact_email:               primary.email || null,
         contact_phone:               primary.phone || null,
         package_type:                r.package_type || null,
+        size_spec:                   r.size_spec    || null,
         quantity:                    qty,
         delivery_date:               r.delivery_date || null,
         sale_price_per_unit:         price,
@@ -772,7 +794,7 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
           <div className="space-y-5">
             {rows.map((row, i) => {
               // In re-assign mode all splits show the form; otherwise hide already-assigned ones
-              const assigned  = !reAssign && isAlreadyAssigned(row.package_type)
+              const assigned  = !reAssign && isAlreadyAssigned(row.package_type, row.size_spec)
               const salePrice = parseFloat(row.sale_price) || 0
               const qty       = parseFloat(row.units_packaged) || 0
               // Fix 2: use getPintsPerUnit-based calculation
@@ -1133,7 +1155,7 @@ function DeliveriesTab({ distRecords, accounts, onRefresh, isReadOnly }) {
                       {d.account_name || accountMap[d.account_id] || '—'}
                     </td>
 
-                    <td className="px-4 py-3 text-gray-600 text-xs">{d.package_type || '—'}</td>
+                    <td className="px-4 py-3 text-gray-600 text-xs">{d.package_type ? packageTypeLabel(d.package_type, d.size_spec) : '—'}</td>
 
                     <td className="px-4 py-3 text-gray-700 text-xs">{d.quantity ?? '—'}</td>
 
@@ -1365,7 +1387,7 @@ function EditDeliveryModal({ record, accounts, onClose, onSaved }) {
           </div>
           <div>
             <div className="text-xs text-gray-400 mb-0.5">Package Type</div>
-            <div className="font-medium text-gray-800">{record.package_type || '—'}</div>
+            <div className="font-medium text-gray-800">{record.package_type ? packageTypeLabel(record.package_type, record.size_spec) : '—'}</div>
           </div>
         </div>
 
@@ -1638,7 +1660,7 @@ function AccountsTab({ accounts, onRefresh, isReadOnly }) {
                   <div className="space-y-0.5">
                     {account.pricing.slice(0, 3).map((p, idx) => (
                       <div key={idx} className="text-xs text-gray-600 flex justify-between">
-                        <span>{p.package_type}{p.size_spec ? ` — ${p.size_spec}` : ''}</span>
+                        <span>{packageTypeLabel(p.package_type, p.size_spec)}</span>
                         <span className="font-medium">{fmtDollars(p.price_per_unit)}</span>
                       </div>
                     ))}

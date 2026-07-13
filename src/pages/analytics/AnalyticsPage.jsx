@@ -10,6 +10,7 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../services/supabase'
 import TierGate from '../../components/TierGate'
+import { packageTypeLabel } from '../../utils/packagingTypes'
 import {
   BarChart, Bar, LineChart, Line, AreaChart, Area,
   PieChart, Pie, Cell, ScatterChart, Scatter,
@@ -1091,9 +1092,11 @@ function DistributionSection({ brewery, startDate, refreshKey }) {
     .map(a => ({ ...a, revenue: +a.revenue.toFixed(2), avgOrder: a.deliveries > 0 ? +(a.revenue / a.deliveries).toFixed(2) : 0 }))
 
   // ── 4B: Revenue by package type ───────────────────────────────────────────
+  // Keyed by type+size (not type alone) so different sizes of one type don't collapse
+  // into a single slice — packageTypeLabel is null-safe for size_spec and unique per pair.
   const pkgRevMap = {}
   records.forEach(r => {
-    const t = r.package_type || 'Other'
+    const t = packageTypeLabel(r.package_type, r.size_spec)
     pkgRevMap[t] = (pkgRevMap[t] || 0) + parseFloat(r.quantity || 0) * parseFloat(r.sale_price_per_unit || 0)
   })
   const pkgRevData = Object.entries(pkgRevMap).map(([name, value]) => ({ name, value: +value.toFixed(2) }))

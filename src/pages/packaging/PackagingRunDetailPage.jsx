@@ -24,6 +24,7 @@ import { useModalDraft } from '../../hooks/useModalDraft'
 import {
   calculateTotalIngredientCost,
   calculatePackagingCostPerBatch,
+  pintsPerContainer,
   calculateLaborCost,
   calculateUtilitiesCost,
   calculateTotalProductionCost,
@@ -32,6 +33,14 @@ import {
   calculateSuggestedRetail,
   convertToBarrels,
 } from '../recipes/recipeUtils'
+import {
+  PACKAGE_TYPES,
+  sizeOptionsFor,
+  findSizeOption,
+  isKegType,
+  isPackType,
+  packageTypeLabel,
+} from '../../utils/packagingTypes'
 
 // ── Shared CSS helpers ──────────────────────────────────────────────────────────
 
@@ -39,14 +48,9 @@ const INPUT_CLS = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm fo
 const LBL = 'block text-xs text-gray-500 mb-1'
 
 // ── Static constants ────────────────────────────────────────────────────────────
-
-const PACKAGE_TYPES = [
-  'Can 12oz', 'Can 16oz', 'Bottle 12oz', 'Bottle 22oz', 'Bottle 750ml',
-  'Keg Half Barrel', 'Keg Quarter Barrel', 'Keg Sixth Barrel',
-  'Growler 64oz', 'Crowler 32oz',
-  '4-Pack (Cans)', '6-Pack (Cans)', '12-Pack (Cans)', '24-Pack / Case (Cans)',
-  'Taproom Draft', 'Barrel', 'Other',
-]
+// Package type + size options now live in the shared src/utils/packagingTypes.js
+// module (PACKAGE_TYPES, sizeOptionsFor) so the Recipe Builder and the Packaging
+// module read from one canonical list instead of two independently maintained ones.
 
 const DESTINATIONS = ['Taproom', 'Distribution', 'Storage', 'Event', 'Other']
 
@@ -102,27 +106,42 @@ function pintsPerUnit(volumeUnit) {
   return PINTS_PER_BARREL // default: barrels
 }
 
-// Normalize a planned split regardless of whether it came from the recipe builder
-// (which uses container_type / volume_barrels / container_size_label / packaging_yield)
-// or from a previous packaging run (which uses package_type / total_volume).
+// Recover an oz-per-unit size from a free-text label used by pre-Checkpoint-1 recipe
+// splits and native packaging-run splits (e.g. "16oz pour", "12oz"). Structured splits
+// carry size_oz/size_bbl directly and never need this.
+function ozFromSizeLabel(label) {
+  if (!label) return null
+  const match = String(label).match(/^(\d+(?:\.\d+)?)\s*oz/i)
+  return match ? parseFloat(match[1]) : null
+}
+
+// Normalize a planned split regardless of whether it came from the recipe builder's
+// structured shape (type / size / size_oz / size_bbl / volume_barrels / packaging_yield),
+// an older recipe split (container_type / container_size_label), or a previous packaging
+// run (package_type / total_volume).
 //
 // For recipe splits, volume_barrels is the GROSS volume and packaging_yield (0-100) gives
 // the net packagable fraction. Units stored in the split were calculated from net volume,
 // so total_volume is set to the net value to keep everything consistent:
 //   net_volume = volume_barrels × (packaging_yield / 100)
-//
-// container_size_label stores values like "16oz pour", "12oz", "1/2 bbl (15.5 gal)".
-// When the label starts with a number followed by "oz" we parse that as oz-per-unit.
 function normalizePlannedSplit(p) {
-  // Prefer explicit volume_per_unit; otherwise try to parse oz from the size label
-  let volumePerUnit = p.volume_per_unit ?? null
-  if (volumePerUnit == null && p.container_size_label) {
-    const match = String(p.container_size_label).match(/^(\d+(?:\.\d+)?)\s*oz/i)
-    if (match) volumePerUnit = parseFloat(match[1])
+  const packageType = p.type || p.package_type || p.container_type || ''
+  const sizeSpec     = p.size ?? null
+  let sizeOz  = p.size_oz  ?? null
+  let sizeBbl = p.size_bbl ?? null
+
+  // Backward-compat: pre-Checkpoint-1 splits carry no structured size — recover one
+  // from an explicit volume_per_unit (native unit: bbl for kegs, oz otherwise) or by
+  // parsing a free-text size label.
+  if (sizeOz == null && sizeBbl == null) {
+    if (p.volume_per_unit != null) {
+      if (isKegType(packageType)) sizeBbl = parseFloat(p.volume_per_unit) || null
+      else sizeOz = parseFloat(p.volume_per_unit) || null
+    } else {
+      sizeOz = ozFromSizeLabel(p.container_size_label)
+    }
   }
 
-  // Compute net packagable volume from gross × yield%, when both are present.
-  // Falls back to total_volume (native packaging run format) or gross volume as-is.
   const grossVolume    = parseFloat(p.total_volume ?? p.volume_barrels) || null
   const packagingYield = parseFloat(p.packaging_yield) || null
   const netVolume      = grossVolume != null && packagingYield != null
@@ -131,92 +150,44 @@ function normalizePlannedSplit(p) {
   const totalVolume    = netVolume ?? grossVolume
 
   return {
-    package_type:         p.package_type || p.container_type || '',
-    units:                p.units        ?? null,
-    total_volume:         totalVolume,
-    gross_volume:         grossVolume,
-    net_volume:           netVolume,
-    packaging_yield:      packagingYield,
-    volume_per_unit:      volumePerUnit,
-    container_size_label: p.container_size_label ?? null,
+    package_type:    packageType,
+    size_spec:       sizeSpec,
+    size_oz:         sizeOz,
+    size_bbl:        sizeBbl,
+    units:           p.units ?? null,
+    total_volume:    totalVolume,
+    packaging_yield: packagingYield,
   }
 }
 
-// Auto-fill volume_per_unit for standard package types.
-// Kegs and multi-packs store bbl/unit; cans, bottles, growlers, and draft store oz/unit.
-const PKG_TYPE_DEFAULTS = {
-  // Keg formats — bbl per unit
-  'Keg Half Barrel':        '0.5',
-  'Keg Quarter Barrel':     '0.25',
-  'Keg Sixth Barrel':       '0.167',
-  // Can / bottle formats — oz per unit
-  'Can 12oz':               '12',
-  'Can 16oz':               '16',
-  'Bottle 12oz':            '12',
-  'Bottle 22oz':            '22',
-  'Bottle 750ml':           '25.36',   // 750 ml ≈ 25.36 oz
-  // Small containers — oz per unit
-  'Growler 64oz':           '64',
-  'Crowler 32oz':           '32',
-  'Taproom Draft':          '16',      // 16 oz pour
-  // Multi-pack formats — bbl per pack (each pack contains N × 12oz cans)
-  '4-Pack (Cans)':          String((4  * 12 / 3968).toFixed(5)),
-  '6-Pack (Cans)':          String((6  * 12 / 3968).toFixed(5)),
-  '12-Pack (Cans)':         String((12 * 12 / 3968).toFixed(5)),
-  '24-Pack / Case (Cans)':  String((24 * 12 / 3968).toFixed(5)),
+// Human-readable unit label for the size column, driven by the structured size fields
+// instead of substring-matching the package type name.
+function sizeUnitLabel(packageType, sizeOz, sizeBbl) {
+  if (sizeBbl != null) return 'bbl/unit'
+  if (sizeOz  != null) return isPackType(packageType) ? 'oz/pack' : 'oz/unit'
+  return ''
 }
 
-// Return a human-readable unit label for the volume_per_unit column based on
-// package type — kegs display "bbl/unit", multi-packs "bbl/pack", small containers "oz/unit".
-function volumePerUnitLabel(packageType) {
-  if (!packageType) return ''
-  const pt = packageType.toLowerCase()
-  if (pt.includes('pack') || pt.includes('case')) return 'bbl/pack'
-  // Taproom Draft uses oz/unit (16 oz serving), other taproom/draft/keg formats use bbl/unit
-  if (packageType === 'Taproom Draft') return 'oz/unit'
-  if (pt.includes('keg') || pt === 'barrel' || pt.includes('taproom') || pt.includes('draft')) return 'bbl/unit'
-  if (pt.includes('can') || pt.includes('bottle') || pt.includes('growler') || pt.includes('crowler')) return 'oz/unit'
-  return 'unit'
+// Calculate total volume in barrels from actualUnits × per-unit size. sizeBbl/sizeOz
+// (from the canonical packagingTypes.js table) take priority; manualVolPerUnit is the
+// brewer-entered fallback for types with no standard size (e.g. Barrel Aging), treated
+// as already being in barrels.
+function calcTotalVolume(actualUnits, sizeOz, sizeBbl, manualVolPerUnit) {
+  const units = Number(actualUnits) || 0
+  if (!units) return 0
+  if (sizeBbl != null) return units * Number(sizeBbl)
+  if (sizeOz  != null) return (units * Number(sizeOz)) / 3968
+  return units * (Number(manualVolPerUnit) || 0)
 }
 
-// Return pints per individual unit based on package type and volume_per_unit.
-// volume_per_unit is in barrels for kegs/packs, in oz for cans/bottles.
-function pintsPerSplitUnit(packageType, volumePerUnit) {
-  const vpu = parseFloat(volumePerUnit) || 0
-  if (vpu === 0) return 0
-  const label = volumePerUnitLabel(packageType)
-  if (label === 'bbl/unit' || label === 'bbl/pack') return vpu * PINTS_PER_BARREL
-  if (label === 'oz/unit')  return vpu / 16
-  return vpu * PINTS_PER_BARREL // fallback
-}
-
-// Calculate total volume in barrels from actualUnits × volPerUnit.
-// unitLabel drives the conversion: oz→bbl divides by 3968, gal→bbl divides by 31,
-// bbl-labelled values are a direct product, and anything else is treated as bbl.
-function calcTotalVolume(actualUnits, volPerUnit, unitLabel) {
-  if (!actualUnits || !volPerUnit || actualUnits === 0) return 0
-  const units = Number(actualUnits)
-  const vol   = Number(volPerUnit)
-  if (!units || !vol) return 0
-  const label = (unitLabel || '').toLowerCase()
-  if (label.includes('oz'))  return (units * vol) / 3968        // oz → barrels
-  if (label.includes('bbl')) return  units * vol                 // already barrels
-  if (label.includes('gal')) return (units * vol) / 31          // gallons → barrels
-  return units * vol
-}
-
-// Derive unit count from a volume-in-barrels value and a per-unit size in oz.
-// Used when planned_splits don't carry an explicit unit count.
-function unitsFromVolume(volumeBarrels, ozPerUnit) {
-  if (!volumeBarrels || !ozPerUnit) return 0
-  return Math.floor((volumeBarrels * 3968) / ozPerUnit)
-}
-
-// Derive unit count from a volume-in-barrels value and a per-unit size in bbl.
-// Used for keg splits (half / quarter / sixth barrel).
-function unitsFromVolumeKeg(volumeBarrels, bblPerKeg) {
-  if (!volumeBarrels || !bblPerKeg) return 0
-  return Math.floor(volumeBarrels / bblPerKeg)
+// Derive unit count from a volume-in-barrels value and a structured per-unit size
+// (oz or bbl). Used when planned_splits don't carry an explicit unit count.
+function unitsFromVolume(volumeBarrels, sizeOz, sizeBbl) {
+  const vol = Number(volumeBarrels) || 0
+  if (!vol) return 0
+  if (sizeBbl != null) return Math.floor(vol / Number(sizeBbl))
+  if (sizeOz  != null) return Math.floor((vol * 3968) / Number(sizeOz))
+  return 0
 }
 
 // ── Page root — TierGate wrapper ───────────────────────────────────────────────
@@ -322,13 +293,17 @@ function PackagingRunDetail() {
             const batchBbls = convertToBarrels(recipe.batch_size_value, recipe.batch_size_unit)
             const ingCost   = calculateTotalIngredientCost(recipeIngredients ?? [], batchBbls, batchBbls)
 
-            // Packaging cost from recipe's packaging_splits
+            // Packaging cost from recipe's packaging_splits — normalizePlannedSplit()
+            // resolves size_oz/size_bbl from either the structured Checkpoint-1 shape
+            // or an older recipe split's free-text size label.
             const pkgSplits = Array.isArray(recipe.packaging_splits) ? recipe.packaging_splits : []
             const pkgCost = pkgSplits.reduce((sum, split) => {
+              const norm = normalizePlannedSplit(split)
               return sum + calculatePackagingCostPerBatch(
                 parseFloat(split.volume_barrels) || 0,
                 parseFloat(split.packaging_yield) || 85,
-                split.container_type || '',
+                norm.size_oz,
+                norm.size_bbl,
                 parseFloat(split.packaging_cost_per_unit) || 0,
                 parseFloat(split.label_cost_per_unit) || 0,
                 parseFloat(split.carrier_cost_per_unit) || 0,
@@ -430,8 +405,7 @@ function PackagingRunDetail() {
 
     // Step 1: insert the batch_packages record
     const totalVolPackaged = actualSplits.reduce((sum, s) => {
-      const lbl = volumePerUnitLabel(s.package_type)
-      return sum + calcTotalVolume(s.units_packaged, s.volume_per_unit, lbl)
+      return sum + calcTotalVolume(s.units_packaged, s.size_oz, s.size_bbl, s.volume_per_unit)
     }, 0)
 
     const { data: batchPkg, error: bpErr } = await supabase
@@ -471,6 +445,7 @@ function PackagingRunDetail() {
           batch_package_id: batchPackageId,
           brewery_id:       brewery.id,
           package_type:     s.package_type    || null,
+          size_spec:        s.size_spec       || null,
           units_packaged:   parseFloat(s.units_packaged)   || null,
           volume_per_unit:  parseFloat(s.volume_per_unit)  || null,
           total_volume:     (parseFloat(s.units_packaged) || 0) * (parseFloat(s.volume_per_unit) || 0) || null,
@@ -866,42 +841,30 @@ function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brew
     if (run.actual_splits && run.actual_splits.length > 0) return run.actual_splits
     return (run.planned_splits || []).map(p => {
       const norm = normalizePlannedSplit(p)
+      const hasSize = norm.size_oz != null || norm.size_bbl != null
 
-      // Derive volume_per_unit: use explicit value, then PKG_TYPE_DEFAULTS, then total/units
-      let volumePerUnit = norm.volume_per_unit != null ? String(norm.volume_per_unit) : ''
-      if (!volumePerUnit) {
-        const defaultVol = PKG_TYPE_DEFAULTS[norm.package_type]
-        if (defaultVol) {
-          volumePerUnit = defaultVol
-        } else if (norm.total_volume != null && norm.units != null && parseFloat(norm.units) > 0) {
-          volumePerUnit = (parseFloat(norm.total_volume) / parseFloat(norm.units)).toFixed(6)
-        }
-      }
+      // volume_per_unit mirrors the structured size for computed types (display value);
+      // types with no standard size (e.g. Barrel Aging) leave it blank for manual entry.
+      const volumePerUnit = hasSize ? String(norm.size_bbl ?? norm.size_oz) : ''
 
-      // Compute total_volume (in barrels) from units × volume_per_unit when both are available;
-      // uses calcTotalVolume so oz-based types (cans, bottles) are correctly converted to bbl.
-      // When planned_splits don't carry an explicit unit count, derive it from total_volume.
+      // When planned_splits don't carry an explicit unit count, derive it from total_volume
+      // using the structured per-unit size.
       let unitsStr = norm.units != null ? String(norm.units) : ''
-      if (!unitsStr && norm.total_volume != null && volumePerUnit) {
-        const lbl = volumePerUnitLabel(norm.package_type)
-        let derived = 0
-        if (lbl.includes('oz')) {
-          derived = unitsFromVolume(parseFloat(norm.total_volume), parseFloat(volumePerUnit))
-        } else if (lbl.includes('bbl')) {
-          derived = unitsFromVolumeKeg(parseFloat(norm.total_volume), parseFloat(volumePerUnit))
-        }
+      if (!unitsStr && norm.total_volume != null && hasSize) {
+        let derived = unitsFromVolume(parseFloat(norm.total_volume), norm.size_oz, norm.size_bbl)
         if (derived > 10000) {
           console.warn('[SplitsSection] derived unit count exceeds sanity threshold — capping at 10 000',
-            { derived, total_volume: norm.total_volume, volumePerUnit, package_type: norm.package_type })
+            { derived, total_volume: norm.total_volume, size_oz: norm.size_oz, size_bbl: norm.size_bbl, package_type: norm.package_type })
           derived = 10000
         }
         if (derived > 0) unitsStr = String(derived)
       }
 
+      // Compute total_volume (in barrels) from units × size when both are available;
+      // falls back to the plan's own total_volume otherwise.
       let totalVol = ''
-      if (unitsStr && volumePerUnit) {
-        const lbl     = volumePerUnitLabel(norm.package_type)
-        const computed = calcTotalVolume(unitsStr, volumePerUnit, lbl)
+      if (unitsStr && hasSize) {
+        const computed = calcTotalVolume(unitsStr, norm.size_oz, norm.size_bbl)
         totalVol = computed > 0 ? computed.toFixed(4) : ''
       } else if (norm.total_volume != null) {
         totalVol = String(norm.total_volume)
@@ -909,6 +872,9 @@ function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brew
 
       return {
         package_type:    norm.package_type,
+        size_spec:       norm.size_spec,
+        size_oz:         norm.size_oz,
+        size_bbl:        norm.size_bbl,
         units_packaged:  unitsStr,
         volume_per_unit: volumePerUnit,
         total_volume:    totalVol,
@@ -924,40 +890,47 @@ function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brew
   const [splitSaveStatus, setSplitSaveStatus] = useState('saved') // 'saved' | 'pending'
   const saveDebounceRef = useRef(null)
 
-  // Update a field in one actual split row; auto-fills volume_per_unit for known
-  // package types, recalculates units_packaged from total_volume on type change,
-  // and recomputes total_volume when quantity fields change.
+  // Update a field in one actual split row; resets size on type change, auto-fills
+  // volume_per_unit + size_oz/size_bbl on size change (recalculating units_packaged
+  // from the existing total_volume when available), and recomputes total_volume
+  // whenever units or volume_per_unit change.
   function updateSplit(index, field, value) {
     if (isLocked) return
     setActualSplits(prev => {
       const next = [...prev]
       next[index] = { ...next[index], [field]: value }
-      // When the package type is selected, auto-fill a default volume_per_unit and
-      // recalculate units_packaged from the existing total_volume if available.
+
+      // Type changes reset size and its derived fields — sizes differ per type.
       if (field === 'package_type') {
-        const defaultVol = PKG_TYPE_DEFAULTS[value]
-        if (defaultVol) {
-          next[index].volume_per_unit = defaultVol
-          // Recalculate units from existing total_volume (in bbl) if available.
-          // For oz-based types the formula inverts: units = total_bbl × 3968 / oz_per_unit
-          const tv  = parseFloat(next[index].total_volume) || 0
-          const vpu = parseFloat(defaultVol)
-          const lbl = volumePerUnitLabel(value)
-          if (tv > 0 && vpu > 0) {
-            const units = lbl.includes('oz')
-              ? Math.round((tv * 128 * 31) / vpu)
-              : Math.round(tv / vpu)
-            if (units > 0) next[index].units_packaged = String(units)
-          }
+        next[index].size_spec       = ''
+        next[index].size_oz         = null
+        next[index].size_bbl        = null
+        next[index].volume_per_unit = ''
+      }
+
+      // Size changes look up the numeric oz/bbl-per-unit value from the shared table
+      // and recalculate units_packaged from the existing total_volume if available —
+      // preserving the physical volume while adjusting the unit count for the new size.
+      if (field === 'size_spec') {
+        const sizeOption = findSizeOption(next[index].package_type, value)
+        next[index].size_oz         = sizeOption?.ozPerUnit  ?? null
+        next[index].size_bbl        = sizeOption?.bblPerUnit ?? null
+        next[index].volume_per_unit = sizeOption?.bblPerUnit != null ? String(sizeOption.bblPerUnit)
+                                     : sizeOption?.ozPerUnit  != null ? String(sizeOption.ozPerUnit)
+                                     : ''
+        const tv = parseFloat(next[index].total_volume) || 0
+        if (tv > 0 && (next[index].size_oz != null || next[index].size_bbl != null)) {
+          const units = unitsFromVolume(tv, next[index].size_oz, next[index].size_bbl)
+          if (units > 0) next[index].units_packaged = String(units)
         }
       }
+
       // Auto-compute total_volume (in barrels) when units or volume_per_unit change.
-      // calcTotalVolume handles the oz→bbl conversion for can/bottle/growler types.
-      if (field === 'units_packaged' || field === 'volume_per_unit') {
+      // calcTotalVolume prioritizes the structured size, falling back to the manually
+      // entered volume_per_unit for types with no standard size (e.g. Barrel Aging).
+      if (field === 'units_packaged' || field === 'volume_per_unit' || field === 'size_spec') {
         const units = parseFloat(field === 'units_packaged' ? value : next[index].units_packaged) || 0
-        const vol   = parseFloat(field === 'volume_per_unit' ? value : next[index].volume_per_unit) || 0
-        const lbl   = volumePerUnitLabel(next[index].package_type)
-        const tv    = calcTotalVolume(units, vol, lbl)
+        const tv    = calcTotalVolume(units, next[index].size_oz, next[index].size_bbl, next[index].volume_per_unit)
         next[index].total_volume = tv > 0 ? tv.toFixed(4) : ''
       }
       // Trigger debounced auto-save after every field change
@@ -971,7 +944,7 @@ function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brew
     setActualSplits(prev => {
       const next = [
         ...prev,
-        { package_type: '', units_packaged: '', volume_per_unit: '', total_volume: '', destination: '', notes: '', _fromPlan: false },
+        { package_type: '', size_spec: '', size_oz: null, size_bbl: null, units_packaged: '', volume_per_unit: '', total_volume: '', destination: '', notes: '', _fromPlan: false },
       ]
       scheduleSplitSave(next)
       return next
@@ -1037,8 +1010,11 @@ function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brew
     // Build the normalized array to persist
     const toSave = splitsToSave.map(s => ({
       package_type:    s.package_type    || '',
+      size_spec:       s.size_spec       || null,
+      size_oz:         s.size_oz         ?? null,
+      size_bbl:        s.size_bbl        ?? null,
       units_packaged:  s.units_packaged  !== '' ? parseFloat(s.units_packaged)  : null,
-      volume_per_unit: s.volume_per_unit !== '' ? parseFloat(s.volume_per_unit) : null,
+      volume_per_unit: s.volume_per_unit !== '' && s.volume_per_unit != null ? parseFloat(s.volume_per_unit) : null,
       total_volume:    s.total_volume    !== '' ? parseFloat(s.total_volume)    : null,
       destination:     s.destination    || '',
       notes:           s.notes          || '',
@@ -1141,25 +1117,38 @@ function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brew
                 const planned = plannedSplits[i] ? normalizePlannedSplit(plannedSplits[i]) : null
                 return (
                   <tr key={i} className="hover:bg-gray-50">
-                    {/* Package type — readonly if matched to a plan row */}
+                    {/* Package type + size — readonly if matched to a plan row */}
                     <td className="px-3 py-2">
                       {s._fromPlan && planned ? (
-                        <span className="text-gray-700 font-medium">{s.package_type}</span>
+                        <span className="text-gray-700 font-medium">
+                          {packageTypeLabel(s.package_type, s.size_spec)}
+                        </span>
                       ) : (
-                        <>
+                        <div className="space-y-1">
                           <select
                             className={`${INPUT_CLS} ${!s.package_type && parseFloat(s.units_packaged) > 0 ? 'border-danger' : ''}`}
                             value={s.package_type}
                             disabled={isReadOnly || isLocked}
                             onChange={e => updateSplit(i, 'package_type', e.target.value)}
                           >
-                            <option value="">— Select —</option>
+                            <option value="">— Type —</option>
                             {PACKAGE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                          </select>
+                          <select
+                            className={INPUT_CLS}
+                            value={s.size_spec || ''}
+                            disabled={isReadOnly || isLocked || !s.package_type}
+                            onChange={e => updateSplit(i, 'size_spec', e.target.value)}
+                          >
+                            <option value="">— Size —</option>
+                            {sizeOptionsFor(s.package_type).map(opt => (
+                              <option key={opt.label} value={opt.label}>{opt.label}</option>
+                            ))}
                           </select>
                           {!s.package_type && parseFloat(s.units_packaged) > 0 && (
                             <span className="text-[10px] text-danger block mt-0.5">Required before completing</span>
                           )}
-                        </>
+                        </div>
                       )}
                     </td>
 
@@ -1199,24 +1188,31 @@ function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brew
                       />
                     </td>
 
-                    {/* Volume per unit — unit label shown below input */}
+                    {/* Volume per unit — auto-filled from the selected size; editable only
+                        when the type/size has no standard size (e.g. Barrel Aging) */}
                     <td className="px-2 py-2">
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.0001"
-                        className={INPUT_CLS}
-                        placeholder="0"
-                        value={s.volume_per_unit}
-                        disabled={isReadOnly || isLocked}
-                        onChange={e => updateSplit(i, 'volume_per_unit', e.target.value)}
-                      />
+                      {(s.size_oz != null || s.size_bbl != null) ? (
+                        <div className={`${INPUT_CLS} bg-gray-50 text-gray-500 text-right`}>
+                          {s.size_bbl != null ? s.size_bbl : s.size_oz}
+                        </div>
+                      ) : (
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.0001"
+                          className={INPUT_CLS}
+                          placeholder="0"
+                          value={s.volume_per_unit}
+                          disabled={isReadOnly || isLocked}
+                          onChange={e => updateSplit(i, 'volume_per_unit', e.target.value)}
+                        />
+                      )}
                       <span className="text-[10px] text-gray-400 mt-0.5 block text-center">
-                        {volumePerUnitLabel(s.package_type) || unit}
+                        {sizeUnitLabel(s.package_type, s.size_oz, s.size_bbl) || unit}
                       </span>
-                      {s.package_type && !PKG_TYPE_DEFAULTS[s.package_type] && !isReadOnly && !isLocked && (
+                      {s.package_type && s.size_spec && s.size_oz == null && s.size_bbl == null && !isReadOnly && !isLocked && (
                         <span className="text-[10px] text-amber block text-center leading-tight mt-0.5">
-                          Volume per unit not recognized — please enter manually.
+                          No standard volume for this size — please enter manually.
                         </span>
                       )}
                     </td>
@@ -1372,13 +1368,14 @@ function ProfitImpactPanel({ run, actualSplits, recipeCostPerPint }) {
   const rows = splits.map((s, i) => {
     const actualUnits   = parseFloat(s.units_packaged) || 0
     const salePrice     = parseFloat(salePrices[i])    || 0
-    const ppu           = pintsPerSplitUnit(s.package_type, s.volume_per_unit)
+    const ppu           = pintsPerContainer(s.size_oz, s.size_bbl) ?? 0
     const costPerUnit   = cost != null ? cost * ppu : null
     const profitPerUnit = costPerUnit != null ? salePrice - costPerUnit : null
     const revenue       = actualUnits * salePrice
     const totalCost     = costPerUnit  != null ? actualUnits * costPerUnit   : null
     const totalProfit   = profitPerUnit != null ? actualUnits * profitPerUnit : null
-    return { packageType: s.package_type || '—', actualUnits, salePrice, costPerUnit, profitPerUnit, revenue, totalCost, totalProfit }
+    const packageType   = s.package_type ? packageTypeLabel(s.package_type, s.size_spec) : '—'
+    return { packageType, actualUnits, salePrice, costPerUnit, profitPerUnit, revenue, totalCost, totalProfit }
   })
 
   const totalRevenue = rows.reduce((s, r) => s + r.revenue, 0)

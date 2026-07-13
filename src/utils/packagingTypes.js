@@ -110,6 +110,16 @@ export function isKegType(type) {
   return KEG_TYPES.includes(type)
 }
 
+// Human-readable label combining package type and size, e.g. "Can — 16oz" or
+// "Keg Sixth Barrel — 1/6 bbl (5.16 gal)". Falls back to the bare type when there's no
+// size_spec, and to 'Other' when there's no type at all. Unique per (type, size) pair,
+// so it's safe to use directly as a grouping/bucket key as well as a display label —
+// no separate key-only helper needed.
+export function packageTypeLabel(packageType, sizeSpec) {
+  if (!packageType) return 'Other'
+  return sizeSpec ? `${packageType} — ${sizeSpec}` : packageType
+}
+
 export function isPackType(type) {
   return PACK_TYPES.includes(type)
 }

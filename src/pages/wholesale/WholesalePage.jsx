@@ -18,6 +18,7 @@ import ModalShell from '../../components/ModalShell'
 import { usePersistedTab } from '../../hooks/usePersistedTab'
 import { useModalDraft } from '../../hooks/useModalDraft'
 import LoadingSpinner from '../../components/LoadingSpinner'
+import { packageTypeLabel } from '../../utils/packagingTypes'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -109,9 +110,13 @@ function computeAccountRevenue(records) {
     ? Math.floor((new Date(today) - new Date(lastOrderDate + 'T00:00:00')) / 86400000)
     : null
 
-  // Most ordered package type
+  // Most ordered package type — keyed by type+size so sizes aren't conflated
   const typeCounts = {}
-  records.forEach(r => { if (r.package_type) typeCounts[r.package_type] = (typeCounts[r.package_type] || 0) + 1 })
+  records.forEach(r => {
+    if (!r.package_type) return
+    const label = packageTypeLabel(r.package_type, r.size_spec)
+    typeCounts[label] = (typeCounts[label] || 0) + 1
+  })
   const mostOrdered = Object.entries(typeCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
 
   return { total, rev30, rev90, orders30, orders90, avgOrder, lastOrderDate, daysSinceLast, mostOrdered }
@@ -994,7 +999,7 @@ function AccountDetailView({ account, distAccounts, contactLog, brewery, onBack,
                   {[...account._records].sort((a,b) => (b.delivery_date??'').localeCompare(a.delivery_date??'')).map(r => (
                     <tr key={r.id}>
                       <td className="py-2 text-gray-600">{fmtDate(r.delivery_date)}</td>
-                      <td className="py-2 text-gray-600 hidden sm:table-cell">{r.package_type || '—'}</td>
+                      <td className="py-2 text-gray-600 hidden sm:table-cell">{r.package_type ? packageTypeLabel(r.package_type, r.size_spec) : '—'}</td>
                       <td className="py-2 text-gray-600">{r.quantity}</td>
                       <td className="py-2 text-gray-600">{r.sale_price_per_unit != null ? fmtMoney(r.sale_price_per_unit) : '—'}</td>
                       <td className="py-2 font-medium text-navy">{r.total_sale_value != null ? fmtMoney(r.total_sale_value) : '—'}</td>
