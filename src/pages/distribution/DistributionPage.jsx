@@ -21,7 +21,7 @@ import LoadingSpinner from '../../components/LoadingSpinner'
 import WorkflowWarningBanner from '../../components/WorkflowWarningBanner'
 import { useModalDraft } from '../../hooks/useModalDraft'
 import { useReadOnly } from '../../hooks/useReadOnly'
-import { packageTypeLabel, isKegType, findSizeOption } from '../../utils/packagingTypes'
+import { packageTypeLabel, isKegType, findSizeOption, PACKAGE_TYPES, sizeOptionsFor } from '../../utils/packagingTypes'
 import { pintsPerContainer } from '../recipes/recipeUtils'
 
 // ── Shared CSS helpers ─────────────────────────────────────────────────────────
@@ -35,39 +35,10 @@ const ACCOUNT_TYPES = [
   'Restaurant', 'Bar', 'Taproom', 'Retail Store', 'Distributor', 'Event', 'Other',
 ]
 
-// Package types must match the exact names used by the recipe builder so that
-// account pricing entries auto-populate when assigning distribution splits.
-const PRICEABLE_PACKAGE_TYPES = [
-  'Can', 'Bottle',
-  'Keg Sixth Barrel', 'Keg Quarter Barrel', 'Keg Half Barrel',
-  'Taproom Draft',
-  'Growler', 'Crowler',
-  '4-Pack', '6-Pack', '12-Pack', '24-Pack/Case',
-]
-
-// Narrow, explicit variant map for pricing.package_type values saved before they matched
-// PRICEABLE_PACKAGE_TYPES exactly (e.g. old seed data, or a size-specific string a brewer
-// typed elsewhere). Deliberately short and specific — not a fuzzy matcher — so it only
-// resolves known variants instead of guessing at an unfamiliar string.
-const PACKAGE_TYPE_VARIANTS = [
-  { test: s => s.includes('can'),
-    canonical: 'Can' },
-  { test: s => (s.includes('sixth') || s.includes('1/6')) && (s.includes('keg') || s.includes('barrel')),
-    canonical: 'Keg Sixth Barrel' },
-  { test: s => s.includes('taproom') || s.includes('draft'),
-    canonical: 'Taproom Draft' },
-]
-
-// Resolve a saved package_type to a canonical PRICEABLE_PACKAGE_TYPES value.
-// Returns the exact value if already canonical, a mapped value via PACKAGE_TYPE_VARIANTS
-// if a known variant matches, or null if nothing can be confidently resolved.
-function resolvePackageType(raw) {
-  if (!raw) return ''
-  if (PRICEABLE_PACKAGE_TYPES.includes(raw)) return raw
-  const lower = raw.toLowerCase()
-  const variant = PACKAGE_TYPE_VARIANTS.find(v => v.test(lower))
-  return variant ? variant.canonical : null
-}
+// Every canonical package type is priceable, including Barrel Aging — a brewer can still
+// manually set a distribution price for it even though its ingredient cost can't be
+// auto-computed (see ingCostPerUnit's "size not recognized" handling). No local list here
+// — PACKAGE_TYPES from packagingTypes.js is used directly, so this can never drift again.
 
 // Build a comparison key for matching a packaging split against a distribution_records
 // row on (package_type, size_spec) instead of package_type alone. Pre-migration rows
@@ -555,71 +526,27 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
     saveDraft({ rows })
   }, [rows]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Two-tier exact lookup, nothing beyond it: both sides are now controlled-vocabulary
+  // values (dropdowns fed by PACKAGE_TYPES/sizeOptionsFor), so there's no free-text drift
+  // left to paper over with fuzzy matching.
+  //   1. Exact match on (package_type, size_spec) — priced for this specific size.
+  //   2. Fallback: a pricing row for the same package_type with size_spec left blank —
+  //      "any size of this type." Never falls back to a row that HAS a different size set.
   function handleAccountChange(idx, accountId) {
     const account     = accounts.find(a => a.id === accountId)
     const packageType = rows[idx].package_type
     const sizeSpec    = rows[idx].size_spec || ''
-    const ptLower     = (packageType || '').toLowerCase()
-    const ssLower     = sizeSpec.toLowerCase()
-    // First word of package_type for loose matching: 'Taproom Draft' → 'taproom', 'Keg Half Barrel' → 'keg'
-    const ptFirst     = ptLower.split(/[\s/\-]/)[0]
     let autoPrice = ''
 
-    console.log('[handleAccountChange]', {
-      splitPackageType: packageType,
-      sizeSpec,
-      accountPricing: account?.pricing ?? [],
-    })
-
-    if (account?.pricing?.length) {
-      let priceRow
-
-      // 1. Exact match on both package_type AND size_spec
-      priceRow = account.pricing.find(p =>
-        p.package_type?.toLowerCase() === ptLower &&
-        (p.size_spec || '').toLowerCase() === ssLower
+    if (packageType && account?.pricing?.length) {
+      let priceRow = account.pricing.find(p =>
+        p.package_type === packageType && (p.size_spec || '') === sizeSpec
       )
-
-      // 2. Exact match on package_type only
       if (!priceRow) {
         priceRow = account.pricing.find(p =>
-          p.package_type?.toLowerCase() === ptLower
+          p.package_type === packageType && !p.size_spec
         )
       }
-
-      // 3. Draft/Taproom normalization — 'Draft/Taproom', 'Draft Pint', 'Draft', 'Taproom'
-      //    all treated as equivalent regardless of which side set the name
-      if (!priceRow) {
-        const isDraft = ptLower.includes('draft') || ptLower.includes('taproom')
-        if (isDraft) {
-          priceRow = account.pricing.find(p => {
-            const pl = (p.package_type || '').toLowerCase()
-            return pl.includes('draft') || pl.includes('taproom')
-          })
-        }
-      }
-
-      // 4. Substring match (e.g. pricing 'Keg' matches split 'Keg Half Barrel')
-      // Guard against ptLower being empty — every string "includes" '', which
-      // would otherwise spuriously match the first pricing row for a split
-      // with no package type recorded.
-      if (!priceRow && ptLower) {
-        priceRow = account.pricing.find(p => {
-          const pl = (p.package_type || '').toLowerCase()
-          return pl && (ptLower.includes(pl) || pl.includes(ptLower))
-        })
-      }
-
-      // 5. First-word match (last resort): 'Keg Half Barrel' → 'keg', 'Can' → 'can'
-      if (!priceRow && ptFirst) {
-        priceRow = account.pricing.find(p => {
-          const pl      = (p.package_type || '').toLowerCase()
-          const plFirst = pl.split(/[\s/\-]/)[0]
-          return plFirst === ptFirst
-        })
-      }
-
-      console.log('[handleAccountChange] match result:', priceRow ?? 'no match found')
       if (priceRow) autoPrice = String(priceRow.price_per_unit)
     }
 
@@ -1685,11 +1612,13 @@ function AccountsTab({ accounts, onRefresh, isReadOnly }) {
 
 function PricingEditor({ pricing, onChange }) {
   function addRow() {
-    onChange([...pricing, { package_type: '', price_per_unit: '' }])
+    onChange([...pricing, { package_type: '', size_spec: '', price_per_unit: '' }])
   }
   function updateRow(idx, field, val) {
     const next = pricing.map((r, i) => {
       if (i !== idx) return r
+      // Sizes are type-specific — changing type invalidates whatever size was selected.
+      if (field === 'package_type') return { ...r, package_type: val, size_spec: '' }
       return { ...r, [field]: val }
     })
     onChange(next)
@@ -1702,60 +1631,76 @@ function PricingEditor({ pricing, onChange }) {
     <div className="space-y-2">
       {pricing.length > 0 && (
         <div className="grid grid-cols-12 gap-2 text-xs text-gray-400 font-medium px-1">
-          <div className="col-span-7">Package Type</div>
-          <div className="col-span-4">Price / Unit</div>
+          <div className="col-span-4">Package Type</div>
+          <div className="col-span-4">Size</div>
+          <div className="col-span-3">Price / Unit</div>
           <div className="col-span-1" />
         </div>
       )}
-      {pricing.map((row, idx) => (
-        <div key={idx} className="grid grid-cols-12 gap-2 items-center">
-          {/* Package type — resolves near-mismatches (e.g. old seed/legacy strings) to a
-              canonical option instead of silently showing blank; unresolvable values are
-              shown as read-only text so the saved data stays visible rather than hidden. */}
-          <div className="col-span-7">
-            {(() => {
-              const resolved = resolvePackageType(row.package_type)
-              if (resolved !== null) {
-                return (
-                  <select
-                    value={resolved}
-                    onChange={e => updateRow(idx, 'package_type', e.target.value)}
-                    className={INPUT_CLS}
-                  >
-                    <option value="">Type…</option>
-                    {PRICEABLE_PACKAGE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                )
-              }
-              return (
+      {pricing.map((row, idx) => {
+        // A saved package_type that isn't a current canonical option (stale/legacy data)
+        // is shown read-only with a warning rather than silently blanked — no fuzzy
+        // recovery, just visibility that it needs re-selecting. An unset (new) row is not
+        // "unrecognized" — it's just empty, and shows the dropdown normally.
+        const isKnownType = !row.package_type || PACKAGE_TYPES.includes(row.package_type)
+        return (
+          <div key={idx} className="grid grid-cols-12 gap-2 items-center">
+            {/* Package type */}
+            <div className="col-span-4">
+              {isKnownType ? (
+                <select
+                  value={row.package_type}
+                  onChange={e => updateRow(idx, 'package_type', e.target.value)}
+                  className={INPUT_CLS}
+                >
+                  <option value="">Type…</option>
+                  {PACKAGE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              ) : (
                 <div>
                   <div className={INPUT_CLS + ' bg-gray-50 text-gray-500'}>{row.package_type}</div>
                   <span className="text-[10px] text-amber block mt-0.5">
                     Saved package type does not match current options — please re-select.
                   </span>
                 </div>
-              )
-            })()}
-          </div>
+              )}
+            </div>
 
-          {/* Price per unit */}
-          <div className="col-span-4 relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-            <input
-              type="number" step="0.01" min="0"
-              value={row.price_per_unit}
-              onChange={e => updateRow(idx, 'price_per_unit', e.target.value)}
-              placeholder="0.00"
-              className={INPUT_CLS + ' pl-6'}
-            />
-          </div>
+            {/* Size — optional. Blank means this price applies to any size of the type
+                (a fallback row); a specific size prices that size only. */}
+            <div className="col-span-4">
+              <select
+                value={row.size_spec || ''}
+                onChange={e => updateRow(idx, 'size_spec', e.target.value)}
+                disabled={!row.package_type}
+                className={INPUT_CLS}
+              >
+                <option value="">— Any size —</option>
+                {sizeOptionsFor(row.package_type).map(opt => (
+                  <option key={opt.label} value={opt.label}>{opt.label}</option>
+                ))}
+              </select>
+            </div>
 
-          {/* Remove */}
-          <div className="col-span-1 flex justify-center">
-            <button onClick={() => removeRow(idx)} className="text-danger text-xs hover:underline">✕</button>
+            {/* Price per unit */}
+            <div className="col-span-3 relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+              <input
+                type="number" step="0.01" min="0"
+                value={row.price_per_unit}
+                onChange={e => updateRow(idx, 'price_per_unit', e.target.value)}
+                placeholder="0.00"
+                className={INPUT_CLS + ' pl-6'}
+              />
+            </div>
+
+            {/* Remove */}
+            <div className="col-span-1 flex justify-center">
+              <button onClick={() => removeRow(idx)} className="text-danger text-xs hover:underline">✕</button>
+            </div>
           </div>
-        </div>
-      ))}
+        )
+      })}
       <button onClick={addRow} className="text-amber text-sm font-medium hover:underline">
         + Add pricing row
       </button>
