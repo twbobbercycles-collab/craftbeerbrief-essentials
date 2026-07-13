@@ -433,6 +433,24 @@ function ingCostPerUnit(packageType, sizeSpec, sizeOz, sizeBbl, recipeCostPerPin
   return pints != null ? parseFloat(recipeCostPerPint) * pints : null
 }
 
+// Two-tier exact lookup, nothing beyond it: both sides are controlled-vocabulary values
+// (dropdowns fed by PACKAGE_TYPES/sizeOptionsFor), so there's no free-text drift left to
+// paper over with fuzzy matching.
+//   1. Exact match on (package_type, size_spec) — priced for this specific size.
+//   2. Fallback: a pricing row for the same package_type with size_spec left blank —
+//      "any size of this type." Never falls back to a row that HAS a different size set.
+// Shared by handleAccountChange (to auto-fill) and the row render (to flag when neither
+// tier matches), so the two can't silently drift apart.
+function findAccountPriceRow(account, packageType, sizeSpec) {
+  if (!packageType || !account?.pricing?.length) return null
+  const ss = sizeSpec || ''
+  const exact = account.pricing.find(p =>
+    p.package_type === packageType && (p.size_spec || '') === ss
+  )
+  if (exact) return exact
+  return account.pricing.find(p => p.package_type === packageType && !p.size_spec) || null
+}
+
 // ── AssignSplitsModal ──────────────────────────────────────────────────────────
 
 function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = false, onClose, onSaved }) {
@@ -481,6 +499,10 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
         account_id:            existing?.account_id || '',
         delivery_date:         existing?.delivery_date || todayStr(),
         sale_price:            existing?.sale_price_per_unit != null ? String(existing.sale_price_per_unit) : '',
+        // Treated as auto-derived, not manually set — a prefilled/existing price is still
+        // fair game to be refreshed if the brewer picks a different account for this row;
+        // only an actual keystroke into the Sale Price field earns manual protection.
+        priceManuallySet:      false,
         distribution_cost:     existing?.distribution_cost_per_unit != null ? String(existing.distribution_cost_per_unit) : '0',
         notes:                 existing?.notes || '',
         keg_return_expected:   existing != null ? existing.returnable_kegs : isKegType(s.package_type || ''),
@@ -508,6 +530,7 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
           account_id:          draftRow.account_id ?? freshRow.account_id,
           delivery_date:       draftRow.delivery_date ?? freshRow.delivery_date,
           sale_price:          draftRow.sale_price ?? freshRow.sale_price,
+          priceManuallySet:    draftRow.priceManuallySet ?? freshRow.priceManuallySet,
           distribution_cost:   draftRow.distribution_cost ?? freshRow.distribution_cost,
           notes:               draftRow.notes ?? freshRow.notes,
           keg_return_expected: draftRow.keg_return_expected ?? freshRow.keg_return_expected,
@@ -526,33 +549,25 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
     saveDraft({ rows })
   }, [rows]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Two-tier exact lookup, nothing beyond it: both sides are now controlled-vocabulary
-  // values (dropdowns fed by PACKAGE_TYPES/sizeOptionsFor), so there's no free-text drift
-  // left to paper over with fuzzy matching.
-  //   1. Exact match on (package_type, size_spec) — priced for this specific size.
-  //   2. Fallback: a pricing row for the same package_type with size_spec left blank —
-  //      "any size of this type." Never falls back to a row that HAS a different size set.
+  // Switching accounts re-derives the price from the newly selected account's pricing
+  // (or clears it, if that account has none) rather than carrying over whatever the
+  // previously selected account's price happened to be — a stale price silently
+  // attributed to an account that never agreed to it is a real bug, not a convenience.
+  // The one thing this must never do is clobber a price the brewer typed by hand:
+  // priceManuallySet distinguishes "this row's sale_price came from auto-fill/prefill"
+  // (false) from "the brewer edited this field directly" (true) — see the Sale Price
+  // input's onChange and buildDefaultRows(). Only a direct edit sets it true.
   function handleAccountChange(idx, accountId) {
-    const account     = accounts.find(a => a.id === accountId)
-    const packageType = rows[idx].package_type
-    const sizeSpec    = rows[idx].size_spec || ''
-    let autoPrice = ''
+    const account   = accounts.find(a => a.id === accountId)
+    const row       = rows[idx]
+    const priceRow  = findAccountPriceRow(account, row.package_type, row.size_spec)
+    const autoPrice = priceRow ? String(priceRow.price_per_unit) : ''
 
-    if (packageType && account?.pricing?.length) {
-      let priceRow = account.pricing.find(p =>
-        p.package_type === packageType && (p.size_spec || '') === sizeSpec
-      )
-      if (!priceRow) {
-        priceRow = account.pricing.find(p =>
-          p.package_type === packageType && !p.size_spec
-        )
-      }
-      if (priceRow) autoPrice = String(priceRow.price_per_unit)
-    }
-
-    setRows(prev => prev.map((r, i) =>
-      i === idx ? { ...r, account_id: accountId, sale_price: autoPrice || r.sale_price } : r
-    ))
+    setRows(prev => prev.map((r, i) => {
+      if (i !== idx) return r
+      if (r.priceManuallySet) return { ...r, account_id: accountId }
+      return { ...r, account_id: accountId, sale_price: autoPrice, priceManuallySet: false }
+    }))
   }
 
   function isAlreadyAssigned(packageType, sizeSpec) {
@@ -667,7 +682,12 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
           <div className="space-y-5">
             {rows.map((row, i) => {
               // In re-assign mode all splits show the form; otherwise hide already-assigned ones
-              const assigned  = !reAssign && isAlreadyAssigned(row.package_type, row.size_spec)
+              const assigned        = !reAssign && isAlreadyAssigned(row.package_type, row.size_spec)
+              const selectedAccount = accounts.find(a => a.id === row.account_id)
+              // Neither tier matched for the currently selected account — not an error (a
+              // brewery can legitimately sell a type/size to an account for the first time),
+              // just something worth flagging so it isn't mistaken for a priced sale.
+              const noPricingSet    = !!row.account_id && !findAccountPriceRow(selectedAccount, row.package_type, row.size_spec)
               const salePrice = parseFloat(row.sale_price) || 0
               const qty       = parseFloat(row.units_packaged) || 0
               // Ingredient cost is null (not 0) when the split's size can't be resolved to a
@@ -764,7 +784,12 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
                             className={INPUT_CLS}
                             placeholder="e.g. 185.00"
                             value={row.sale_price}
-                            onChange={e => updateRow(i, 'sale_price', e.target.value)}
+                            onChange={e => {
+                              const value = e.target.value
+                              setRows(prev => prev.map((r, ri) =>
+                                ri === i ? { ...r, sale_price: value, priceManuallySet: true } : r
+                              ))
+                            }}
                           />
                         </div>
 
@@ -782,6 +807,15 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
                           />
                         </div>
                       </div>
+
+                      {/* No pricing set for this account/type/size — informative, not a
+                          blocker: this may be a legitimate first-time sale. */}
+                      {noPricingSet && (
+                        <p className="text-xs text-amber-dark">
+                          ⚠ No {packageTypeLabel(row.package_type, row.size_spec)} pricing set for {selectedAccount?.account_name || 'this account'}.
+                          Add one in the Accounts tab to auto-fill next time.
+                        </p>
+                      )}
 
                       {/* Keg return — only for keg/barrel package types */}
                       {isKegType(row.package_type) && (
