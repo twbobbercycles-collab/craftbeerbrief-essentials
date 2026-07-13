@@ -10,6 +10,7 @@ import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../services/supabase'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import TierGate from '../../components/TierGate'
+import { normalizePlannedSplit, packageTypeLabel } from '../../utils/packagingTypes'
 
 // ── Formatting helpers ────────────────────────────────────────────────────────
 
@@ -171,12 +172,32 @@ function BatchDetail({ batch }) {
     ? actualGrossProfit - plannedGrossProfit
     : null
 
-  // Build a merged list of container types from planned and actual splits
-  const plannedSplits = Array.isArray(batch.planned_splits) ? batch.planned_splits : []
-  const actualSplits  = Array.isArray(batch.actual_splits)  ? batch.actual_splits  : []
-  const allTypes = [...new Set([
-    ...plannedSplits.map(s => s.container_type),
-    ...actualSplits.map(s => s.container_type),
+  // Build a merged list of type+size identities from planned and actual splits, normalized
+  // through the shared normalizePlannedSplit() so the raw field-name differences between
+  // the two shapes (container_type/type/package_type, size/size_spec, units/units_packaged)
+  // never leak into this page. Keyed on packageTypeLabel(package_type, size_spec) — the
+  // same (type, size) identity used everywhere else — so a 12oz and 16oz can compare as
+  // distinct rows instead of collapsing into one "Can" bucket.
+  const plannedSplits = (Array.isArray(batch.planned_splits) ? batch.planned_splits : [])
+    .map(normalizePlannedSplit)
+  const actualSplits = (Array.isArray(batch.actual_splits) ? batch.actual_splits : [])
+    .map(normalizePlannedSplit)
+
+  // percentage no longer exists on either shape (removed along with the legacy combined
+  // package_type strings it was computed against). Each split's share is derived from its
+  // own volume against the SAME denominators the original stored percentages used — not
+  // the sum of the splits themselves. Planned % = split volume ÷ volume_from_fermenter
+  // (gross, pre-yield-loss); Actual % = split volume ÷ total_volume_packaged (the real
+  // final total, computed the same way in handleComplete's own actualSplits.reduce(...)).
+  // Columns intentionally do NOT sum to 100% — the shortfall IS yield loss, which is
+  // exactly what a brewer wants visible on a profitability page, not hidden by re-basing
+  // the denominator to the splits' own total.
+  const plannedTotalVol = parseFloat(batch.volume_from_fermenter) || 0
+  const actualTotalVol  = parseFloat(batch.total_volume_packaged) || 0
+
+  const allLabels = [...new Set([
+    ...plannedSplits.map(s => packageTypeLabel(s.package_type, s.size_spec)),
+    ...actualSplits.map(s => packageTypeLabel(s.package_type, s.size_spec)),
   ])]
 
   return (
@@ -259,7 +280,7 @@ function BatchDetail({ batch }) {
         </section>
 
         {/* ── Section 2: Package Split Comparison ─────────────────────────── */}
-        {allTypes.length > 0 && (
+        {allLabels.length > 0 && (
           <section>
             <h4 className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-3">
               Package Split Comparison
@@ -275,15 +296,15 @@ function BatchDetail({ batch }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {allTypes.map(type => {
-                    const p = plannedSplits.find(s => s.container_type === type)
-                    const a = actualSplits.find(s => s.container_type === type)
-                    const pPct = p ? parseFloat(p.percentage) : null
-                    const aPct = a ? parseFloat(a.percentage) : null
+                  {allLabels.map(label => {
+                    const p = plannedSplits.find(s => packageTypeLabel(s.package_type, s.size_spec) === label)
+                    const a = actualSplits.find(s => packageTypeLabel(s.package_type, s.size_spec) === label)
+                    const pPct = p && plannedTotalVol > 0 ? (parseFloat(p.total_volume) || 0) / plannedTotalVol * 100 : null
+                    const aPct = a && actualTotalVol  > 0 ? (parseFloat(a.total_volume) || 0) / actualTotalVol  * 100 : null
                     const diff = pPct != null && aPct != null ? aPct - pPct : null
                     return (
-                      <tr key={type} className="border-b border-gray-50">
-                        <td className="px-3 py-2.5 font-medium text-navy">{type}</td>
+                      <tr key={label} className="border-b border-gray-50">
+                        <td className="px-3 py-2.5 font-medium text-navy">{label}</td>
                         <td className="px-3 py-2.5 text-right tabular-nums">
                           {pPct != null ? fmtPct(pPct) : '—'}
                         </td>

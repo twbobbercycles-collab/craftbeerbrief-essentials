@@ -467,30 +467,52 @@ Deno.serve(async (req) => {
 
     // ── Batch Package ─────────────────────────────────────────────────────────
     const { error: bpErr } = await svc.from('batch_packages').insert([
-      { id: ids.bpkgHazy, brewery_id: b, fermentation_id: ids.fermHazy, brew_day_id: ids.brewHazy, batch_number: 'ADP-2026-001', beer_name: 'Adaptive Hazy IPA', beer_style: 'New England IPA', packaging_date: '2026-03-28', total_volume_packaged: 14.2, total_volume_fermented: 14.8, volume_unit: 'barrels', status: 'complete' },
+      // total_volume_packaged = 7.3387 + 4.008 + 0.746 (the corrected actual_splits total,
+      // see packaging_runs below) — batch_packages.packaging_yield_percentage is a
+      // GENERATED column (migration 022: round(total_volume_packaged/total_volume_fermented
+      // × 100, 1), stored), so it's derived automatically and must not be set here.
+      { id: ids.bpkgHazy, brewery_id: b, fermentation_id: ids.fermHazy, brew_day_id: ids.brewHazy, batch_number: 'ADP-2026-001', beer_name: 'Adaptive Hazy IPA', beer_style: 'New England IPA', packaging_date: '2026-03-28', total_volume_packaged: 12.0927, total_volume_fermented: 14.8, volume_unit: 'barrels', status: 'complete' },
     ])
     check(bpErr, 'insert batch_packages')
 
     // ── Packaging Runs ────────────────────────────────────────────────────────
     const { error: prErr } = await svc.from('packaging_runs').insert([
-      // planned_splits use canonical container_type values (matching PACKAGE_TYPES in
-      // PackagingRunDetailPage.jsx) plus explicit units/total_volume — normalizePlannedSplit()
-      // only derives Planned Units/Vol from those fields, not from percentage alone. Left in
-      // this pre-Checkpoint-1 shape deliberately: normalizePlannedSplit() already resolves it
-      // correctly for the read-only "Planned" columns (no size breakdown needed there), and
-      // it's never consumed by Distribution/Analytics — only actual_splits is.
+      // planned_splits now use the exact structured shape packaging_runs.planned_splits
+      // gets in real usage — FermentationPage.jsx copies recipe.packaging_splits verbatim
+      // (plannedSplits = recipe.packaging_splits) when a run is auto-created, and the
+      // Recipe Builder's PackagingSplitsEditor produces { type, volume_barrels, size,
+      // size_oz, size_bbl, units, packaging_yield, ...cost fields }. normalizePlannedSplit()
+      // reads type/size/size_oz/size_bbl directly (no legacy fallback needed) and computes
+      // total_volume as gross × yield% when packaging_yield is present. packaging_yield is
+      // deliberately omitted here (not defaulted to 85, the Recipe Builder's own default):
+      // the volume_barrels figures below already equal units × canonical per-unit size with
+      // no yield loss baked in (verified below), so adding an invented yield% would silently
+      // shrink "Planned Vol" by that percentage. Omitting it makes normalizePlannedSplit
+      // treat volume_barrels as the final net figure directly (gross ?? net, no reduction).
+      // Cost-per-unit fields aren't needed: PackagingRunDetail's own packaging-cost display
+      // reads them fresh from the recipe's own packaging_splits, never from a run's
+      // planned_splits copy.
       //
       // actual_splits uses the structured shape (bare package_type + size_spec + size_oz/
       // size_bbl), matching exactly what saveSplitsData() writes. Canonical labels are
       // byte-for-byte from packagingTypes.js. total_volume is barrels throughout (matching
       // calcTotalVolume's own convention); volume_per_unit is bbl-per-unit for the keg split,
       // oz-per-unit for the can/taproom splits (mirroring size_bbl/size_oz respectively):
-      //   Can:              1820 units × 16 oz  / 3968 = 7.3387 bbl
-      //   Keg Sixth Barrel: 24   units × 0.167 bbl      = 4.008  bbl
-      //   Taproom Draft:    185  units × 16 oz  / 3968 = 0.746  bbl
-      { id: ids.pkgHazy,  brewery_id: b, fermentation_id: ids.fermHazy,  batch_package_id: ids.bpkgHazy, batch_number: 'ADP-2026-001', beer_name: 'Adaptive Hazy IPA', beer_style: 'New England IPA',   packaging_date: '2026-03-28',                              status: 'complete', volume_from_fermenter: 14.8, total_volume_packaged: 14.2, packaging_yield_percentage: 95.9, recipe_cost_per_pint: 0.95, actual_cost_per_pint: 0.98, actual_splits: [{ package_type: 'Can', size_spec: '16oz', size_oz: 16, size_bbl: null, units_packaged: 1820, volume_per_unit: 16, total_volume: 7.3387, destination: 'distribution', notes: '' }, { package_type: 'Keg Sixth Barrel', size_spec: '1/6 bbl (5.16 gal)', size_oz: null, size_bbl: 0.167, units_packaged: 24, volume_per_unit: 0.167, total_volume: 4.008, destination: 'distribution', notes: '' }, { package_type: 'Taproom Draft', size_spec: '16oz pour', size_oz: 16, size_bbl: null, units_packaged: 185, volume_per_unit: 16, total_volume: 0.746, destination: 'taproom', notes: '' }], planned_splits: [{ container_type: 'Can 16oz', percentage: 52.8, units: 1938, total_volume: 7.815 }, { container_type: 'Keg Sixth Barrel', percentage: 28.2, units: 25, total_volume: 4.175 }, { container_type: 'Taproom Draft', percentage: 5.3, units: 194, total_volume: 0.782 }] },
+      //   Can:              1820 units × 16 oz  / 3968 = 7.3387 bbl (planned: 1938 × 16/3968 = 7.815 bbl)
+      //   Keg Sixth Barrel: 24   units × 0.167 bbl      = 4.008  bbl (planned: 25   × 0.167    = 4.175 bbl)
+      //   Taproom Draft:    185  units × 16 oz  / 3968 = 0.746  bbl (planned: 194  × 16/3968 = 0.782 bbl)
+      //
+      // total_volume_packaged / packaging_yield_percentage / yield_loss_volume /
+      // actual_cost_per_pint below are reconciled to the actual_splits total (12.0927 bbl),
+      // using the exact formulas saveSplitsData() applies on every actual-split edit
+      // (PackagingRunDetailPage.jsx) — not hand-typed independently of the splits:
+      //   total_volume_packaged      = 7.3387 + 4.008 + 0.746                = 12.0927
+      //   packaging_yield_percentage = round(12.0927 / 14.8 × 1000) / 10     = 81.7
+      //   yield_loss_volume          = 14.8 - 12.0927                       = 2.7073
+      //   actual_cost_per_pint       = 0.95 × 14.8 / 12.0927                = 1.1627
+      { id: ids.pkgHazy,  brewery_id: b, fermentation_id: ids.fermHazy,  batch_package_id: ids.bpkgHazy, batch_number: 'ADP-2026-001', beer_name: 'Adaptive Hazy IPA', beer_style: 'New England IPA',   packaging_date: '2026-03-28',                              status: 'complete', volume_from_fermenter: 14.8, volume_unit: 'barrels', total_volume_packaged: 12.0927, packaging_yield_percentage: 81.7, yield_loss_volume: 2.7073, recipe_cost_per_pint: 0.95, actual_cost_per_pint: 1.1627, actual_splits: [{ package_type: 'Can', size_spec: '16oz', size_oz: 16, size_bbl: null, units_packaged: 1820, volume_per_unit: 16, total_volume: 7.3387, destination: 'distribution', notes: '' }, { package_type: 'Keg Sixth Barrel', size_spec: '1/6 bbl (5.16 gal)', size_oz: null, size_bbl: 0.167, units_packaged: 24, volume_per_unit: 0.167, total_volume: 4.008, destination: 'distribution', notes: '' }, { package_type: 'Taproom Draft', size_spec: '16oz pour', size_oz: 16, size_bbl: null, units_packaged: 185, volume_per_unit: 16, total_volume: 0.746, destination: 'taproom', notes: '' }], planned_splits: [{ type: 'Can', size: '16oz', size_oz: 16, size_bbl: null, units: 1938, volume_barrels: 7.815 }, { type: 'Keg Sixth Barrel', size: '1/6 bbl (5.16 gal)', size_oz: null, size_bbl: 0.167, units: 25, volume_barrels: 4.175 }, { type: 'Taproom Draft', size: '16oz pour', size_oz: 16, size_bbl: null, units: 194, volume_barrels: 0.782 }] },
       // Pivot Pale Ale — planned packaging run (ready to package)
-      { id: ids.pkgPivot, brewery_id: b, fermentation_id: ids.fermPivot,                                  batch_number: 'ADP-2026-002', beer_name: 'Pivot Pale Ale',    beer_style: 'American Pale Ale', packaging_date: new Date().toISOString().split('T')[0], status: 'planned',  volume_from_fermenter: 14.5,                                                   recipe_cost_per_pint: 0.82,                                                                                                                                                                                                                                                                                                                     planned_splits: [{ container_type: 'Can 16oz', percentage: 49.5, units: 1780, total_volume: 7.177 }, { container_type: 'Keg Sixth Barrel', percentage: 23.0, units: 20, total_volume: 3.34 }, { container_type: 'Taproom Draft', percentage: 4.5, units: 162, total_volume: 0.653 }] },
+      { id: ids.pkgPivot, brewery_id: b, fermentation_id: ids.fermPivot,                                  batch_number: 'ADP-2026-002', beer_name: 'Pivot Pale Ale',    beer_style: 'American Pale Ale', packaging_date: new Date().toISOString().split('T')[0], status: 'planned',  volume_from_fermenter: 14.5, volume_unit: 'barrels',                                                   recipe_cost_per_pint: 0.82,                                                                                                                                                                                                                                                                                                                     planned_splits: [{ type: 'Can', size: '16oz', size_oz: 16, size_bbl: null, units: 1780, volume_barrels: 7.177 }, { type: 'Keg Sixth Barrel', size: '1/6 bbl (5.16 gal)', size_oz: null, size_bbl: 0.167, units: 20, volume_barrels: 3.34 }, { type: 'Taproom Draft', size: '16oz pour', size_oz: 16, size_bbl: null, units: 162, volume_barrels: 0.653 }] },
     ])
     check(prErr, 'insert packaging_runs')
 

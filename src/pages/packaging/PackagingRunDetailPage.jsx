@@ -37,9 +37,9 @@ import {
   PACKAGE_TYPES,
   sizeOptionsFor,
   findSizeOption,
-  isKegType,
   isPackType,
   packageTypeLabel,
+  normalizePlannedSplit,
 } from '../../utils/packagingTypes'
 
 // ── Shared CSS helpers ──────────────────────────────────────────────────────────
@@ -104,60 +104,6 @@ function pintsPerUnit(volumeUnit) {
   if (volumeUnit === 'gallons') return PINTS_PER_GALLON
   if (volumeUnit === 'liters')  return PINTS_PER_LITER
   return PINTS_PER_BARREL // default: barrels
-}
-
-// Recover an oz-per-unit size from a free-text label used by pre-Checkpoint-1 recipe
-// splits and native packaging-run splits (e.g. "16oz pour", "12oz"). Structured splits
-// carry size_oz/size_bbl directly and never need this.
-function ozFromSizeLabel(label) {
-  if (!label) return null
-  const match = String(label).match(/^(\d+(?:\.\d+)?)\s*oz/i)
-  return match ? parseFloat(match[1]) : null
-}
-
-// Normalize a planned split regardless of whether it came from the recipe builder's
-// structured shape (type / size / size_oz / size_bbl / volume_barrels / packaging_yield),
-// an older recipe split (container_type / container_size_label), or a previous packaging
-// run (package_type / total_volume).
-//
-// For recipe splits, volume_barrels is the GROSS volume and packaging_yield (0-100) gives
-// the net packagable fraction. Units stored in the split were calculated from net volume,
-// so total_volume is set to the net value to keep everything consistent:
-//   net_volume = volume_barrels × (packaging_yield / 100)
-function normalizePlannedSplit(p) {
-  const packageType = p.type || p.package_type || p.container_type || ''
-  const sizeSpec     = p.size ?? null
-  let sizeOz  = p.size_oz  ?? null
-  let sizeBbl = p.size_bbl ?? null
-
-  // Backward-compat: pre-Checkpoint-1 splits carry no structured size — recover one
-  // from an explicit volume_per_unit (native unit: bbl for kegs, oz otherwise) or by
-  // parsing a free-text size label.
-  if (sizeOz == null && sizeBbl == null) {
-    if (p.volume_per_unit != null) {
-      if (isKegType(packageType)) sizeBbl = parseFloat(p.volume_per_unit) || null
-      else sizeOz = parseFloat(p.volume_per_unit) || null
-    } else {
-      sizeOz = ozFromSizeLabel(p.container_size_label)
-    }
-  }
-
-  const grossVolume    = parseFloat(p.total_volume ?? p.volume_barrels) || null
-  const packagingYield = parseFloat(p.packaging_yield) || null
-  const netVolume      = grossVolume != null && packagingYield != null
-    ? grossVolume * (packagingYield / 100)
-    : null
-  const totalVolume    = netVolume ?? grossVolume
-
-  return {
-    package_type:    packageType,
-    size_spec:       sizeSpec,
-    size_oz:         sizeOz,
-    size_bbl:        sizeBbl,
-    units:           p.units ?? null,
-    total_volume:    totalVolume,
-    packaging_yield: packagingYield,
-  }
 }
 
 // Human-readable unit label for the size column, driven by the structured size fields
@@ -841,20 +787,33 @@ function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brew
     if (run.actual_splits && run.actual_splits.length > 0) return run.actual_splits
     return (run.planned_splits || []).map(p => {
       const norm = normalizePlannedSplit(p)
-      const hasSize = norm.size_oz != null || norm.size_bbl != null
+
+      // Only seed package_type from the plan when it's a canonical, selectable value — a
+      // legacy combined string (e.g. "Can 16oz") isn't a real PACKAGE_TYPES entry. Carrying
+      // it through as-is would leave the type <select> showing blank (no option matches)
+      // while s.package_type stayed truthy underneath, letting a brewer complete the run
+      // without ever actually picking a type. Size only travels with a canonical type — a
+      // size without its matching type dropdown is meaningless in this UI. This is
+      // deliberately NOT a parser: an unrecognized value is treated as "no data", not
+      // reverse-engineered into one.
+      const packageType = PACKAGE_TYPES.includes(norm.package_type) ? norm.package_type : ''
+      const sizeSpec     = packageType ? norm.size_spec : null
+      const sizeOz       = packageType ? norm.size_oz   : null
+      const sizeBbl      = packageType ? norm.size_bbl  : null
+      const hasSize      = sizeOz != null || sizeBbl != null
 
       // volume_per_unit mirrors the structured size for computed types (display value);
       // types with no standard size (e.g. Barrel Aging) leave it blank for manual entry.
-      const volumePerUnit = hasSize ? String(norm.size_bbl ?? norm.size_oz) : ''
+      const volumePerUnit = hasSize ? String(sizeBbl ?? sizeOz) : ''
 
       // When planned_splits don't carry an explicit unit count, derive it from total_volume
       // using the structured per-unit size.
       let unitsStr = norm.units != null ? String(norm.units) : ''
       if (!unitsStr && norm.total_volume != null && hasSize) {
-        let derived = unitsFromVolume(parseFloat(norm.total_volume), norm.size_oz, norm.size_bbl)
+        let derived = unitsFromVolume(parseFloat(norm.total_volume), sizeOz, sizeBbl)
         if (derived > 10000) {
           console.warn('[SplitsSection] derived unit count exceeds sanity threshold — capping at 10 000',
-            { derived, total_volume: norm.total_volume, size_oz: norm.size_oz, size_bbl: norm.size_bbl, package_type: norm.package_type })
+            { derived, total_volume: norm.total_volume, size_oz: sizeOz, size_bbl: sizeBbl, package_type: packageType })
           derived = 10000
         }
         if (derived > 0) unitsStr = String(derived)
@@ -864,17 +823,17 @@ function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brew
       // falls back to the plan's own total_volume otherwise.
       let totalVol = ''
       if (unitsStr && hasSize) {
-        const computed = calcTotalVolume(unitsStr, norm.size_oz, norm.size_bbl)
+        const computed = calcTotalVolume(unitsStr, sizeOz, sizeBbl)
         totalVol = computed > 0 ? computed.toFixed(4) : ''
       } else if (norm.total_volume != null) {
         totalVol = String(norm.total_volume)
       }
 
       return {
-        package_type:    norm.package_type,
-        size_spec:       norm.size_spec,
-        size_oz:         norm.size_oz,
-        size_bbl:        norm.size_bbl,
+        package_type:    packageType,
+        size_spec:       sizeSpec,
+        size_oz:         sizeOz,
+        size_bbl:        sizeBbl,
         units_packaged:  unitsStr,
         volume_per_unit: volumePerUnit,
         total_volume:    totalVol,
@@ -1117,9 +1076,13 @@ function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brew
                 const planned = plannedSplits[i] ? normalizePlannedSplit(plannedSplits[i]) : null
                 return (
                   <tr key={i} className="hover:bg-gray-50">
-                    {/* Package type + size — readonly if matched to a plan row */}
+                    {/* Package type + size — readonly once the run is locked/complete (it's
+                        history at that point); editable otherwise, regardless of whether
+                        this row came from the plan. The plan seeds the actuals, it doesn't
+                        dictate them — a brewer must be able to correct type/size to match
+                        what was actually packaged. */}
                     <td className="px-3 py-2">
-                      {s._fromPlan && planned ? (
+                      {isLocked ? (
                         <span className="text-gray-700 font-medium">
                           {packageTypeLabel(s.package_type, s.size_spec)}
                         </span>
@@ -1247,17 +1210,18 @@ function SplitsSection({ run, isReadOnly, setRun, saveField, setSaveStatus, brew
                       />
                     </td>
 
-                    {/* Remove button — only for extra (non-plan) rows */}
+                    {/* Remove button — available for any row while the run is still
+                        editable, including plan-derived ones: a brewer who didn't
+                        actually package a planned split needs to be able to drop it,
+                        not just leave it zeroed out. */}
                     {!isReadOnly && !isLocked && (
                       <td className="px-3 py-2">
-                        {!s._fromPlan && (
-                          <button
-                            onClick={() => removeSplit(i)}
-                            className="text-danger text-xs hover:underline"
-                          >
-                            Remove
-                          </button>
-                        )}
+                        <button
+                          onClick={() => removeSplit(i)}
+                          className="text-danger text-xs hover:underline"
+                        >
+                          Remove
+                        </button>
                       </td>
                     )}
                   </tr>

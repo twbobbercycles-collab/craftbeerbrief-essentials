@@ -131,3 +131,64 @@ export function unitNoun(type) {
   if (PACK_TYPES.includes(type)) return 'packs'
   return 'units'
 }
+
+// Recover an oz-per-unit size from a free-text label used by pre-Checkpoint-1 recipe
+// splits and native packaging-run splits (e.g. "16oz pour", "12oz"). Structured splits
+// carry size_oz/size_bbl directly and never need this.
+function ozFromSizeLabel(label) {
+  if (!label) return null
+  const match = String(label).match(/^(\d+(?:\.\d+)?)\s*oz/i)
+  return match ? parseFloat(match[1]) : null
+}
+
+// Normalize a packaging split — planned or actual — to one canonical shape, regardless
+// of which of these it came from:
+//   - the Recipe Builder's structured shape (type / size / size_oz / size_bbl /
+//     volume_barrels / packaging_yield)
+//   - an older recipe split (container_type / container_size_label)
+//   - a native packaging-run planned split (container_type / units / total_volume)
+//   - a native packaging-run actual split (package_type / size_spec / size_oz / size_bbl /
+//     units_packaged / total_volume)
+// This is the single canonical path — anything comparing or displaying a planned/actual
+// split should normalize through here rather than reading package_type/size_spec/units
+// directly, since the raw field names differ across these shapes.
+//
+// For recipe splits, volume_barrels is the GROSS volume and packaging_yield (0-100) gives
+// the net packagable fraction. Units stored in the split were calculated from net volume,
+// so total_volume is set to the net value to keep everything consistent:
+//   net_volume = volume_barrels × (packaging_yield / 100)
+export function normalizePlannedSplit(p) {
+  const packageType = p.type || p.package_type || p.container_type || ''
+  const sizeSpec     = p.size ?? p.size_spec ?? null
+  let sizeOz  = p.size_oz  ?? null
+  let sizeBbl = p.size_bbl ?? null
+
+  // Backward-compat: pre-Checkpoint-1 splits carry no structured size — recover one
+  // from an explicit volume_per_unit (native unit: bbl for kegs, oz otherwise) or by
+  // parsing a free-text size label.
+  if (sizeOz == null && sizeBbl == null) {
+    if (p.volume_per_unit != null) {
+      if (isKegType(packageType)) sizeBbl = parseFloat(p.volume_per_unit) || null
+      else sizeOz = parseFloat(p.volume_per_unit) || null
+    } else {
+      sizeOz = ozFromSizeLabel(p.container_size_label)
+    }
+  }
+
+  const grossVolume    = parseFloat(p.total_volume ?? p.volume_barrels) || null
+  const packagingYield = parseFloat(p.packaging_yield) || null
+  const netVolume      = grossVolume != null && packagingYield != null
+    ? grossVolume * (packagingYield / 100)
+    : null
+  const totalVolume    = netVolume ?? grossVolume
+
+  return {
+    package_type:    packageType,
+    size_spec:       sizeSpec,
+    size_oz:         sizeOz,
+    size_bbl:        sizeBbl,
+    units:           p.units ?? p.units_packaged ?? null,
+    total_volume:    totalVolume,
+    packaging_yield: packagingYield,
+  }
+}
