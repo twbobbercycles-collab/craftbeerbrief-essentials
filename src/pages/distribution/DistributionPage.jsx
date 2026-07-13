@@ -21,7 +21,8 @@ import LoadingSpinner from '../../components/LoadingSpinner'
 import WorkflowWarningBanner from '../../components/WorkflowWarningBanner'
 import { useModalDraft } from '../../hooks/useModalDraft'
 import { useReadOnly } from '../../hooks/useReadOnly'
-import { packageTypeLabel } from '../../utils/packagingTypes'
+import { packageTypeLabel, isKegType, findSizeOption } from '../../utils/packagingTypes'
+import { pintsPerContainer } from '../recipes/recipeUtils'
 
 // ── Shared CSS helpers ─────────────────────────────────────────────────────────
 
@@ -66,27 +67,6 @@ function resolvePackageType(raw) {
   const lower = raw.toLowerCase()
   const variant = PACKAGE_TYPE_VARIANTS.find(v => v.test(lower))
   return variant ? variant.canonical : null
-}
-
-// Size specs per package type — values mirror what the recipe builder stores in splits
-// so that exact matching works in handleAccountChange.
-// Keg types omitted: their size is already encoded in the package_type name.
-const SIZE_SPECS = {
-  'Can':           ['8oz', '10oz', '12oz', '16oz', '19.2oz', '32oz'],
-  'Bottle':        ['12oz', '16oz', '22oz', '375ml', '500ml', '750ml'],
-  'Taproom Draft': ['12oz pour', '16oz pint', '20oz imperial pint'],
-  'Growler':       ['32oz', '64oz'],
-  'Crowler':       ['16oz', '32oz'],
-  '4-Pack':        ['4-pack 12oz', '4-pack 16oz'],
-  '6-Pack':        ['6-pack 12oz', '6-pack 16oz'],
-  '12-Pack':       ['12-pack 12oz'],
-  '24-Pack/Case':  ['24-pack 12oz'],
-}
-
-// Determines if a package_type string represents a returnable keg or barrel
-function isKegType(type) {
-  const t = (type || '').toLowerCase()
-  return t.includes('keg') || t.includes('barrel')
 }
 
 // Build a comparison key for matching a packaging split against a distribution_records
@@ -461,61 +441,25 @@ function AssignTab({ packagingRuns, accounts, distRecords, breweryId, onRefresh,
   )
 }
 
-// ── getPintsPerUnit ────────────────────────────────────────────────────────────
-// Returns pints of beer in one unit. Searches packageType + sizeSpec together.
-
-function getPintsPerUnit(packageType, sizeSpec) {
-  const type     = (packageType || '').toLowerCase()
-  const spec     = (sizeSpec    || '').toLowerCase()
-  const combined = (type + ' ' + spec).trim()
-
-  // 1. Kegs — size may be embedded in the package_type name or in sizeSpec
-  if (combined.includes('sixth')   || combined.includes('5.16') || combined.includes('1/6'))  return 41.28
-  if (combined.includes('quarter') || combined.includes('7.75') || combined.includes('1/4'))  return 62
-  if (combined.includes('half')    || combined.includes('15.5') || combined.includes('1/2'))  return 124
-  if (combined.includes('50l')     || combined.includes('european'))                          return 105.6
-  if (type.includes('keg'))                                                                   return 124  // fallback: half barrel
-
-  // 2. Multi-packs — must run before the oz regex so we multiply correctly
-  //    package_type '6-Pack' + sizeSpec '6-pack 16oz' → (6 × 16) / 16 = 6 pints
-  if (type.includes('pack') || type.includes('case')) {
-    const packCount = type.match(/(\d+)[\s-]pack/)            // count from type name
-    const ozPerUnit = combined.match(/(\d+(?:\.\d+)?)oz/)    // oz value anywhere
-    if (packCount && ozPerUnit) {
-      return (Number(packCount[1]) * Number(ozPerUnit[1])) / 16
-    }
-  }
-
-  // 3. Draft / taproom — handle before ozMatch; spec may contain "oz" but unit is per pour
-  if (type.includes('draft') || type.includes('taproom')) {
-    if (combined.includes('20') || combined.includes('imperial')) return 1.25
-    if (combined.includes('12'))                                  return 0.75
-    return 1  // default 16oz pint
-  }
-
-  // 4. Single-serve cans, bottles, growlers, crowlers — oz or ml spec
-  const ozMatch = spec.match(/(\d+(?:\.\d+)?)\s*oz/)
-  if (ozMatch) return Number(ozMatch[1]) / 16
-
-  const mlMatch = spec.match(/(\d+)\s*ml/)
-  if (mlMatch) return Number(mlMatch[1]) / 473.2   // 1 pint = 473.2 ml
-
-  return 1  // default 1 pint
-}
-
-// Ingredient cost per unit = recipe_cost_per_pint × pints_per_unit
-function ingCostPerUnit(packageType, sizeSpec, recipeCostPerPint) {
+// Ingredient cost per unit = recipe_cost_per_pint × pintsPerContainer(sizeOz, sizeBbl).
+// sizeOz/sizeBbl are the split's own structured size fields — the reliable source since
+// Checkpoint 2 — passed straight to the canonical pintsPerContainer() from recipeUtils.js.
+// Legacy rows that genuinely lack both (pre-Checkpoint-2 data) fall back to looking up the
+// canonical size option for (packageType, sizeSpec) via findSizeOption(). If neither yields
+// a usable size — e.g. a Barrel Aging split, whose sizes carry no defined volume by design —
+// this returns null rather than guessing a pint count. Callers must show that as an explicit
+// "size not recognized" gap, not silently fold it into a profit number as if it cost nothing.
+function ingCostPerUnit(packageType, sizeSpec, sizeOz, sizeBbl, recipeCostPerPint) {
   if (!recipeCostPerPint) return 0
-  const pints = getPintsPerUnit(packageType, sizeSpec)
-  const cost  = parseFloat(recipeCostPerPint) * pints
-  console.log('[ingCostPerUnit]', {
-    packageType,
-    sizeSpec,
-    pintsPerUnit: pints,
-    recipeCostPerPint: parseFloat(recipeCostPerPint),
-    ingredientCostPerUnit: cost,
-  })
-  return cost
+  let oz  = sizeOz
+  let bbl = sizeBbl
+  if (oz == null && bbl == null) {
+    const opt = findSizeOption(packageType, sizeSpec)
+    oz  = opt?.ozPerUnit  ?? null
+    bbl = opt?.bblPerUnit ?? null
+  }
+  const pints = pintsPerContainer(oz, bbl)
+  return pints != null ? parseFloat(recipeCostPerPint) * pints : null
 }
 
 // ── AssignSplitsModal ──────────────────────────────────────────────────────────
@@ -555,6 +499,8 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
         key:                   i,
         package_type:          s.package_type || '',
         size_spec:             s.size_spec    || '',
+        size_oz:               s.size_oz  ?? null,
+        size_bbl:              s.size_bbl ?? null,
         units_packaged:        s.units_packaged ?? '',
         volume:                s.total_volume ?? '',
         pkg_cost_per_unit:     parseFloat(s.packaging_cost_per_unit || 0),
@@ -714,7 +660,7 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
       const qty      = Math.round(parseFloat(r.units_packaged)) || 1
       const price    = parseFloat(r.sale_price) || null
       const distCost = parseFloat(r.distribution_cost) || null
-      const ingCost  = ingCostPerUnit(r.package_type, r.size_spec || '', run.recipe_cost_per_pint) || null
+      const ingCost  = ingCostPerUnit(r.package_type, r.size_spec, r.size_oz, r.size_bbl, run.recipe_cost_per_pint) || null
       const pkgCost  = pkgCostForRow(r) || null
 
       const payload = {
@@ -797,12 +743,15 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
               const assigned  = !reAssign && isAlreadyAssigned(row.package_type, row.size_spec)
               const salePrice = parseFloat(row.sale_price) || 0
               const qty       = parseFloat(row.units_packaged) || 0
-              // Fix 2: use getPintsPerUnit-based calculation
-              const ingCost   = ingCostPerUnit(row.package_type, row.size_spec || '', run.recipe_cost_per_pint)
+              // Ingredient cost is null (not 0) when the split's size can't be resolved to a
+              // pint count (e.g. Barrel Aging, whose sizes carry no defined volume) — that
+              // must not silently collapse into the cost total as if it were free, so total
+              // cost / profit / margin all propagate null rather than treating it as $0.
+              const ingCost   = ingCostPerUnit(row.package_type, row.size_spec, row.size_oz, row.size_bbl, run.recipe_cost_per_pint)
               const pkgCost   = pkgCostForRow(row)
               const distCost  = parseFloat(row.distribution_cost) || 0
-              const totalCost = ingCost + pkgCost + distCost
-              const profitPU  = salePrice > 0 ? salePrice - totalCost : null
+              const totalCost = ingCost != null ? ingCost + pkgCost + distCost : null
+              const profitPU  = salePrice > 0 && totalCost != null ? salePrice - totalCost : null
               const margin    = salePrice > 0 && profitPU != null ? (profitPU / salePrice) * 100 : null
 
               return (
@@ -957,7 +906,11 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
 
                           <div className="flex justify-between text-gray-500">
                             <span>Total production cost <span className="text-xs text-gray-400">(from recipe)</span></span>
-                            <span>− {ingCost > 0 ? fmtDollars(ingCost) : <span className="text-gray-400 text-xs">no recipe cost</span>}</span>
+                            <span>
+                              − {ingCost > 0 ? fmtDollars(ingCost)
+                                : ingCost == null ? <span className="text-amber text-xs">size not recognized</span>
+                                : <span className="text-gray-400 text-xs">no recipe cost</span>}
+                            </span>
                           </div>
 
                           <div className="flex justify-between text-gray-500">
@@ -2135,8 +2088,13 @@ function EditAccountModal({ account, onClose, onSaved }) {
 }
 
 // ── Keg Fleet ──────────────────────────────────────────────────────────────────
-// Standard keg sizes the brewery can add to their fleet.
-const KEG_TYPES = [
+// Standard keg sizes the brewery can add to their fleet. This is deliberately its own
+// list, not a re-export of packagingTypes.js's KEG_TYPES/PACKAGE_SIZE_OPTIONS: Keg Fleet
+// tracks PHYSICAL kegs a brewery owns, which includes 'European 50L (13.2 gal)' — a real
+// keg size with no counterpart anywhere in packagingTypes.js (Recipe Builder / Packaging
+// only offer Half/Quarter/Sixth barrel splits). A brewer can genuinely own a 50L keg
+// without ever being able to select it when recording a packaging split.
+const KEG_FLEET_TYPES = [
   'Sixth Barrel (5.16 gal)',
   'Quarter Barrel (7.75 gal)',
   'Slim Quarter (7.75 gal)',
@@ -2144,21 +2102,27 @@ const KEG_TYPES = [
   'European 50L (13.2 gal)',
 ]
 
-// Returns true when a distribution record's package_type matches a keg_fleet keg_type.
-// Handles the naming difference: fleet uses "Half Barrel (15.5 gal)", distribution
-// records use package types like "Keg Half Barrel".
-function kegTypeMatchesPkg(kegType, packageType) {
-  const kt = (kegType    || '').toLowerCase()
-  const pt = (packageType || '').toLowerCase()
-  if (!pt.includes('keg') && !pt.includes('barrel') && !pt.includes('50l')) return false
-  if (kt.includes('sixth')   && pt.includes('sixth'))                     return true
-  if (kt.includes('slim')    && pt.includes('slim'))                      return true
-  if (kt.includes('quarter') && !kt.includes('slim')
-      && pt.includes('quarter') && !pt.includes('slim'))                   return true
-  if (kt.includes('half')    && pt.includes('half'))                      return true
-  if ((kt.includes('50l') || kt.includes('european'))
-      && (pt.includes('50l') || pt.includes('european')))                 return true
-  return false
+// Explicit mapping from a keg_fleet.keg_type label to the canonical (package_type,
+// size_spec) pair it corresponds to in packagingTypes.js — not a substring guesser.
+// 'European 50L (13.2 gal)' has no entry: there is no canonical size for it, so a fleet
+// keg of that type simply never matches any distribution record — correct, since no
+// distribution record could ever carry a package_type/size_spec that doesn't exist in
+// packagingTypes.js.
+const KEG_FLEET_TO_CANONICAL = {
+  'Sixth Barrel (5.16 gal)':   { package_type: 'Keg Sixth Barrel',  size_spec: '1/6 bbl (5.16 gal)' },
+  'Slim Quarter (7.75 gal)':   { package_type: 'Keg Sixth Barrel',  size_spec: 'Slim 1/4 (7.75 gal)' },
+  'Quarter Barrel (7.75 gal)': { package_type: 'Keg Quarter Barrel', size_spec: '1/4 bbl (7.75 gal)' },
+  'Half Barrel (15.5 gal)':    { package_type: 'Keg Half Barrel',    size_spec: '1/2 bbl (15.5 gal)' },
+}
+
+// Returns true when a distribution record's (package_type, size_spec) matches a
+// keg_fleet keg_type — an exact lookup against the canonical mapping above, not a
+// substring guess. Requires size_spec because 'Slim Quarter' and 'Sixth Barrel' share
+// the same package_type ('Keg Sixth Barrel') and are only distinguished by size.
+function kegTypeMatchesPkg(kegType, packageType, sizeSpec) {
+  const mapped = KEG_FLEET_TO_CANONICAL[kegType]
+  if (!mapped) return false
+  return mapped.package_type === packageType && mapped.size_spec === sizeSpec
 }
 
 // Small summary card used in the fleet summary row.
@@ -2212,7 +2176,7 @@ function KegFleetTab({ breweryId, distRecords, isReadOnly, onRefresh }) {
   // Total deposit liability = sum over each keg type of (kegs_out × deposit_amount).
   const totalDepositsOut = fleet.reduce((s, f) => {
     const typeOut = kegRecordsOut
-      .filter(r => kegTypeMatchesPkg(f.keg_type, r.package_type))
+      .filter(r => kegTypeMatchesPkg(f.keg_type, r.package_type, r.size_spec))
       .reduce((n, r) => n + (parseInt(r.quantity) || 1), 0)
     return s + typeOut * (parseFloat(f.deposit_amount) || 0)
   }, 0)
@@ -2303,7 +2267,7 @@ function KegFleetTab({ breweryId, distRecords, isReadOnly, onRefresh }) {
                 {fleet.map(f => {
                   // Count kegs of this type currently out across all delivery records
                   const typeOut = kegRecordsOut
-                    .filter(r => kegTypeMatchesPkg(f.keg_type, r.package_type))
+                    .filter(r => kegTypeMatchesPkg(f.keg_type, r.package_type, r.size_spec))
                     .reduce((s, r) => s + (parseInt(r.quantity) || 1), 0)
                   const atBrewery   = Math.max(0, (f.owned_count || 0) - typeOut)
                   const utilPct     = f.owned_count > 0 ? (typeOut / f.owned_count) * 100 : 0
@@ -2542,7 +2506,7 @@ function AddKegTypeModal({ breweryId, existingTypes, onClose, onSaved }) {
   const [error,  setError]  = useState(null)
 
   // Only offer keg types the brewery hasn't already added
-  const availableTypes = KEG_TYPES.filter(t => !existingTypes.includes(t))
+  const availableTypes = KEG_FLEET_TYPES.filter(t => !existingTypes.includes(t))
 
   function set(field, val) {
     const next = { ...form, [field]: val }
@@ -2834,7 +2798,7 @@ function AddDepositRecordModal({ breweryId, onClose, onSaved }) {
           <label className={LBL}>Keg Type *</label>
           <select className={INPUT_CLS} value={form.keg_type} onChange={e => set('keg_type', e.target.value)}>
             <option value="">— Select keg type —</option>
-            {KEG_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+            {KEG_FLEET_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
         </div>
 
