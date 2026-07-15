@@ -24,7 +24,7 @@ import {
   calculateLaborCost, calculateUtilitiesCost, calculateTotalProductionCost,
   calculateCostPerBarrel, calculateCostPerPint,
   calculateSuggestedRetail, calculateTaxInclusivePrice, calculateGrossMargin,
-  formatDollars, formatPct,
+  formatDollars, formatPct, PINTS_PER_BARREL,
 } from './recipeUtils'
 import {
   PACKAGE_TYPES, PACKAGE_SIZE_OPTIONS, DEFAULT_SIZE_BY_TYPE, unitNoun,
@@ -428,7 +428,7 @@ export default function RecipeDetailPage() {
       )
     }
 
-    const totalPints = batchBarrels * 124
+    const totalPints = batchBarrels * PINTS_PER_BARREL
     const tp1 = totalPints || 1
 
     // Per-pint ingredient and packaging costs

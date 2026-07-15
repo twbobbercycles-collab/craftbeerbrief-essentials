@@ -11,6 +11,7 @@ import { supabase } from '../../services/supabase'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import TierGate from '../../components/TierGate'
 import { normalizePlannedSplit, packageTypeLabel } from '../../utils/packagingTypes'
+import { PINTS_PER_BARREL } from '../recipes/recipeUtils'
 
 // ── Formatting helpers ────────────────────────────────────────────────────────
 
@@ -160,7 +161,7 @@ function BatchDetail({ batch }) {
 
   // Planned revenue = planned price per pint × packaged pints
   const plannedRevenue = plannedPrice != null && batch.total_volume_packaged != null
-    ? plannedPrice * parseFloat(batch.total_volume_packaged) * 124
+    ? plannedPrice * parseFloat(batch.total_volume_packaged) * PINTS_PER_BARREL
     : null
   const plannedGrossProfit = plannedRevenue != null && batch.total_planned_cost != null
     ? plannedRevenue - parseFloat(batch.total_planned_cost)

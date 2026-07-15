@@ -17,6 +17,7 @@ import { useReadOnly } from '../../hooks/useReadOnly'
 import {
   convertToBarrels, calculateTotalIngredientCost,
   calculateTotalProductionCost, calculateCostPerBarrel, calculateCostPerPint,
+  PINTS_PER_BARREL,
   formatDollars,
 } from './recipeUtils'
 
@@ -890,7 +891,7 @@ export default function RecipesPage() {
                     {(() => {
                       const bbl = convertToBarrels(form.base_batch_size, form.base_batch_size_unit)
                       return bbl > 0
-                        ? `$${((bbl * (parseFloat(form.excise_tax_rate_per_bbl) || 3.50)) / (bbl * 124)).toFixed(4)}`
+                        ? `$${((bbl * (parseFloat(form.excise_tax_rate_per_bbl) || 3.50)) / (bbl * PINTS_PER_BARREL)).toFixed(4)}`
                         : '$0.0000'
                     })()}
                   </p>

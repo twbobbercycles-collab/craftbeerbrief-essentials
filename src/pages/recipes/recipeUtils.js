@@ -6,7 +6,7 @@
 
 const GALLONS_PER_BARREL = 31
 const OZ_PER_GALLON      = 128
-const PINTS_PER_BARREL   = 248
+export const PINTS_PER_BARREL = 248
 
 // ── Batch conversion ──────────────────────────────────────────────────────────
 
