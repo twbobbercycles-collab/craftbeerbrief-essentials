@@ -361,7 +361,20 @@ Deno.serve(async (req) => {
     // ── Recipes (4 + version 2 of Hazy IPA) ──────────────────────────────────
     const { error: recErr } = await svc.from('recipes').insert([
       { id: ids.recipeHazy,     brewery_id: b, name: 'Adaptive Hazy IPA', style: '21C: Hazy IPA',          base_batch_size: 15, base_batch_size_unit: 'barrels', target_og: 1.065, target_fg: 1.013, target_abv: 6.8, target_ibu: 40, target_margin_percentage: 65, version: 1, is_current_version: false, brewers_count: 2, brew_hours_per_brewer: 10, packaging_hours: 6, packaging_labor_rate: 18 },
-      { id: ids.recipeHazyV2,   brewery_id: b, name: 'Adaptive Hazy IPA', style: '21C: Hazy IPA',          base_batch_size: 15, base_batch_size_unit: 'barrels', target_og: 1.065, target_fg: 1.013, target_abv: 6.8, target_ibu: 40, target_margin_percentage: 65, version: 2, is_current_version: true,  parent_recipe_id: ids.recipeHazy, version_notes: 'Increased dry hop rate — added Mosaic alongside Citra for more tropical complexity. Switched to WY1318 London Ale III for juicier ester profile.', brewers_count: 2, brew_hours_per_brewer: 10, packaging_hours: 6, packaging_labor_rate: 18 },
+      // packaging_splits: one Can/16oz split covering the full 15 bbl batch — exercises
+      // calculateTrueCostPerPint's packaging path (previously untested; every other
+      // seeded recipe has no splits/container type set, so packagingCost always
+      // computed to 0). Costs match the packaging_materials seed rows below: can
+      // ($0.18) + lid ($0.08) = 0.26 packaging; 16oz can label ($0.12) = label;
+      // 4-pack carrier ($0.22) amortized over 4 cans = 0.055 carrier (Hazy sells as
+      // loose cans, not 4-packs, so the carrier cost is spread per can, not per pack —
+      // see PACKAGE_SIZE_OPTIONS['4-Pack (Cans)'] in packagingTypes.js, whose size_oz
+      // represents the whole pack, not one can, and would need pack-level costs instead).
+      // units: 3162 = floor(15 bbl × 31 gal/bbl × 128 oz/gal × 0.85 yield / 16 oz/can) —
+      // matches calcUnitsFromSize (RecipeDetailPage.jsx) exactly; not read by the cost
+      // model itself (calculatePackagingCostPerBatch re-derives unit count internally),
+      // kept here only so the split's own "units" display is correct too.
+      { id: ids.recipeHazyV2,   brewery_id: b, name: 'Adaptive Hazy IPA', style: '21C: Hazy IPA',          base_batch_size: 15, base_batch_size_unit: 'barrels', target_og: 1.065, target_fg: 1.013, target_abv: 6.8, target_ibu: 40, target_margin_percentage: 65, version: 2, is_current_version: true,  parent_recipe_id: ids.recipeHazy, version_notes: 'Increased dry hop rate — added Mosaic alongside Citra for more tropical complexity. Switched to WY1318 London Ale III for juicier ester profile.', brewers_count: 2, brew_hours_per_brewer: 10, packaging_hours: 6, packaging_labor_rate: 18, packaging_splits: [{ type: 'Can', size: '16oz', size_oz: 16, size_bbl: null, volume_barrels: 15, units: 3162, packaging_yield: '85', packaging_cost_per_unit: 0.26, label_cost_per_unit: 0.12, carrier_cost_per_unit: 0.055 }] },
       { id: ids.recipePivot,    brewery_id: b, name: 'Pivot Pale Ale',    style: '18B: American Pale Ale', base_batch_size: 15, base_batch_size_unit: 'barrels', target_og: 1.052, target_fg: 1.010, target_abv: 5.5, target_ibu: 35, target_margin_percentage: 60, version: 1, is_current_version: true,  brewers_count: 2, brew_hours_per_brewer: 10, packaging_hours: 5, packaging_labor_rate: 18 },
       { id: ids.recipeStout,    brewery_id: b, name: 'Margin Stout',      style: '20B: American Stout',    base_batch_size: 10, base_batch_size_unit: 'barrels', target_og: 1.072, target_fg: 1.016, target_abv: 7.3, target_ibu: 38, target_margin_percentage: 62, version: 1, is_current_version: true,  brewers_count: 2, brew_hours_per_brewer: 9,  packaging_hours: 4, packaging_labor_rate: 18 },
       { id: ids.recipeBaseline, brewery_id: b, name: 'Baseline Lager',    style: '1B: American Lager',     base_batch_size: 20, base_batch_size_unit: 'barrels', target_og: 1.048, target_fg: 1.008, target_abv: 5.2, target_ibu: 18, target_margin_percentage: 55, version: 1, is_current_version: true,  brewers_count: 3, brew_hours_per_brewer: 10, packaging_hours: 8, packaging_labor_rate: 18 },
