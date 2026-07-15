@@ -451,6 +451,32 @@ function findAccountPriceRow(account, packageType, sizeSpec) {
   return account.pricing.find(p => p.package_type === packageType && !p.size_spec) || null
 }
 
+// Account pricing is the single source of truth for Sale Price / Unit — the field is
+// read-only and this is the only place that decides what it shows. One deliberate
+// exception: a row that already has a saved distribution_records price (row.recorded_price,
+// row.original_account_id) and is still assigned to that same original account shows and
+// saves that recorded price rather than re-deriving from current account pricing. Without
+// this, re-opening an old assignment just to fix a delivery date or note would silently
+// rewrite its historical sale price to whatever the account charges today (or blank it out
+// entirely if the account's pricing has since changed) even though the account wasn't
+// touched. The moment the brewer picks a *different* account for the row, that protection
+// no longer applies — the new account's current pricing takes over, exactly like a brand
+// new assignment.
+function derivePriceForAccount(row, accountId, accounts) {
+  if (row.existing_record_id && accountId === row.original_account_id) {
+    return {
+      sale_price:       row.recorded_price != null ? String(row.recorded_price) : '',
+      price_is_recorded: true,
+    }
+  }
+  const account  = accounts.find(a => a.id === accountId)
+  const priceRow = findAccountPriceRow(account, row.package_type, row.size_spec)
+  return {
+    sale_price:        priceRow ? String(priceRow.price_per_unit) : '',
+    price_is_recorded: false,
+  }
+}
+
 // ── AssignSplitsModal ──────────────────────────────────────────────────────────
 
 function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = false, onClose, onSaved }) {
@@ -484,7 +510,7 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
         d => d.batch_package_id === run.batch_package_id &&
              splitMatchKey(d.package_type, d.size_spec) === splitMatchKey(s.package_type, s.size_spec)
       )
-      return {
+      const base = {
         key:                   i,
         package_type:          s.package_type || '',
         size_spec:             s.size_spec    || '',
@@ -497,18 +523,19 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
         carrier_cost_per_unit: parseFloat(s.carrier_cost_per_unit   || 0),
         // Pre-fill from existing record when re-assigning
         account_id:            existing?.account_id || '',
+        original_account_id:   existing?.account_id || '',
+        recorded_price:        existing?.sale_price_per_unit != null ? Number(existing.sale_price_per_unit) : null,
         delivery_date:         existing?.delivery_date || todayStr(),
-        sale_price:            existing?.sale_price_per_unit != null ? String(existing.sale_price_per_unit) : '',
-        // Treated as auto-derived, not manually set — a prefilled/existing price is still
-        // fair game to be refreshed if the brewer picks a different account for this row;
-        // only an actual keystroke into the Sale Price field earns manual protection.
-        priceManuallySet:      false,
         distribution_cost:     existing?.distribution_cost_per_unit != null ? String(existing.distribution_cost_per_unit) : '0',
         notes:                 existing?.notes || '',
         keg_return_expected:   existing != null ? existing.returnable_kegs : isKegType(s.package_type || ''),
         keg_return_date:       existing?.keg_return_date || '',
         existing_record_id:    existing?.id || null,
       }
+      const priced = base.account_id
+        ? derivePriceForAccount(base, base.account_id, accounts)
+        : { sale_price: '', price_is_recorded: false }
+      return { ...base, ...priced }
     })
 
   const [rows, setRows] = useState(() => {
@@ -521,16 +548,22 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
       // package_type, size_spec, units_packaged, volume, and cost fields are derived
       // from the packaging run's splits and may have been corrected in Packaging
       // since the draft was saved — those must always reflect the current run data.
-      // Only genuinely user-entered fields are restored from the draft.
+      // Only genuinely user-entered fields are restored from the draft. sale_price is
+      // no longer user-entered (it's read-only, derived by derivePriceForAccount), so
+      // it isn't restored directly — instead it's re-derived for whichever account_id
+      // the draft had picked.
       return fresh.map((freshRow, i) => {
         const draftRow = draft.rows[i]
         if (!draftRow) return freshRow
+        const account_id = draftRow.account_id ?? freshRow.account_id
+        const priced = account_id
+          ? derivePriceForAccount(freshRow, account_id, accounts)
+          : { sale_price: '', price_is_recorded: false }
         return {
           ...freshRow,
-          account_id:          draftRow.account_id ?? freshRow.account_id,
+          account_id,
+          ...priced,
           delivery_date:       draftRow.delivery_date ?? freshRow.delivery_date,
-          sale_price:          draftRow.sale_price ?? freshRow.sale_price,
-          priceManuallySet:    draftRow.priceManuallySet ?? freshRow.priceManuallySet,
           distribution_cost:   draftRow.distribution_cost ?? freshRow.distribution_cost,
           notes:               draftRow.notes ?? freshRow.notes,
           keg_return_expected: draftRow.keg_return_expected ?? freshRow.keg_return_expected,
@@ -549,25 +582,14 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
     saveDraft({ rows })
   }, [rows]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Switching accounts re-derives the price from the newly selected account's pricing
-  // (or clears it, if that account has none) rather than carrying over whatever the
-  // previously selected account's price happened to be — a stale price silently
-  // attributed to an account that never agreed to it is a real bug, not a convenience.
-  // The one thing this must never do is clobber a price the brewer typed by hand:
-  // priceManuallySet distinguishes "this row's sale_price came from auto-fill/prefill"
-  // (false) from "the brewer edited this field directly" (true) — see the Sale Price
-  // input's onChange and buildDefaultRows(). Only a direct edit sets it true.
+  // Switching accounts always re-derives the price from the newly selected account's
+  // pricing (see derivePriceForAccount) — never carries over whatever the previously
+  // selected account's price happened to be. Sale Price is read-only precisely so this
+  // can't be second-guessed by a manual edit.
   function handleAccountChange(idx, accountId) {
-    const account   = accounts.find(a => a.id === accountId)
-    const row       = rows[idx]
-    const priceRow  = findAccountPriceRow(account, row.package_type, row.size_spec)
-    const autoPrice = priceRow ? String(priceRow.price_per_unit) : ''
-
-    setRows(prev => prev.map((r, i) => {
-      if (i !== idx) return r
-      if (r.priceManuallySet) return { ...r, account_id: accountId }
-      return { ...r, account_id: accountId, sale_price: autoPrice, priceManuallySet: false }
-    }))
+    setRows(prev => prev.map((r, i) =>
+      i === idx ? { ...r, account_id: accountId, ...derivePriceForAccount(r, accountId, accounts) } : r
+    ))
   }
 
   function isAlreadyAssigned(packageType, sizeSpec) {
@@ -586,6 +608,21 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
 
     if (toProcess.length === 0) {
       setError('Select at least one account to assign a split.')
+      return
+    }
+
+    // Blocking gate: account pricing is the single source of truth for Sale Price, so a
+    // row with no resolvable price (see derivePriceForAccount) cannot be saved — same
+    // pattern as the "package type required before completing" gate in
+    // PackagingRunDetailPage. sale_price === '' is exactly the read-only field's
+    // "no pricing set" state.
+    const unpriced = toProcess.filter(r => r.sale_price === '')
+    if (unpriced.length > 0) {
+      const names = unpriced.map(r => {
+        const acct = accounts.find(a => a.id === r.account_id)
+        return `${packageTypeLabel(r.package_type, r.size_spec)} at ${acct?.account_name || 'this account'}`
+      })
+      setError(`No pricing set for: ${names.join('; ')}. Add pricing in the Accounts tab before saving.`)
       return
     }
 
@@ -684,10 +721,11 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
               // In re-assign mode all splits show the form; otherwise hide already-assigned ones
               const assigned        = !reAssign && isAlreadyAssigned(row.package_type, row.size_spec)
               const selectedAccount = accounts.find(a => a.id === row.account_id)
-              // Neither tier matched for the currently selected account — not an error (a
-              // brewery can legitimately sell a type/size to an account for the first time),
-              // just something worth flagging so it isn't mistaken for a priced sale.
-              const noPricingSet    = !!row.account_id && !findAccountPriceRow(selectedAccount, row.package_type, row.size_spec)
+              // row.sale_price is kept in sync with derivePriceForAccount by
+              // handleAccountChange/buildDefaultRows — '' means no price could be
+              // resolved (no account pricing row, and no preserved recorded price)
+              // and is this row's only "blocked" state.
+              const noPricingSet    = !!row.account_id && row.sale_price === ''
               const salePrice = parseFloat(row.sale_price) || 0
               const qty       = parseFloat(row.units_packaged) || 0
               // Ingredient cost is null (not 0) when the split's size can't be resolved to a
@@ -774,23 +812,23 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
                           />
                         </div>
 
-                        {/* Sale price */}
+                        {/* Sale price — read-only. Account pricing (or, for an untouched
+                            existing assignment, the recorded historical price) is the
+                            only source; see derivePriceForAccount. */}
                         <div>
                           <label className={LBL}>Sale Price / Unit ($)</label>
                           <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            className={INPUT_CLS}
-                            placeholder="e.g. 185.00"
-                            value={row.sale_price}
-                            onChange={e => {
-                              const value = e.target.value
-                              setRows(prev => prev.map((r, ri) =>
-                                ri === i ? { ...r, sale_price: value, priceManuallySet: true } : r
-                              ))
-                            }}
+                            type="text"
+                            disabled
+                            className={`${INPUT_CLS} ${noPricingSet ? 'border-danger' : ''}`}
+                            placeholder="No pricing set"
+                            value={row.sale_price !== '' ? fmtDollars(parseFloat(row.sale_price)) : ''}
                           />
+                          {row.price_is_recorded && row.sale_price !== '' && (
+                            <span className="text-[10px] text-gray-400 block mt-0.5">
+                              Recorded price from original assignment
+                            </span>
+                          )}
                         </div>
 
                         {/* Distribution cost */}
@@ -808,12 +846,12 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
                         </div>
                       </div>
 
-                      {/* No pricing set for this account/type/size — informative, not a
-                          blocker: this may be a legitimate first-time sale. */}
+                      {/* No pricing set for this account/type/size — this is now the only
+                          path forward, and blocks Save (see handleSave's "unpriced" gate). */}
                       {noPricingSet && (
-                        <p className="text-xs text-amber-dark">
-                          ⚠ No {packageTypeLabel(row.package_type, row.size_spec)} pricing set for {selectedAccount?.account_name || 'this account'}.
-                          Add one in the Accounts tab to auto-fill next time.
+                        <p className="text-xs text-amber-dark font-medium">
+                          ⚠ No pricing set for {packageTypeLabel(row.package_type, row.size_spec)} at {selectedAccount?.account_name || 'this account'}.
+                          Add it in the Accounts tab before assigning this delivery.
                         </p>
                       )}
 
@@ -1196,11 +1234,29 @@ function EditDeliveryModal({ record, accounts, onClose, onSaved }) {
   const DRAFT_KEY = `modal_draft_distribution_edit_delivery_${record.id}`
   const { loadDraft, saveDraft, clearDraft, draftRestored, dismissDraftBanner } = useModalDraft(DRAFT_KEY)
 
+  // The "row" shape derivePriceForAccount expects — record.id is always truthy here (this
+  // modal only ever edits an existing record), so the preserved-history exception is live
+  // for as long as form.account_id matches the account this record was originally saved
+  // against. package_type/size_spec aren't editable in this modal, so they're fixed to
+  // the record's own values.
+  const priceRow = {
+    existing_record_id:  record.id,
+    original_account_id: record.account_id || '',
+    recorded_price:       record.sale_price_per_unit != null ? Number(record.sale_price_per_unit) : null,
+    package_type:         record.package_type,
+    size_spec:            record.size_spec,
+  }
+
+  const defaultPriced = record.account_id
+    ? derivePriceForAccount(priceRow, record.account_id, accounts)
+    : { sale_price: '', price_is_recorded: false }
+
   const defaultForm = {
     delivery_date:               record.delivery_date              || '',
     account_id:                  record.account_id                 || '',
     quantity:                    record.quantity                   ?? '',
-    sale_price_per_unit:         record.sale_price_per_unit        ?? '',
+    sale_price_per_unit:         defaultPriced.sale_price,
+    price_is_recorded:           defaultPriced.price_is_recorded,
     distribution_cost_per_unit:  record.distribution_cost_per_unit ?? '',
     returnable_kegs:             record.returnable_kegs            || false,
     keg_return_date:             record.keg_return_date            || '',
@@ -1211,7 +1267,21 @@ function EditDeliveryModal({ record, accounts, onClose, onSaved }) {
 
   const [form, setForm] = useState(() => {
     const draft = loadDraft(false)
-    return draft?.form ?? defaultForm
+    if (!draft?.form) return defaultForm
+    // sale_price_per_unit is read-only and derived, never restored verbatim from a draft
+    // (an older draft, saved before this field became read-only, could hold an arbitrary
+    // typed value) — it's always re-derived for whichever account_id the draft had picked.
+    const account_id = draft.form.account_id ?? defaultForm.account_id
+    const priced = account_id
+      ? derivePriceForAccount(priceRow, account_id, accounts)
+      : { sale_price: '', price_is_recorded: false }
+    return {
+      ...defaultForm,
+      ...draft.form,
+      account_id,
+      sale_price_per_unit: priced.sale_price,
+      price_is_recorded:   priced.price_is_recorded,
+    }
   })
 
   const [saving, setSaving] = useState(false)
@@ -1233,9 +1303,23 @@ function EditDeliveryModal({ record, accounts, onClose, onSaved }) {
   const profitPU   = salePrice > 0 ? salePrice - totalCost : null
   const margin     = salePrice > 0 && profitPU != null ? (profitPU / salePrice) * 100 : null
   const totalProfit = profitPU != null && qty > 0 ? profitPU * qty : null
+  // Account pricing is the single source of truth for Sale Price here too — same
+  // blocked state as AssignSplitsModal's noPricingSet: an account is picked but no price
+  // could be resolved (no account pricing row, and no preserved recorded price).
+  const noPricingSet = !!form.account_id && form.sale_price_per_unit === ''
 
   function set(field, val) {
     const next = { ...form, [field]: val }
+    setForm(next)
+    saveDraft({ form: next })
+  }
+
+  // Mirrors AssignSplitsModal's handleAccountChange: switching accounts always re-derives
+  // the price from derivePriceForAccount rather than leaving whatever was there — the
+  // Sale Price field is read-only precisely so this can never be second-guessed by hand.
+  function handleAccountChange(accountId) {
+    const priced = derivePriceForAccount(priceRow, accountId, accounts)
+    const next = { ...form, account_id: accountId, sale_price_per_unit: priced.sale_price, price_is_recorded: priced.price_is_recorded }
     setForm(next)
     saveDraft({ form: next })
   }
@@ -1244,6 +1328,16 @@ function EditDeliveryModal({ record, accounts, onClose, onSaved }) {
 
   async function handleSave() {
     if (!form.delivery_date) { setError('Delivery date is required.'); return }
+
+    // Blocking gate — mirrors AssignSplitsModal's handleSave: account pricing is the
+    // single source of truth for Sale Price, so an account with no resolvable price
+    // cannot be saved.
+    if (noPricingSet) {
+      const acct = accounts.find(a => a.id === form.account_id)
+      setError(`No pricing set for ${packageTypeLabel(record.package_type, record.size_spec)} at ${acct?.account_name || 'this account'}. Add it in the Accounts tab before saving.`)
+      return
+    }
+
     setSaving(true)
     setError(null)
 
@@ -1322,7 +1416,7 @@ function EditDeliveryModal({ record, accounts, onClose, onSaved }) {
             <select
               className={INPUT_CLS}
               value={form.account_id}
-              onChange={e => set('account_id', e.target.value)}
+              onChange={e => handleAccountChange(e.target.value)}
             >
               <option value="">— Select account —</option>
               {accounts.map(a => (
@@ -1343,17 +1437,23 @@ function EditDeliveryModal({ record, accounts, onClose, onSaved }) {
             />
           </div>
 
+          {/* Sale price — read-only. Account pricing (or, while the account is
+              unchanged, the record's originally recorded price) is the only source;
+              see derivePriceForAccount. Mirrors AssignSplitsModal exactly. */}
           <div>
             <label className={LBL}>Sale Price per Unit ($)</label>
             <input
-              type="number"
-              step="0.01"
-              min="0"
-              className={INPUT_CLS}
-              placeholder="e.g. 185.00"
-              value={form.sale_price_per_unit}
-              onChange={e => set('sale_price_per_unit', e.target.value)}
+              type="text"
+              disabled
+              className={`${INPUT_CLS} ${noPricingSet ? 'border-danger' : ''}`}
+              placeholder="No pricing set"
+              value={form.sale_price_per_unit !== '' ? fmtDollars(parseFloat(form.sale_price_per_unit)) : ''}
             />
+            {form.price_is_recorded && form.sale_price_per_unit !== '' && (
+              <span className="text-[10px] text-gray-400 block mt-0.5">
+                Recorded price from original assignment
+              </span>
+            )}
           </div>
 
           <div>
@@ -1369,6 +1469,14 @@ function EditDeliveryModal({ record, accounts, onClose, onSaved }) {
             />
           </div>
         </div>
+
+        {/* No pricing set for this account/type/size — blocks Save (see handleSave). */}
+        {noPricingSet && (
+          <p className="text-xs text-amber-dark font-medium">
+            ⚠ No pricing set for {packageTypeLabel(record.package_type, record.size_spec)} at {accounts.find(a => a.id === form.account_id)?.account_name || 'this account'}.
+            Add it in the Accounts tab before assigning this delivery.
+          </p>
+        )}
 
         {/* Profit breakdown — recalculates live */}
         <div className="bg-white rounded-lg border border-gray-200 px-4 py-3 text-sm space-y-1.5">
