@@ -170,6 +170,114 @@ export function calculateGrossMargin(retailPrice, costPerPint) {
   return { dollars: marginDollars, percentage: (marginDollars / retail) * 100 }
 }
 
+// ── Full recipe true-cost-per-pint model ──────────────────────────────────────
+
+// Ported line-by-line from RecipeDetailPage's costs useMemo — same operation order,
+// same fallback defaults, packaging-INCLUSIVE exactly as today. This is a pure
+// refactor: any behavior change (packaging convention, byte-for-byte float
+// differences) is explicitly out of scope for this extraction.
+//
+// recipe: { base_batch_size, base_batch_size_unit, packaging_splits,
+//   packaging_yield_percentage, default_size_oz, default_size_bbl (pre-resolved
+//   single-container fallback size — callers resolve this from their own
+//   package-type/size lookup; this file stays import-free),
+//   packaging_cost_per_unit, label_cost_per_unit, carrier_cost_per_unit,
+//   brewers_count, brew_hours_per_brewer, packaging_hours, packaging_labor_rate,
+//   excise_tax_rate_per_bbl, target_margin_percentage, tax_rate }
+// ingredientLines: [{ amount, scale_with_batch, price_per_unit }] — caller resolves
+//   price_per_unit (e.g. supplier price ?? ingredient price ?? override ?? 0) before calling.
+// breweryContext: { laborRatePerHour, monthlyFixedOverhead, batchesPerMonth, variableOverheadPerBbl }
+// opts: { batchSize } — batch-size simulation override; defaults to recipe.base_batch_size.
+export function calculateTrueCostPerPint(recipe, ingredientLines, breweryContext, opts = {}) {
+  const baseBatch    = parseFloat(recipe.base_batch_size) || 0
+  const curBatch     = parseFloat(opts.batchSize) || baseBatch
+  const batchBarrels = convertToBarrels(curBatch, recipe.base_batch_size_unit)
+
+  const ingredientCost = calculateTotalIngredientCost(ingredientLines, curBatch, baseBatch)
+
+  // Packaging cost — use splits when defined, otherwise fall back to single container
+  const defaultYield = parseFloat(recipe.packaging_yield_percentage) || 85
+  const packagingSplits = recipe.packaging_splits || []
+  let packagingCost
+  if (packagingSplits.length > 0) {
+    packagingCost = packagingSplits.reduce((total, split) => {
+      const splitBbls = parseFloat(split.volume_barrels) || 0
+      const yld = parseFloat(split.packaging_yield) || defaultYield
+      return total + calculatePackagingCostPerBatch(
+        splitBbls, yld, split.size_oz, split.size_bbl,
+        parseFloat(split.packaging_cost_per_unit) || 0,
+        parseFloat(split.label_cost_per_unit) || 0,
+        parseFloat(split.carrier_cost_per_unit) || 0,
+      )
+    }, 0)
+  } else {
+    packagingCost = calculatePackagingCostPerBatch(
+      batchBarrels, defaultYield, recipe.default_size_oz, recipe.default_size_bbl,
+      parseFloat(recipe.packaging_cost_per_unit) || 0,
+      parseFloat(recipe.label_cost_per_unit) || 0,
+      parseFloat(recipe.carrier_cost_per_unit) || 0,
+    )
+  }
+
+  const totalPints = batchBarrels * PINTS_PER_BARREL
+  const tp1 = totalPints || 1
+
+  // Per-pint ingredient and packaging costs
+  const ingredientCostPerPint = ingredientCost / tp1
+  const packagingCostPerPint  = packagingCost  / tp1
+
+  // Direct brew labor
+  const totalBrewLaborCost  = (parseFloat(recipe.brewers_count) || 0) * (parseFloat(recipe.brew_hours_per_brewer) || 0) * (parseFloat(breweryContext.laborRatePerHour) || 0)
+  const brewLaborPerPint    = totalPints > 0 ? totalBrewLaborCost / totalPints : 0
+
+  // Packaging labor
+  const totalPackagingLaborCost = (parseFloat(recipe.packaging_hours) || 0) * (parseFloat(recipe.packaging_labor_rate) || 0)
+  const packagingLaborPerPint   = totalPints > 0 ? totalPackagingLaborCost / totalPints : 0
+
+  // Fixed overhead per batch (monthly fixed costs divided by batches per month)
+  const fixedOverheadPerBatch   = (parseFloat(breweryContext.monthlyFixedOverhead) || 0) / (parseFloat(breweryContext.batchesPerMonth) || 4)
+  const fixedOverheadPerPint    = totalPints > 0 ? fixedOverheadPerBatch / totalPints : 0
+
+  // Variable overhead (utilities, cleaning, QC per barrel)
+  const variableOverheadTotal   = batchBarrels * (parseFloat(breweryContext.variableOverheadPerBbl) || 0)
+  const variableOverheadPerPint = totalPints > 0 ? variableOverheadTotal / totalPints : 0
+
+  const totalOverheadPerPint = brewLaborPerPint + packagingLaborPerPint + fixedOverheadPerPint + variableOverheadPerPint
+
+  // Federal excise tax
+  const exciseTaxBatchTotal = batchBarrels * (parseFloat(recipe.excise_tax_rate_per_bbl) || 3.50)
+  const exciseTaxPerPint    = totalPints > 0 ? exciseTaxBatchTotal / totalPints : 0
+
+  // True cost per pint — all components combined
+  const trueCostPerPint = ingredientCostPerPint + packagingCostPerPint + totalOverheadPerPint + exciseTaxPerPint
+
+  // Total batch production cost (for per-unit calculations in packaged output)
+  const totalCost = ingredientCost + packagingCost + totalBrewLaborCost + totalPackagingLaborCost + fixedOverheadPerBatch + variableOverheadTotal
+
+  const targetMarginPct = parseFloat(recipe.target_margin_percentage) || 65
+  const suggestedRetail = targetMarginPct > 0 && targetMarginPct < 100
+    ? trueCostPerPint / (1 - targetMarginPct / 100)
+    : trueCostPerPint * 2
+  const taxInclusivePrice = calculateTaxInclusivePrice(suggestedRetail, parseFloat(recipe.tax_rate) || 0)
+  const grossMarginPct    = suggestedRetail > 0 ? ((suggestedRetail - trueCostPerPint) / suggestedRetail) * 100 : 0
+  const grossMargin       = { percentage: grossMarginPct, dollars: suggestedRetail - trueCostPerPint }
+
+  return {
+    baseBatch, curBatch, batchBarrels,
+    ingredientCost, packagingCost,
+    ingredientCostPerPint, packagingCostPerPint,
+    totalBrewLaborCost, brewLaborPerPint,
+    totalPackagingLaborCost, packagingLaborPerPint,
+    fixedOverheadPerBatch, fixedOverheadPerPint,
+    variableOverheadTotal, variableOverheadPerPint,
+    totalOverheadPerPint,
+    exciseTaxBatchTotal, exciseTaxPerPint,
+    trueCostPerPint, totalCost,
+    suggestedRetail, taxInclusivePrice, grossMargin,
+    totalPints,
+  }
+}
+
 // ── Formatting helpers ────────────────────────────────────────────────────────
 
 export function formatDollars(n) {

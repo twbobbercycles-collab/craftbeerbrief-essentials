@@ -19,12 +19,13 @@ import { useModalDraft } from '../../hooks/useModalDraft'
 import { usePersistedTab } from '../../hooks/usePersistedTab'
 import {
   convertToBarrels,
-  calculateScaledAmount, calculateTotalIngredientCost,
+  calculateScaledAmount,
   calculatePackagingCostPerBatch, calculateUnitsProduced, pintsPerContainer,
   calculateLaborCost, calculateUtilitiesCost, calculateTotalProductionCost,
   calculateCostPerBarrel, calculateCostPerPint,
-  calculateSuggestedRetail, calculateTaxInclusivePrice, calculateGrossMargin,
-  formatDollars, formatPct, PINTS_PER_BARREL,
+  calculateSuggestedRetail, calculateGrossMargin,
+  calculateTrueCostPerPint,
+  formatDollars, formatPct,
 } from './recipeUtils'
 import {
   PACKAGE_TYPES, PACKAGE_SIZE_OPTIONS, DEFAULT_SIZE_BY_TYPE, unitNoun,
@@ -400,76 +401,50 @@ export default function RecipeDetailPage() {
       price_per_unit:   parseFloat(l.supplier?.price_per_unit ?? l.ingredient?.current_price_per_unit ?? l._priceOverride ?? 0),
     }))
 
-    const ingredientCost = calculateTotalIngredientCost(mappedLines, curBatch, baseBatch)
-
-    // Packaging cost — use splits when defined, otherwise fall back to single container
+    // Single-container mode has no separate size selector — fall back to the
+    // per-type default size (matches the old CONTAINER_VOLUMES-implied behavior).
+    // Resolved here (not inside calculateTrueCostPerPint) because recipeUtils.js
+    // stays import-free — DEFAULT_SIZE_BY_TYPE lives in packagingTypes.js.
     const defaultYield = parseFloat(packagingYieldPct) || 85
-    let packagingCost
-    if (packagingSplits.length > 0) {
-      packagingCost = packagingSplits.reduce((total, split) => {
-        const splitBbls = parseFloat(split.volume_barrels) || 0
-        const yld = parseFloat(split.packaging_yield) || defaultYield
-        return total + calculatePackagingCostPerBatch(
-          splitBbls, yld, split.size_oz, split.size_bbl,
-          parseFloat(split.packaging_cost_per_unit) || 0,
-          parseFloat(split.label_cost_per_unit) || 0,
-          parseFloat(split.carrier_cost_per_unit) || 0,
-        )
-      }, 0)
-    } else {
-      // Single-container mode has no separate size selector — fall back to the
-      // per-type default size (matches the old CONTAINER_VOLUMES-implied behavior).
-      const defaultSize = DEFAULT_SIZE_BY_TYPE[packagingContainerType]
-      packagingCost = calculatePackagingCostPerBatch(
-        batchBarrels, defaultYield, defaultSize?.ozPerUnit, defaultSize?.bblPerUnit,
-        parseFloat(packagingCostPerUnit) || 0,
-        parseFloat(labelCostPerUnit) || 0,
-        parseFloat(carrierCostPerUnit) || 0,
-      )
-    }
+    const defaultSize  = DEFAULT_SIZE_BY_TYPE[packagingContainerType]
 
-    const totalPints = batchBarrels * PINTS_PER_BARREL
+    const {
+      ingredientCost, packagingCost,
+      ingredientCostPerPint, packagingCostPerPint,
+      totalBrewLaborCost, brewLaborPerPint,
+      totalPackagingLaborCost, packagingLaborPerPint,
+      fixedOverheadPerBatch, fixedOverheadPerPint,
+      variableOverheadTotal, variableOverheadPerPint,
+      totalOverheadPerPint,
+      exciseTaxBatchTotal, exciseTaxPerPint,
+      trueCostPerPint, totalCost,
+      suggestedRetail, taxInclusivePrice, grossMargin,
+      totalPints,
+    } = calculateTrueCostPerPint(
+      {
+        base_batch_size:            recipe?.base_batch_size,
+        base_batch_size_unit:       recipe?.base_batch_size_unit,
+        packaging_splits:           packagingSplits,
+        packaging_yield_percentage: packagingYieldPct,
+        default_size_oz:            defaultSize?.ozPerUnit,
+        default_size_bbl:           defaultSize?.bblPerUnit,
+        packaging_cost_per_unit:    packagingCostPerUnit,
+        label_cost_per_unit:        labelCostPerUnit,
+        carrier_cost_per_unit:      carrierCostPerUnit,
+        brewers_count:              brewers,
+        brew_hours_per_brewer:      brewHoursPerBrewer,
+        packaging_hours:            packagingHours,
+        packaging_labor_rate:       packagingLaborRate,
+        excise_tax_rate_per_bbl:    exciseTaxRatePerBbl,
+        target_margin_percentage:   marginPct,
+        tax_rate:                   taxRate,
+      },
+      mappedLines,
+      { laborRatePerHour, monthlyFixedOverhead, batchesPerMonth, variableOverheadPerBbl },
+      { batchSize },
+    )
+
     const tp1 = totalPints || 1
-
-    // Per-pint ingredient and packaging costs
-    const ingredientCostPerPint = ingredientCost / tp1
-    const packagingCostPerPint  = packagingCost  / tp1
-
-    // Direct brew labor
-    const totalBrewLaborCost  = (parseFloat(brewers) || 0) * (parseFloat(brewHoursPerBrewer) || 0) * (parseFloat(laborRatePerHour) || 0)
-    const brewLaborPerPint    = totalPints > 0 ? totalBrewLaborCost / totalPints : 0
-
-    // Packaging labor
-    const totalPackagingLaborCost = (parseFloat(packagingHours) || 0) * (parseFloat(packagingLaborRate) || 0)
-    const packagingLaborPerPint   = totalPints > 0 ? totalPackagingLaborCost / totalPints : 0
-
-    // Fixed overhead per batch (monthly fixed costs divided by batches per month)
-    const fixedOverheadPerBatch   = (parseFloat(monthlyFixedOverhead) || 0) / (parseFloat(batchesPerMonth) || 4)
-    const fixedOverheadPerPint    = totalPints > 0 ? fixedOverheadPerBatch / totalPints : 0
-
-    // Variable overhead (utilities, cleaning, QC per barrel)
-    const variableOverheadTotal   = batchBarrels * (parseFloat(variableOverheadPerBbl) || 0)
-    const variableOverheadPerPint = totalPints > 0 ? variableOverheadTotal / totalPints : 0
-
-    const totalOverheadPerPint = brewLaborPerPint + packagingLaborPerPint + fixedOverheadPerPint + variableOverheadPerPint
-
-    // Federal excise tax
-    const exciseTaxBatchTotal = batchBarrels * (parseFloat(exciseTaxRatePerBbl) || 3.50)
-    const exciseTaxPerPint    = totalPints > 0 ? exciseTaxBatchTotal / totalPints : 0
-
-    // True cost per pint — all components combined
-    const trueCostPerPint = ingredientCostPerPint + packagingCostPerPint + totalOverheadPerPint + exciseTaxPerPint
-
-    // Total batch production cost (for per-unit calculations in packaged output)
-    const totalCost = ingredientCost + packagingCost + totalBrewLaborCost + totalPackagingLaborCost + fixedOverheadPerBatch + variableOverheadTotal
-
-    const targetMarginPct = parseFloat(marginPct) || 65
-    const suggestedRetail = targetMarginPct > 0 && targetMarginPct < 100
-      ? trueCostPerPint / (1 - targetMarginPct / 100)
-      : trueCostPerPint * 2
-    const taxInclusivePrice = calculateTaxInclusivePrice(suggestedRetail, parseFloat(taxRate) || 0)
-    const grossMarginPct    = suggestedRetail > 0 ? ((suggestedRetail - trueCostPerPint) / suggestedRetail) * 100 : 0
-    const grossMargin       = { percentage: grossMarginPct, dollars: suggestedRetail - trueCostPerPint }
 
     // Total units produced across all splits (or single container)
     const unitsProduced = packagingSplits.length > 0
