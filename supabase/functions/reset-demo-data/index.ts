@@ -540,12 +540,22 @@ Deno.serve(async (req) => {
     // ── Distribution Records (5) ──────────────────────────────────────────────
     // Structured shape (bare package_type + size_spec), matching what DistributionPage.jsx's
     // save payload writes and what the 062 backfill brings existing rows to.
+    //
+    // ingredient_cost_per_unit = recipe_cost_per_pint × pintsPerContainer(size_oz, size_bbl)
+    // — the same formula DistributionPage.jsx's ingCostPerUnit() applies live (recipeUtils.js).
+    // recipe_cost_per_pint = 0.95 (Hazy IPA's packaging_runs seed, above). For the Can (16oz)
+    // and Taproom Draft (16oz pour) rows, pintsPerContainer(16, null) = 16/16 = 1 pint, so
+    // 0.95 × 1 = 0.95 — a per-pint cost that happens to equal the per-unit cost for a 1-pint
+    // container. The Keg Sixth Barrel rows use the same size_bbl: 0.167 already hardcoded in
+    // actual_splits/package_splits above (the rounded 1/6, not an idealized fraction):
+    // pintsPerContainer(null, 0.167) = (0.167 × 31 gal/bbl × 128 oz/gal) / 16 oz/pint = 41.416
+    // pints/keg, so ingredient_cost_per_unit = 0.95 × 41.416 = 39.3452 — not 0.95.
     const { error: drErr } = await svc.from('distribution_records').insert([
-      { brewery_id: b, batch_package_id: ids.bpkgHazy, account_id: ids.distRetailer1, account_name: 'The Taproom District',        account_type: 'bar',      package_type: 'Keg Sixth Barrel', size_spec: '1/6 bbl (5.16 gal)', quantity: 10,  delivery_date: '2026-03-30', sale_price_per_unit: 145.00, ingredient_cost_per_unit: 0.95, returnable_kegs: true,  keg_return_date: new Date(new Date('2026-03-30').getTime() + 20 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] },
+      { brewery_id: b, batch_package_id: ids.bpkgHazy, account_id: ids.distRetailer1, account_name: 'The Taproom District',        account_type: 'bar',      package_type: 'Keg Sixth Barrel', size_spec: '1/6 bbl (5.16 gal)', quantity: 10,  delivery_date: '2026-03-30', sale_price_per_unit: 145.00, ingredient_cost_per_unit: 39.3452, returnable_kegs: true,  keg_return_date: new Date(new Date('2026-03-30').getTime() + 20 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] },
       { brewery_id: b, batch_package_id: ids.bpkgHazy, account_id: ids.distRetailer2, account_name: 'Independent Bottle Shop',     account_type: 'retailer', package_type: 'Can',              size_spec: '16oz',                quantity: 240, delivery_date: '2026-03-30', sale_price_per_unit: 1.85,   ingredient_cost_per_unit: 0.95 },
-      { brewery_id: b, batch_package_id: ids.bpkgHazy, account_id: ids.distBar1,      account_name: 'Craft & Draft Bar',           account_type: 'bar',      package_type: 'Keg Sixth Barrel', size_spec: '1/6 bbl (5.16 gal)', quantity: 8,   delivery_date: '2026-04-01', sale_price_per_unit: 140.00, ingredient_cost_per_unit: 0.95, returnable_kegs: true,  keg_return_date: new Date(new Date('2026-04-01').getTime() + 60 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] },
+      { brewery_id: b, batch_package_id: ids.bpkgHazy, account_id: ids.distBar1,      account_name: 'Craft & Draft Bar',           account_type: 'bar',      package_type: 'Keg Sixth Barrel', size_spec: '1/6 bbl (5.16 gal)', quantity: 8,   delivery_date: '2026-04-01', sale_price_per_unit: 140.00, ingredient_cost_per_unit: 39.3452, returnable_kegs: true,  keg_return_date: new Date(new Date('2026-04-01').getTime() + 60 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] },
       { brewery_id: b, batch_package_id: ids.bpkgHazy, account_id: ids.distTaproom,   account_name: 'Adaptive Taproom (in-house)', account_type: 'taproom',  package_type: 'Taproom Draft',    size_spec: '16oz pour',           quantity: 185, delivery_date: '2026-03-28', sale_price_per_unit: 7.50,   ingredient_cost_per_unit: 0.95 },
-      { brewery_id: b, batch_package_id: ids.bpkgHazy, account_id: ids.distRetailer1, account_name: 'The Taproom District',        account_type: 'bar',      package_type: 'Keg Sixth Barrel', size_spec: '1/6 bbl (5.16 gal)', quantity: 6,   delivery_date: '2026-04-05', sale_price_per_unit: 145.00, ingredient_cost_per_unit: 0.95, returnable_kegs: true,  keg_return_date: new Date(new Date('2026-04-05').getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] },
+      { brewery_id: b, batch_package_id: ids.bpkgHazy, account_id: ids.distRetailer1, account_name: 'The Taproom District',        account_type: 'bar',      package_type: 'Keg Sixth Barrel', size_spec: '1/6 bbl (5.16 gal)', quantity: 6,   delivery_date: '2026-04-05', sale_price_per_unit: 145.00, ingredient_cost_per_unit: 39.3452, returnable_kegs: true,  keg_return_date: new Date(new Date('2026-04-05').getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] },
     ])
     check(drErr, 'insert distribution_records')
 
