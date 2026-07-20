@@ -18,14 +18,8 @@ import LoadingSpinner from '../../components/LoadingSpinner'
 import { useModalDraft } from '../../hooks/useModalDraft'
 import { usePersistedTab } from '../../hooks/usePersistedTab'
 import { useReadOnly } from '../../hooks/useReadOnly'
-import {
-  calculateTotalIngredientCost,
-  calculateTotalProductionCost,
-  calculateCostPerBarrel,
-  convertToBarrels,
-  calculateLaborCost,
-  calculateUtilitiesCost,
-} from '../recipes/recipeUtils'
+import { calculateTrueCostPerPint } from '../recipes/recipeUtils'
+import { DEFAULT_SIZE_BY_TYPE } from '../../utils/packagingTypes'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -2123,51 +2117,92 @@ function FermentationDetailModal({ fermentation: initialFerm, vessels, available
         let recipeCostPerPint = null
 
         if (ferm.recipe_id) {
-          const { data: recipe } = await supabase
+          // Same fields RecipeDetailPage's Cost Calculator uses — base_batch_size/
+          // base_batch_size_unit (not batch_size_value/batch_size_unit, which don't
+          // exist), plus the labor/packaging/excise/margin fields
+          // calculateTrueCostPerPint expects.
+          const { data: recipe, error: recipeErr } = await supabase
             .from('recipes')
             .select(`
-              packaging_splits,
-              labor_rate_per_hour, brew_hours,
-              utilities_cost_per_barrel, cleaning_cost_per_batch,
-              fixed_overhead_percentage, water_cost_per_barrel,
-              wastewater_cost_per_barrel, base_batch_size, base_batch_size_unit
+              base_batch_size, base_batch_size_unit,
+              packaging_splits, packaging_yield_percentage,
+              packaging_container_type, packaging_cost_per_unit,
+              label_cost_per_unit, carrier_cost_per_unit,
+              brewers_count, brew_hours_per_brewer,
+              packaging_hours, packaging_labor_rate,
+              excise_tax_rate_per_bbl, target_margin_percentage, tax_rate
             `)
             .eq('id', ferm.recipe_id)
             .maybeSingle()
 
-          if (recipe?.packaging_splits?.length > 0) plannedSplits = recipe.packaging_splits
+          if (recipeErr) {
+            console.error('[FermentationPage] recipe fetch failed:', recipeErr)
+          } else {
+            if (recipe?.packaging_splits?.length > 0) plannedSplits = recipe.packaging_splits
 
-          if (recipe) {
-            const { data: recipeIngs } = await supabase
-              .from('recipe_ingredients')
-              .select('amount, unit, cost_per_unit, total_cost, category, scale_with_batch, price_per_unit')
-              .eq('recipe_id', ferm.recipe_id)
+            if (recipe) {
+              // Same join RecipeDetailPage uses — recipe_ingredients has no
+              // price_per_unit/cost_per_unit/category columns; cost only comes via
+              // ingredients.current_price_per_unit / ingredient_suppliers.price_per_unit.
+              const { data: recipeIngs, error: ingErr } = await supabase
+                .from('recipe_ingredients')
+                .select('amount, scale_with_batch, ingredient:ingredients(current_price_per_unit), supplier:ingredient_suppliers(price_per_unit)')
+                .eq('recipe_id', ferm.recipe_id)
 
-            const batchBbl = convertToBarrels(parseFloat(recipe.base_batch_size) || 0, recipe.base_batch_size_unit)
-            if (batchBbl > 0) {
-              // calculateTotalIngredientCost(ingredients, currentBatchSize, baseBatchSize)
-              const ingCost = calculateTotalIngredientCost(recipeIngs ?? [], batchBbl, batchBbl)
+              if (ingErr) {
+                console.error('[FermentationPage] recipe_ingredients fetch failed:', ingErr)
+              } else {
+                const { data: breweryRow, error: breweryErr } = await supabase
+                  .from('breweries')
+                  .select('labor_rate_per_hour, monthly_fixed_overhead, batches_per_month, variable_overhead_per_bbl')
+                  .eq('id', brewery.id)
+                  .maybeSingle()
 
-              // calculateLaborCost(brewHours, laborRatePerHour)
-              const laborCost = calculateLaborCost(recipe.brew_hours, recipe.labor_rate_per_hour)
+                if (breweryErr) {
+                  console.error('[FermentationPage] breweries fetch failed:', breweryErr)
+                } else {
+                  const defaultSize = DEFAULT_SIZE_BY_TYPE[recipe.packaging_container_type]
+                  const recipeForCost = {
+                    base_batch_size:            recipe.base_batch_size,
+                    base_batch_size_unit:       recipe.base_batch_size_unit,
+                    packaging_splits:           recipe.packaging_splits,
+                    packaging_yield_percentage: recipe.packaging_yield_percentage,
+                    default_size_oz:            defaultSize?.ozPerUnit,
+                    default_size_bbl:           defaultSize?.bblPerUnit,
+                    packaging_cost_per_unit:    recipe.packaging_cost_per_unit,
+                    label_cost_per_unit:        recipe.label_cost_per_unit,
+                    carrier_cost_per_unit:      recipe.carrier_cost_per_unit,
+                    brewers_count:              recipe.brewers_count,
+                    brew_hours_per_brewer:      recipe.brew_hours_per_brewer,
+                    packaging_hours:            recipe.packaging_hours,
+                    packaging_labor_rate:       recipe.packaging_labor_rate,
+                    excise_tax_rate_per_bbl:    recipe.excise_tax_rate_per_bbl,
+                    target_margin_percentage:   recipe.target_margin_percentage,
+                    tax_rate:                   recipe.tax_rate,
+                  }
+                  const ingredientLines = (recipeIngs ?? []).map(l => ({
+                    amount:           parseFloat(l.amount) || 0,
+                    scale_with_batch: l.scale_with_batch,
+                    price_per_unit:   parseFloat(l.supplier?.price_per_unit ?? l.ingredient?.current_price_per_unit ?? 0),
+                  }))
+                  const breweryContext = {
+                    laborRatePerHour:       breweryRow?.labor_rate_per_hour,
+                    monthlyFixedOverhead:   breweryRow?.monthly_fixed_overhead,
+                    batchesPerMonth:        breweryRow?.batches_per_month,
+                    variableOverheadPerBbl: breweryRow?.variable_overhead_per_bbl,
+                  }
 
-              // calculateUtilitiesCost(batchSizeBarrels, utilitiesCostPerBarrel, cleaningCostPerBatch, waterCostPerBarrel, wastewaterCostPerBarrel)
-              const { total: utilitiesTotal } = calculateUtilitiesCost(
-                batchBbl,
-                recipe.utilities_cost_per_barrel,
-                recipe.cleaning_cost_per_batch,
-                recipe.water_cost_per_barrel,
-                recipe.wastewater_cost_per_barrel,
-              )
-
-              // calculateTotalProductionCost(ingredientCost, packagingCost, laborCost, utilitiesCost, fixedOverheadPercentage)
-              const { totalCost } = calculateTotalProductionCost(
-                ingCost, 0, laborCost, utilitiesTotal, recipe.fixed_overhead_percentage,
-              )
-
-              const costPerBbl  = calculateCostPerBarrel(totalCost, batchBbl)
-              const pintsPerBbl = 248
-              recipeCostPerPint = costPerBbl / pintsPerBbl
+                  // Batch size = the fermentation's pre-packaging volume — packaging
+                  // hasn't happened yet at ready_to_package time, so there's no actual
+                  // packaged volume; volume_in_fermenter is the same field this same
+                  // payload already stores as volume_from_fermenter below.
+                  const result = calculateTrueCostPerPint(
+                    recipeForCost, ingredientLines, breweryContext,
+                    { batchSize: ferm.volume_in_fermenter },
+                  )
+                  if (result.trueCostPerPint > 0) recipeCostPerPint = result.trueCostPerPint
+                }
+              }
             }
           }
         }

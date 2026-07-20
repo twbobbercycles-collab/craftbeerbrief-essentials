@@ -451,10 +451,15 @@ Deno.serve(async (req) => {
     check(vErr, 'insert fermentation_vessels')
 
     // ── Fermentations (1 conditioning + 1 ready to package + 1 fermenting) ───
+    // recipe_id set on each row to mirror its brew_day's recipe_id — matches what
+    // BrewDayLogPage.jsx actually does when auto-creating a fermentation from a
+    // completed brew day (recipe_id: completedBd.recipe_id). Without this, the
+    // ready_to_package / packaging-run cost recompute (FermentationPage.jsx,
+    // PackagingRunDetailPage.jsx) can never find a recipe to cost against.
     const { error: fErr } = await svc.from('fermentations').insert([
-      { id: ids.fermHazy,  brewery_id: b, brew_day_id: ids.brewHazy,  vessel_id: ids.vessel1, batch_number: 'ADP-2026-001', beer_name: 'Adaptive Hazy IPA', status: 'conditioning',     volume_in_fermenter: 14.8, actual_og: 1.066, actual_fg: 1.013, pitch_date: '2026-03-10' },
-      { id: ids.fermPivot, brewery_id: b, brew_day_id: ids.brewPivot, vessel_id: ids.vessel2, batch_number: 'ADP-2026-002', beer_name: 'Pivot Pale Ale',    status: 'ready_to_package', volume_in_fermenter: 14.5, actual_og: 1.053, actual_fg: 1.010, pitch_date: '2026-04-07' },
-      { id: ids.fermStout, brewery_id: b, brew_day_id: ids.brewStout, vessel_id: ids.vessel3, batch_number: 'ADP-2026-003', beer_name: 'Margin Stout',      status: 'fermenting',       volume_in_fermenter: 9.8,  actual_og: 1.071,                   pitch_date: '2026-05-01' },
+      { id: ids.fermHazy,  brewery_id: b, brew_day_id: ids.brewHazy,  vessel_id: ids.vessel1, recipe_id: ids.recipeHazyV2, batch_number: 'ADP-2026-001', beer_name: 'Adaptive Hazy IPA', status: 'conditioning',     volume_in_fermenter: 14.8, actual_og: 1.066, actual_fg: 1.013, pitch_date: '2026-03-10' },
+      { id: ids.fermPivot, brewery_id: b, brew_day_id: ids.brewPivot, vessel_id: ids.vessel2, recipe_id: ids.recipePivot,  batch_number: 'ADP-2026-002', beer_name: 'Pivot Pale Ale',    status: 'ready_to_package', volume_in_fermenter: 14.5, actual_og: 1.053, actual_fg: 1.010, pitch_date: '2026-04-07' },
+      { id: ids.fermStout, brewery_id: b, brew_day_id: ids.brewStout, vessel_id: ids.vessel3, recipe_id: ids.recipeStout,  batch_number: 'ADP-2026-003', beer_name: 'Margin Stout',      status: 'fermenting',       volume_in_fermenter: 9.8,  actual_og: 1.071,                   pitch_date: '2026-05-01' },
     ])
     check(fErr, 'insert fermentations')
 

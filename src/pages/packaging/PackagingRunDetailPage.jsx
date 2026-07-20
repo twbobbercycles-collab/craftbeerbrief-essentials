@@ -22,16 +22,8 @@ import LoadingSpinner from '../../components/LoadingSpinner'
 import WorkflowWarningBanner from '../../components/WorkflowWarningBanner'
 import { useModalDraft } from '../../hooks/useModalDraft'
 import {
-  calculateTotalIngredientCost,
-  calculatePackagingCostPerBatch,
   pintsPerContainer,
-  calculateLaborCost,
-  calculateUtilitiesCost,
-  calculateTotalProductionCost,
-  calculateCostPerBarrel,
-  calculateCostPerPint,
-  calculateSuggestedRetail,
-  convertToBarrels,
+  calculateTrueCostPerPint,
 } from '../recipes/recipeUtils'
 import {
   PACKAGE_TYPES,
@@ -40,6 +32,7 @@ import {
   isPackType,
   packageTypeLabel,
   normalizePlannedSplit,
+  DEFAULT_SIZE_BY_TYPE,
 } from '../../utils/packagingTypes'
 
 // ── Shared CSS helpers ──────────────────────────────────────────────────────────
@@ -170,6 +163,14 @@ function PackagingRunDetail() {
   const [targetMarginPct, setTargetMarginPct] = useState(null)
   const [recipeCostPerPint,   setRecipeCostPerPint]   = useState(null)
   const [recipeRetailPerPint, setRecipeRetailPerPint] = useState(null)
+  // Cached resolved inputs (recipe/ingredients/brewery) for calculateTrueCostPerPint,
+  // so Mark Complete can recompute fresh against the just-known actual packaged volume
+  // instead of reusing the page-load estimate — see handleMarkComplete.
+  const [costModelBase, setCostModelBase] = useState(null)
+  // Set when a cost-fetch query errors (schema drift etc.) rather than "no recipe
+  // linked" (which is a legitimate, silent no-op) — surfaced via packagingWarnings
+  // below so a broken cost snapshot is never silent again.
+  const [costWarning, setCostWarning] = useState(null)
 
   // ── Data loading ──────────────────────────────────────────────────────────────
 
@@ -203,80 +204,116 @@ function PackagingRunDetail() {
     setQcChecks(qcRes.data ?? [])
 
     // Fetch target_margin_percentage and full recipe cost data via fermentation → recipe chain
-    let marginPct = null
+    let marginPct         = null
+    let nextCostModelBase = null
+    let nextCostWarning   = null
     if (r.fermentation_id) {
-      const { data: ferm } = await supabase
+      const { data: ferm, error: fermErr } = await supabase
         .from('fermentations').select('recipe_id')
         .eq('id', r.fermentation_id).maybeSingle()
-      if (ferm?.recipe_id) {
-        // Fetch full recipe cost fields
-        const { data: recipe } = await supabase
+
+      if (fermErr) {
+        console.error('[PackagingRunDetailPage] fermentations fetch failed:', fermErr)
+        nextCostWarning = "Could not verify this batch's recipe link — recipe cost was not recalculated."
+      } else if (ferm?.recipe_id) {
+        // Fetch the same recipe fields RecipeDetailPage's Cost Calculator uses —
+        // base_batch_size/base_batch_size_unit (not batch_size_value/batch_size_unit,
+        // which don't exist), plus the labor/packaging/excise/margin fields
+        // calculateTrueCostPerPint expects.
+        const { data: recipe, error: recipeErr } = await supabase
           .from('recipes')
           .select(`
-            target_margin_percentage,
-            batch_size_value, batch_size_unit,
-            labor_rate_per_hour, brew_hours,
-            utilities_cost_per_barrel, cleaning_cost_per_batch,
-            water_cost_per_barrel, wastewater_cost_per_barrel,
-            fixed_overhead_percentage,
-            packaging_splits
+            target_margin_percentage, tax_rate,
+            base_batch_size, base_batch_size_unit,
+            packaging_splits, packaging_yield_percentage,
+            packaging_container_type, packaging_cost_per_unit,
+            label_cost_per_unit, carrier_cost_per_unit,
+            brewers_count, brew_hours_per_brewer,
+            packaging_hours, packaging_labor_rate,
+            excise_tax_rate_per_bbl
           `)
           .eq('id', ferm.recipe_id)
           .maybeSingle()
 
-        if (recipe?.target_margin_percentage != null)
-          marginPct = parseFloat(recipe.target_margin_percentage)
+        if (recipeErr) {
+          console.error('[PackagingRunDetailPage] recipe fetch failed:', recipeErr)
+          nextCostWarning = "Could not load the linked recipe's cost data — recipe cost was not recalculated."
+        } else {
+          if (recipe?.target_margin_percentage != null)
+            marginPct = parseFloat(recipe.target_margin_percentage)
 
-        // Fetch recipe ingredients for cost computation
-        const { data: recipeIngredients } = await supabase
-          .from('recipe_ingredients')
-          .select('amount, scale_with_batch, price_per_unit, category')
-          .eq('recipe_id', ferm.recipe_id)
+          // Fetch recipe ingredients the same way RecipeDetailPage does — joined to
+          // ingredients.current_price_per_unit / ingredient_suppliers.price_per_unit
+          // (recipe_ingredients itself has no price_per_unit/cost_per_unit/category
+          // columns — those don't exist and previously made this query error out).
+          const { data: recipeIngredients, error: ingErr } = await supabase
+            .from('recipe_ingredients')
+            .select('amount, scale_with_batch, ingredient:ingredients(current_price_per_unit), supplier:ingredient_suppliers(price_per_unit)')
+            .eq('recipe_id', ferm.recipe_id)
 
-        // Compute cost per pint from recipe data
-        if (recipe && recipe.batch_size_value) {
-          try {
-            const batchBbls = convertToBarrels(recipe.batch_size_value, recipe.batch_size_unit)
-            const ingCost   = calculateTotalIngredientCost(recipeIngredients ?? [], batchBbls, batchBbls)
+          if (ingErr) {
+            console.error('[PackagingRunDetailPage] recipe_ingredients fetch failed:', ingErr)
+            nextCostWarning = "Could not load the linked recipe's ingredient costs — recipe cost was not recalculated."
+          } else if (recipe) {
+            // Brewery-level cost context — fetched fresh (not from the auth context)
+            // the same way RecipeDetailPage does, so this matches its Cost Calculator.
+            const { data: breweryRow, error: breweryErr } = await supabase
+              .from('breweries')
+              .select('labor_rate_per_hour, monthly_fixed_overhead, batches_per_month, variable_overhead_per_bbl')
+              .eq('id', brewery.id)
+              .maybeSingle()
 
-            // Packaging cost from recipe's packaging_splits — normalizePlannedSplit()
-            // resolves size_oz/size_bbl from either the structured Checkpoint-1 shape
-            // or an older recipe split's free-text size label.
-            const pkgSplits = Array.isArray(recipe.packaging_splits) ? recipe.packaging_splits : []
-            const pkgCost = pkgSplits.reduce((sum, split) => {
-              const norm = normalizePlannedSplit(split)
-              return sum + calculatePackagingCostPerBatch(
-                parseFloat(split.volume_barrels) || 0,
-                parseFloat(split.packaging_yield) || 85,
-                norm.size_oz,
-                norm.size_bbl,
-                parseFloat(split.packaging_cost_per_unit) || 0,
-                parseFloat(split.label_cost_per_unit) || 0,
-                parseFloat(split.carrier_cost_per_unit) || 0,
-              )
-            }, 0)
+            if (breweryErr) {
+              console.error('[PackagingRunDetailPage] breweries fetch failed:', breweryErr)
+              nextCostWarning = 'Could not load brewery overhead settings — recipe cost was not recalculated.'
+            } else {
+              const defaultSize = DEFAULT_SIZE_BY_TYPE[recipe.packaging_container_type]
+              const recipeForCost = {
+                base_batch_size:            recipe.base_batch_size,
+                base_batch_size_unit:       recipe.base_batch_size_unit,
+                packaging_splits:           recipe.packaging_splits,
+                packaging_yield_percentage: recipe.packaging_yield_percentage,
+                default_size_oz:            defaultSize?.ozPerUnit,
+                default_size_bbl:           defaultSize?.bblPerUnit,
+                packaging_cost_per_unit:    recipe.packaging_cost_per_unit,
+                label_cost_per_unit:        recipe.label_cost_per_unit,
+                carrier_cost_per_unit:      recipe.carrier_cost_per_unit,
+                brewers_count:              recipe.brewers_count,
+                brew_hours_per_brewer:      recipe.brew_hours_per_brewer,
+                packaging_hours:            recipe.packaging_hours,
+                packaging_labor_rate:       recipe.packaging_labor_rate,
+                excise_tax_rate_per_bbl:    recipe.excise_tax_rate_per_bbl,
+                target_margin_percentage:   recipe.target_margin_percentage,
+                tax_rate:                   recipe.tax_rate,
+              }
+              const ingredientLines = (recipeIngredients ?? []).map(l => ({
+                amount:           parseFloat(l.amount) || 0,
+                scale_with_batch: l.scale_with_batch,
+                price_per_unit:   parseFloat(l.supplier?.price_per_unit ?? l.ingredient?.current_price_per_unit ?? 0),
+              }))
+              const breweryContext = {
+                laborRatePerHour:       breweryRow?.labor_rate_per_hour,
+                monthlyFixedOverhead:   breweryRow?.monthly_fixed_overhead,
+                batchesPerMonth:        breweryRow?.batches_per_month,
+                variableOverheadPerBbl: breweryRow?.variable_overhead_per_bbl,
+              }
 
-            const laborCost = calculateLaborCost(recipe.brew_hours, recipe.labor_rate_per_hour)
-            const { total: utilitiesCost } = calculateUtilitiesCost(
-              batchBbls,
-              recipe.utilities_cost_per_barrel,
-              recipe.cleaning_cost_per_batch,
-              recipe.water_cost_per_barrel,
-              recipe.wastewater_cost_per_barrel,
-            )
-            const { totalCost } = calculateTotalProductionCost(ingCost, pkgCost, laborCost, utilitiesCost, recipe.fixed_overhead_percentage)
-            const costPerBbl    = calculateCostPerBarrel(totalCost, batchBbls)
-            const costPerPint   = calculateCostPerPint(costPerBbl)
-            const retailPerPint = calculateSuggestedRetail(costPerPint, recipe.target_margin_percentage)
+              nextCostModelBase = { recipe: recipeForCost, ingredientLines, breweryContext }
 
-            if (costPerPint > 0)   setRecipeCostPerPint(costPerPint)
-            if (retailPerPint > 0) setRecipeRetailPerPint(retailPerPint)
-          } catch (_) {
-            // Silently skip if recipe cost computation fails
+              // Estimate against the best volume known so far: actual packaged volume
+              // once complete, otherwise the pre-packaging fermented volume. Mark
+              // Complete recomputes fresh against the true actual volume — see below.
+              const batchSize = parseFloat(r.total_volume_packaged) || parseFloat(r.volume_from_fermenter) || undefined
+              const result = calculateTrueCostPerPint(recipeForCost, ingredientLines, breweryContext, { batchSize })
+              if (result.trueCostPerPint > 0) setRecipeCostPerPint(result.trueCostPerPint)
+              if (result.suggestedRetail > 0) setRecipeRetailPerPint(result.suggestedRetail)
+            }
           }
         }
       }
     }
+    setCostModelBase(nextCostModelBase)
+    setCostWarning(nextCostWarning)
     setTargetMarginPct(marginPct)
 
     setLoading(false)
@@ -409,6 +446,20 @@ function PackagingRunDetail() {
       }
     }
 
+    // Recompute recipe cost fresh against the ACTUAL packaged volume (totalVolPackaged,
+    // just computed above from this batch's real actual_splits) rather than reusing
+    // recipeCostPerPint state, which was estimated at page-load time against
+    // total_volume_packaged/volume_from_fermenter before this completion's actuals
+    // were known — using the stale estimate here would save the wrong volume basis.
+    let finalCostPerPint = null
+    if (costModelBase) {
+      const result = calculateTrueCostPerPint(
+        costModelBase.recipe, costModelBase.ingredientLines, costModelBase.breweryContext,
+        { batchSize: totalVolPackaged },
+      )
+      if (result.trueCostPerPint > 0) finalCostPerPint = result.trueCostPerPint
+    }
+
     // Step 3: update the packaging_run to complete and link the batch_package
     const { error: updateErr } = await supabase
       .from('packaging_runs')
@@ -418,7 +469,7 @@ function PackagingRunDetail() {
         total_volume_packaged: totalVolPackaged || null,
         // Persist the full production cost (ingredients + packaging + labor + utilities + overhead)
         // so DistributionPage can pull it from packaging_runs.recipe_cost_per_pint
-        ...(recipeCostPerPint > 0 && { recipe_cost_per_pint: recipeCostPerPint }),
+        ...(finalCostPerPint > 0 && { recipe_cost_per_pint: finalCostPerPint }),
       })
       .eq('id', run.id)
 
@@ -456,6 +507,10 @@ function PackagingRunDetail() {
   // ── Workflow warnings ────────────────────────────────────────────────────────
 
   const packagingWarnings = []
+
+  if (costWarning) {
+    packagingWarnings.push({ message: costWarning, severity: 'required' })
+  }
 
   if (!run.volume_from_fermenter) {
     packagingWarnings.push({
