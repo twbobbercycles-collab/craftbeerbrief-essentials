@@ -188,14 +188,41 @@ export function calculateGrossMargin(retailPrice, costPerPint) {
 //   price_per_unit (e.g. supplier price ?? ingredient price ?? override ?? 0) before calling.
 // breweryContext: { laborRatePerHour, monthlyFixedOverhead, batchesPerMonth, variableOverheadPerBbl }
 // opts: { batchSize } — batch-size simulation override; defaults to recipe.base_batch_size.
+//   Used alone (as today) for a single-basis simulation: cost and pints-per-batch
+//   both scale off the same volume — that's what RecipeDetailPage and FermentationPage
+//   want, since neither has a brewed-vs-packaged split to model yet.
+// opts: { costBasisBarrels, packagedBarrels } — independent-basis override, in barrels.
+//   costBasisBarrels: the volume costs were actually incurred against (what was
+//   brewed) — drives ingredient scaling, packaging materials, variable overhead,
+//   and excise. packagedBarrels: the volume that survived to be packaged — divides
+//   total cost into the per-pint figure. Passing only one (or neither) falls back to
+//   batchSize/base_batch_size for the other, so a lone batchSize still reproduces the
+//   single-basis behavior exactly. Fermentation and packaging losses don't reduce what
+//   was spent, so a gap between these two raises cost per surviving pint — that's the
+//   whole point of separating them (see PackagingRunDetailPage's handleMarkComplete).
 export function calculateTrueCostPerPint(recipe, ingredientLines, breweryContext, opts = {}) {
   const baseBatch    = parseFloat(recipe.base_batch_size) || 0
   const curBatch     = parseFloat(opts.batchSize) || baseBatch
   const batchBarrels = convertToBarrels(curBatch, recipe.base_batch_size_unit)
 
-  const ingredientCost = calculateTotalIngredientCost(ingredientLines, curBatch, baseBatch)
+  // Independent bases — both default to batchBarrels, so passing neither (or
+  // passing only batchSize) reproduces the single-basis computation exactly.
+  const costBasisBarrels = opts.costBasisBarrels != null ? (parseFloat(opts.costBasisBarrels) || 0) : batchBarrels
+  const packagedBarrels  = opts.packagedBarrels  != null ? (parseFloat(opts.packagedBarrels)  || 0) : batchBarrels
+  const usingSplitBasis  = opts.costBasisBarrels != null || opts.packagedBarrels != null
 
-  // Packaging cost — use splits when defined, otherwise fall back to single container
+  // Ingredient scaling ratio is unit-invariant under convertToBarrels' linear scaling,
+  // so switching to barrels here would be equivalent for existing callers — but only
+  // recompute the ratio in barrels when a split basis is actually requested, so the
+  // legacy single-basis path (RecipeDetailPage, FermentationPage) stays byte-identical
+  // regardless of base_batch_size_unit.
+  const ingredientCost = usingSplitBasis
+    ? calculateTotalIngredientCost(ingredientLines, costBasisBarrels, convertToBarrels(baseBatch, recipe.base_batch_size_unit))
+    : calculateTotalIngredientCost(ingredientLines, curBatch, baseBatch)
+
+  // Packaging cost — use splits when defined, otherwise fall back to single container.
+  // The packaging_splits branch is defined by the recipe's own split volumes and is
+  // unaffected by either basis; only the single-container fallback scales with cost basis.
   const defaultYield = parseFloat(recipe.packaging_yield_percentage) || 85
   const packagingSplits = recipe.packaging_splits || []
   let packagingCost
@@ -212,14 +239,14 @@ export function calculateTrueCostPerPint(recipe, ingredientLines, breweryContext
     }, 0)
   } else {
     packagingCost = calculatePackagingCostPerBatch(
-      batchBarrels, defaultYield, recipe.default_size_oz, recipe.default_size_bbl,
+      costBasisBarrels, defaultYield, recipe.default_size_oz, recipe.default_size_bbl,
       parseFloat(recipe.packaging_cost_per_unit) || 0,
       parseFloat(recipe.label_cost_per_unit) || 0,
       parseFloat(recipe.carrier_cost_per_unit) || 0,
     )
   }
 
-  const totalPints = batchBarrels * PINTS_PER_BARREL
+  const totalPints = packagedBarrels * PINTS_PER_BARREL
   const tp1 = totalPints || 1
 
   // Per-pint ingredient and packaging costs
@@ -238,14 +265,15 @@ export function calculateTrueCostPerPint(recipe, ingredientLines, breweryContext
   const fixedOverheadPerBatch   = (parseFloat(breweryContext.monthlyFixedOverhead) || 0) / (parseFloat(breweryContext.batchesPerMonth) || 4)
   const fixedOverheadPerPint    = totalPints > 0 ? fixedOverheadPerBatch / totalPints : 0
 
-  // Variable overhead (utilities, cleaning, QC per barrel)
-  const variableOverheadTotal   = batchBarrels * (parseFloat(breweryContext.variableOverheadPerBbl) || 0)
+  // Variable overhead (utilities, cleaning, QC per barrel) — incurred on the
+  // volume brewed, not the volume that survives to be packaged.
+  const variableOverheadTotal   = costBasisBarrels * (parseFloat(breweryContext.variableOverheadPerBbl) || 0)
   const variableOverheadPerPint = totalPints > 0 ? variableOverheadTotal / totalPints : 0
 
   const totalOverheadPerPint = brewLaborPerPint + packagingLaborPerPint + fixedOverheadPerPint + variableOverheadPerPint
 
   // Federal excise tax
-  const exciseTaxBatchTotal = batchBarrels * (parseFloat(recipe.excise_tax_rate_per_bbl) || 3.50)
+  const exciseTaxBatchTotal = costBasisBarrels * (parseFloat(recipe.excise_tax_rate_per_bbl) || 3.50)
   const exciseTaxPerPint    = totalPints > 0 ? exciseTaxBatchTotal / totalPints : 0
 
   // True cost per pint — all components combined
@@ -264,6 +292,7 @@ export function calculateTrueCostPerPint(recipe, ingredientLines, breweryContext
 
   return {
     baseBatch, curBatch, batchBarrels,
+    costBasisBarrels, packagedBarrels,
     ingredientCost, packagingCost,
     ingredientCostPerPint, packagingCostPerPint,
     totalBrewLaborCost, brewLaborPerPint,

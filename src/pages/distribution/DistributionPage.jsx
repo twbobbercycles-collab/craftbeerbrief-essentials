@@ -412,7 +412,9 @@ function AssignTab({ packagingRuns, accounts, distRecords, breweryId, onRefresh,
   )
 }
 
-// Ingredient cost per unit = recipe_cost_per_pint × pintsPerContainer(sizeOz, sizeBbl).
+// Ingredient cost per unit = costPerPint × pintsPerContainer(sizeOz, sizeBbl). Callers pass
+// the run's actual_cost_per_pint (realized cost — profit should use what production actually
+// cost, not the recipe's plan), falling back to recipe_cost_per_pint when actual isn't set.
 // sizeOz/sizeBbl are the split's own structured size fields — the reliable source since
 // Checkpoint 2 — passed straight to the canonical pintsPerContainer() from recipeUtils.js.
 // Legacy rows that genuinely lack both (pre-Checkpoint-2 data) fall back to looking up the
@@ -420,8 +422,8 @@ function AssignTab({ packagingRuns, accounts, distRecords, breweryId, onRefresh,
 // a usable size — e.g. a Barrel Aging split, whose sizes carry no defined volume by design —
 // this returns null rather than guessing a pint count. Callers must show that as an explicit
 // "size not recognized" gap, not silently fold it into a profit number as if it cost nothing.
-function ingCostPerUnit(packageType, sizeSpec, sizeOz, sizeBbl, recipeCostPerPint) {
-  if (!recipeCostPerPint) return 0
+function ingCostPerUnit(packageType, sizeSpec, sizeOz, sizeBbl, costPerPint) {
+  if (!costPerPint) return 0
   let oz  = sizeOz
   let bbl = sizeBbl
   if (oz == null && bbl == null) {
@@ -430,7 +432,7 @@ function ingCostPerUnit(packageType, sizeSpec, sizeOz, sizeBbl, recipeCostPerPin
     bbl = opt?.bblPerUnit ?? null
   }
   const pints = pintsPerContainer(oz, bbl)
-  return pints != null ? parseFloat(recipeCostPerPint) * pints : null
+  return pints != null ? parseFloat(costPerPint) * pints : null
 }
 
 // Two-tier exact lookup, nothing beyond it: both sides are controlled-vocabulary values
@@ -485,11 +487,20 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
 
   const splits = (run.actual_splits?.length ? run.actual_splits : run.planned_splits) || []
 
+  // Profit costing uses this run's REALIZED cost (actual_cost_per_pint — brewed volume
+  // spread across packaged pints), not the recipe's planning baseline (recipe_cost_per_pint),
+  // since profit should reflect what production actually cost. Falls back to the planning
+  // baseline for runs completed before this field existed, or where costModelBase couldn't
+  // be resolved at completion (no recipe link, a query error) — an approximation, but a
+  // real number beats silently showing $0 cost / infinite margin.
+  const costPerPint = run.actual_cost_per_pint ?? run.recipe_cost_per_pint
+
   // Log all split data so the profit calculation can be verified in the browser console
   useEffect(() => {
     console.log('[AssignSplitsModal] ModalShell + useModalDraft active')
     console.log('[AssignSplitsModal] opened', {
       beer_name:            run.beer_name,
+      actual_cost_per_pint: run.actual_cost_per_pint,
       recipe_cost_per_pint: run.recipe_cost_per_pint,
       reAssign,
       splits: splits.map(s => ({
@@ -639,7 +650,7 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
       const qty      = Math.round(parseFloat(r.units_packaged)) || 1
       const price    = parseFloat(r.sale_price) || null
       const distCost = parseFloat(r.distribution_cost) || null
-      const ingCost  = ingCostPerUnit(r.package_type, r.size_spec, r.size_oz, r.size_bbl, run.recipe_cost_per_pint) || null
+      const ingCost  = ingCostPerUnit(r.package_type, r.size_spec, r.size_oz, r.size_bbl, costPerPint) || null
       const pkgCost  = pkgCostForRow(r) || null
 
       const payload = {
@@ -732,7 +743,7 @@ function AssignSplitsModal({ run, accounts, distRecords, breweryId, reAssign = f
               // pint count (e.g. Barrel Aging, whose sizes carry no defined volume) — that
               // must not silently collapse into the cost total as if it were free, so total
               // cost / profit / margin all propagate null rather than treating it as $0.
-              const ingCost   = ingCostPerUnit(row.package_type, row.size_spec, row.size_oz, row.size_bbl, run.recipe_cost_per_pint)
+              const ingCost   = ingCostPerUnit(row.package_type, row.size_spec, row.size_oz, row.size_bbl, costPerPint)
               const pkgCost   = pkgCostForRow(row)
               const distCost  = parseFloat(row.distribution_cost) || 0
               const totalCost = ingCost != null ? ingCost + pkgCost + distCost : null

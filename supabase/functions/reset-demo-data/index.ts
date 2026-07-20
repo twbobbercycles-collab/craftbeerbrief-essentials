@@ -520,17 +520,33 @@ Deno.serve(async (req) => {
       //   Keg Sixth Barrel: 24   units × 0.167 bbl      = 4.008  bbl (planned: 25   × 0.167    = 4.175 bbl)
       //   Taproom Draft:    185  units × 16 oz  / 3968 = 0.746  bbl (planned: 194  × 16/3968 = 0.782 bbl)
       //
-      // total_volume_packaged / packaging_yield_percentage / yield_loss_volume /
-      // actual_cost_per_pint below are reconciled to the actual_splits total (12.0927 bbl),
-      // using the exact formulas saveSplitsData() applies on every actual-split edit
-      // (PackagingRunDetailPage.jsx) — not hand-typed independently of the splits:
+      // total_volume_packaged / packaging_yield_percentage / yield_loss_volume below are
+      // reconciled to the actual_splits total (12.0927 bbl), using the exact formulas
+      // saveSplitsData() applies on every actual-split edit (PackagingRunDetailPage.jsx):
       //   total_volume_packaged      = 7.3387 + 4.008 + 0.746                = 12.0927
       //   packaging_yield_percentage = round(12.0927 / 14.8 × 1000) / 10     = 81.7
       //   yield_loss_volume          = 14.8 - 12.0927                       = 2.7073
-      //   actual_cost_per_pint       = 0.95 × 14.8 / 12.0927                = 1.1627
-      { id: ids.pkgHazy,  brewery_id: b, fermentation_id: ids.fermHazy,  batch_package_id: ids.bpkgHazy, batch_number: 'ADP-2026-001', beer_name: 'Adaptive Hazy IPA', beer_style: 'New England IPA',   packaging_date: '2026-03-28',                              status: 'complete', volume_from_fermenter: 14.8, volume_unit: 'barrels', total_volume_packaged: 12.0927, packaging_yield_percentage: 81.7, yield_loss_volume: 2.7073, recipe_cost_per_pint: 0.95, actual_cost_per_pint: 1.1627, actual_splits: [{ package_type: 'Can', size_spec: '16oz', size_oz: 16, size_bbl: null, units_packaged: 1820, volume_per_unit: 16, total_volume: 7.3387, destination: 'distribution', notes: '' }, { package_type: 'Keg Sixth Barrel', size_spec: '1/6 bbl (5.16 gal)', size_oz: null, size_bbl: 0.167, units_packaged: 24, volume_per_unit: 0.167, total_volume: 4.008, destination: 'distribution', notes: '' }, { package_type: 'Taproom Draft', size_spec: '16oz pour', size_oz: 16, size_bbl: null, units_packaged: 185, volume_per_unit: 16, total_volume: 0.746, destination: 'taproom', notes: '' }], planned_splits: [{ type: 'Can', size: '16oz', size_oz: 16, size_bbl: null, units: 1938, volume_barrels: 7.815 }, { type: 'Keg Sixth Barrel', size: '1/6 bbl (5.16 gal)', size_oz: null, size_bbl: 0.167, units: 25, volume_barrels: 4.175 }, { type: 'Taproom Draft', size: '16oz pour', size_oz: 16, size_bbl: null, units: 194, volume_barrels: 0.782 }] },
-      // Pivot Pale Ale — planned packaging run (ready to package)
-      { id: ids.pkgPivot, brewery_id: b, fermentation_id: ids.fermPivot,                                  batch_number: 'ADP-2026-002', beer_name: 'Pivot Pale Ale',    beer_style: 'American Pale Ale', packaging_date: new Date().toISOString().split('T')[0], status: 'planned',  volume_from_fermenter: 14.5, volume_unit: 'barrels',                                                   recipe_cost_per_pint: 0.82,                                                                                                                                                                                                                                                                                                                     planned_splits: [{ type: 'Can', size: '16oz', size_oz: 16, size_bbl: null, units: 1780, volume_barrels: 7.177 }, { type: 'Keg Sixth Barrel', size: '1/6 bbl (5.16 gal)', size_oz: null, size_bbl: 0.167, units: 20, volume_barrels: 3.34 }, { type: 'Taproom Draft', size: '16oz pour', size_oz: 16, size_bbl: null, units: 162, volume_barrels: 0.653 }] },
+      //
+      // recipe_cost_per_pint / actual_cost_per_pint follow the planning-vs-actual split
+      // handleMarkComplete now writes (PackagingRunDetailPage.jsx) — two independent
+      // calculateTrueCostPerPint(recipe, ingredients, breweryContext, opts) calls, not one
+      // number reused for both:
+      //   recipe_cost_per_pint (planning baseline, run-independent) — both cost basis and
+      //   pints divisor = recipe.base_batch_size (15 bbl, no opts) = 2.1900
+      //   actual_cost_per_pint (this run's realized cost) — cost basis = brewed volume
+      //   (brew_days.volume_into_fermenter = 14.8, what ingredients/labor/overhead/excise
+      //   were actually spent on), pints divisor = total_volume_packaged (12.0927, what
+      //   survived to be packaged) = 2.7094
+      //   variance (actual − recipe) = 2.7094 − 2.1900 = 0.5194 — yield loss (18.3%
+      //   fermenter→package) raised realized cost 24% above the recipe's plan.
+      { id: ids.pkgHazy,  brewery_id: b, fermentation_id: ids.fermHazy,  batch_package_id: ids.bpkgHazy, batch_number: 'ADP-2026-001', beer_name: 'Adaptive Hazy IPA', beer_style: 'New England IPA',   packaging_date: '2026-03-28',                              status: 'complete', volume_from_fermenter: 14.8, volume_unit: 'barrels', total_volume_packaged: 12.0927, packaging_yield_percentage: 81.7, yield_loss_volume: 2.7073, recipe_cost_per_pint: 2.19, actual_cost_per_pint: 2.7094, actual_splits: [{ package_type: 'Can', size_spec: '16oz', size_oz: 16, size_bbl: null, units_packaged: 1820, volume_per_unit: 16, total_volume: 7.3387, destination: 'distribution', notes: '' }, { package_type: 'Keg Sixth Barrel', size_spec: '1/6 bbl (5.16 gal)', size_oz: null, size_bbl: 0.167, units_packaged: 24, volume_per_unit: 0.167, total_volume: 4.008, destination: 'distribution', notes: '' }, { package_type: 'Taproom Draft', size_spec: '16oz pour', size_oz: 16, size_bbl: null, units_packaged: 185, volume_per_unit: 16, total_volume: 0.746, destination: 'taproom', notes: '' }], planned_splits: [{ type: 'Can', size: '16oz', size_oz: 16, size_bbl: null, units: 1938, volume_barrels: 7.815 }, { type: 'Keg Sixth Barrel', size: '1/6 bbl (5.16 gal)', size_oz: null, size_bbl: 0.167, units: 25, volume_barrels: 4.175 }, { type: 'Taproom Draft', size: '16oz pour', size_oz: 16, size_bbl: null, units: 194, volume_barrels: 0.782 }] },
+      // Pivot Pale Ale — planned packaging run (ready to package). recipe_cost_per_pint is
+      // the planning baseline FermentationPage's ready_to_package handler writes at run
+      // creation — calculateTrueCostPerPint(recipe, ingredients, breweryContext) with no
+      // opts, i.e. cost basis and pints divisor both = recipe.base_batch_size (15 bbl) = 1.7515.
+      // No actual_cost_per_pint yet — this run hasn't completed, so there's no real yield to
+      // compute a realized cost against.
+      { id: ids.pkgPivot, brewery_id: b, fermentation_id: ids.fermPivot,                                  batch_number: 'ADP-2026-002', beer_name: 'Pivot Pale Ale',    beer_style: 'American Pale Ale', packaging_date: new Date().toISOString().split('T')[0], status: 'planned',  volume_from_fermenter: 14.5, volume_unit: 'barrels',                                                   recipe_cost_per_pint: 1.7515,                                                                                                                                                                                                                                                                                                                     planned_splits: [{ type: 'Can', size: '16oz', size_oz: 16, size_bbl: null, units: 1780, volume_barrels: 7.177 }, { type: 'Keg Sixth Barrel', size: '1/6 bbl (5.16 gal)', size_oz: null, size_bbl: 0.167, units: 20, volume_barrels: 3.34 }, { type: 'Taproom Draft', size: '16oz pour', size_oz: 16, size_bbl: null, units: 162, volume_barrels: 0.653 }] },
     ])
     check(prErr, 'insert packaging_runs')
 
@@ -559,21 +575,23 @@ Deno.serve(async (req) => {
     // Structured shape (bare package_type + size_spec), matching what DistributionPage.jsx's
     // save payload writes and what the 062 backfill brings existing rows to.
     //
-    // ingredient_cost_per_unit = recipe_cost_per_pint × pintsPerContainer(size_oz, size_bbl)
-    // — the same formula DistributionPage.jsx's ingCostPerUnit() applies live (recipeUtils.js).
-    // recipe_cost_per_pint = 0.95 (Hazy IPA's packaging_runs seed, above). For the Can (16oz)
-    // and Taproom Draft (16oz pour) rows, pintsPerContainer(16, null) = 16/16 = 1 pint, so
-    // 0.95 × 1 = 0.95 — a per-pint cost that happens to equal the per-unit cost for a 1-pint
-    // container. The Keg Sixth Barrel rows use the same size_bbl: 0.167 already hardcoded in
-    // actual_splits/package_splits above (the rounded 1/6, not an idealized fraction):
+    // ingredient_cost_per_unit = actual_cost_per_pint × pintsPerContainer(size_oz, size_bbl)
+    // — the same formula DistributionPage.jsx's ingCostPerUnit() applies live (recipeUtils.js),
+    // now called with the run's REALIZED cost (actual_cost_per_pint), not the recipe's planning
+    // baseline (recipe_cost_per_pint) — profit costing should reflect what production actually
+    // cost. actual_cost_per_pint = 2.7094 (Hazy IPA's packaging_runs seed, above). For the Can
+    // (16oz) and Taproom Draft (16oz pour) rows, pintsPerContainer(16, null) = 16/16 = 1 pint,
+    // so 2.7094 × 1 = 2.7094 — a per-pint cost that happens to equal the per-unit cost for a
+    // 1-pint container. The Keg Sixth Barrel rows use the same size_bbl: 0.167 already hardcoded
+    // in actual_splits/package_splits above (the rounded 1/6, not an idealized fraction):
     // pintsPerContainer(null, 0.167) = (0.167 × 31 gal/bbl × 128 oz/gal) / 16 oz/pint = 41.416
-    // pints/keg, so ingredient_cost_per_unit = 0.95 × 41.416 = 39.3452 — not 0.95.
+    // pints/keg, so ingredient_cost_per_unit = 2.7094 × 41.416 = 112.2130.
     const { error: drErr } = await svc.from('distribution_records').insert([
-      { brewery_id: b, batch_package_id: ids.bpkgHazy, account_id: ids.distRetailer1, account_name: 'The Taproom District',        account_type: 'bar',      package_type: 'Keg Sixth Barrel', size_spec: '1/6 bbl (5.16 gal)', quantity: 10,  delivery_date: '2026-03-30', sale_price_per_unit: 145.00, ingredient_cost_per_unit: 39.3452, returnable_kegs: true,  keg_return_date: new Date(new Date('2026-03-30').getTime() + 20 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] },
-      { brewery_id: b, batch_package_id: ids.bpkgHazy, account_id: ids.distRetailer2, account_name: 'Independent Bottle Shop',     account_type: 'retailer', package_type: 'Can',              size_spec: '16oz',                quantity: 240, delivery_date: '2026-03-30', sale_price_per_unit: 1.85,   ingredient_cost_per_unit: 0.95 },
-      { brewery_id: b, batch_package_id: ids.bpkgHazy, account_id: ids.distBar1,      account_name: 'Craft & Draft Bar',           account_type: 'bar',      package_type: 'Keg Sixth Barrel', size_spec: '1/6 bbl (5.16 gal)', quantity: 8,   delivery_date: '2026-04-01', sale_price_per_unit: 140.00, ingredient_cost_per_unit: 39.3452, returnable_kegs: true,  keg_return_date: new Date(new Date('2026-04-01').getTime() + 60 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] },
-      { brewery_id: b, batch_package_id: ids.bpkgHazy, account_id: ids.distTaproom,   account_name: 'Adaptive Taproom (in-house)', account_type: 'taproom',  package_type: 'Taproom Draft',    size_spec: '16oz pour',           quantity: 185, delivery_date: '2026-03-28', sale_price_per_unit: 7.50,   ingredient_cost_per_unit: 0.95 },
-      { brewery_id: b, batch_package_id: ids.bpkgHazy, account_id: ids.distRetailer1, account_name: 'The Taproom District',        account_type: 'bar',      package_type: 'Keg Sixth Barrel', size_spec: '1/6 bbl (5.16 gal)', quantity: 6,   delivery_date: '2026-04-05', sale_price_per_unit: 145.00, ingredient_cost_per_unit: 39.3452, returnable_kegs: true,  keg_return_date: new Date(new Date('2026-04-05').getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] },
+      { brewery_id: b, batch_package_id: ids.bpkgHazy, account_id: ids.distRetailer1, account_name: 'The Taproom District',        account_type: 'bar',      package_type: 'Keg Sixth Barrel', size_spec: '1/6 bbl (5.16 gal)', quantity: 10,  delivery_date: '2026-03-30', sale_price_per_unit: 145.00, ingredient_cost_per_unit: 112.2130, returnable_kegs: true,  keg_return_date: new Date(new Date('2026-03-30').getTime() + 20 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] },
+      { brewery_id: b, batch_package_id: ids.bpkgHazy, account_id: ids.distRetailer2, account_name: 'Independent Bottle Shop',     account_type: 'retailer', package_type: 'Can',              size_spec: '16oz',                quantity: 240, delivery_date: '2026-03-30', sale_price_per_unit: 1.85,   ingredient_cost_per_unit: 2.7094 },
+      { brewery_id: b, batch_package_id: ids.bpkgHazy, account_id: ids.distBar1,      account_name: 'Craft & Draft Bar',           account_type: 'bar',      package_type: 'Keg Sixth Barrel', size_spec: '1/6 bbl (5.16 gal)', quantity: 8,   delivery_date: '2026-04-01', sale_price_per_unit: 140.00, ingredient_cost_per_unit: 112.2130, returnable_kegs: true,  keg_return_date: new Date(new Date('2026-04-01').getTime() + 60 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] },
+      { brewery_id: b, batch_package_id: ids.bpkgHazy, account_id: ids.distTaproom,   account_name: 'Adaptive Taproom (in-house)', account_type: 'taproom',  package_type: 'Taproom Draft',    size_spec: '16oz pour',           quantity: 185, delivery_date: '2026-03-28', sale_price_per_unit: 7.50,   ingredient_cost_per_unit: 2.7094 },
+      { brewery_id: b, batch_package_id: ids.bpkgHazy, account_id: ids.distRetailer1, account_name: 'The Taproom District',        account_type: 'bar',      package_type: 'Keg Sixth Barrel', size_spec: '1/6 bbl (5.16 gal)', quantity: 6,   delivery_date: '2026-04-05', sale_price_per_unit: 145.00, ingredient_cost_per_unit: 112.2130, returnable_kegs: true,  keg_return_date: new Date(new Date('2026-04-05').getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] },
     ])
     check(drErr, 'insert distribution_records')
 

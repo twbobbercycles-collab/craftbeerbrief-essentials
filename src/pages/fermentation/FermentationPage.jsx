@@ -2192,14 +2192,13 @@ function FermentationDetailModal({ fermentation: initialFerm, vessels, available
                     variableOverheadPerBbl: breweryRow?.variable_overhead_per_bbl,
                   }
 
-                  // Batch size = the fermentation's pre-packaging volume — packaging
-                  // hasn't happened yet at ready_to_package time, so there's no actual
-                  // packaged volume; volume_in_fermenter is the same field this same
-                  // payload already stores as volume_from_fermenter below.
-                  const result = calculateTrueCostPerPint(
-                    recipeForCost, ingredientLines, breweryContext,
-                    { batchSize: ferm.volume_in_fermenter },
-                  )
+                  // recipe_cost_per_pint is the planning baseline — run-independent, at
+                  // the recipe's own base_batch_size (no opts), not this fermentation's
+                  // actual volume. PackagingRunDetailPage's handleMarkComplete never
+                  // overwrites it, so whatever's written here is what this field holds
+                  // for the run's whole lifetime; the run-specific realized cost lives
+                  // in actual_cost_per_pint instead, computed fresh at completion.
+                  const result = calculateTrueCostPerPint(recipeForCost, ingredientLines, breweryContext)
                   if (result.trueCostPerPint > 0) recipeCostPerPint = result.trueCostPerPint
                 }
               }

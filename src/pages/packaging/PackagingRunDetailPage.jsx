@@ -204,18 +204,38 @@ function PackagingRunDetail() {
     setQcChecks(qcRes.data ?? [])
 
     // Fetch target_margin_percentage and full recipe cost data via fermentation → recipe chain
-    let marginPct         = null
-    let nextCostModelBase = null
-    let nextCostWarning   = null
+    let marginPct           = null
+    let nextCostModelBase   = null
+    let nextCostWarning     = null
+    let nextBrewedBarrels   = null
     if (r.fermentation_id) {
       const { data: ferm, error: fermErr } = await supabase
-        .from('fermentations').select('recipe_id')
+        .from('fermentations').select('recipe_id, brew_day_id')
         .eq('id', r.fermentation_id).maybeSingle()
 
       if (fermErr) {
         console.error('[PackagingRunDetailPage] fermentations fetch failed:', fermErr)
         nextCostWarning = "Could not verify this batch's recipe link — recipe cost was not recalculated."
-      } else if (ferm?.recipe_id) {
+      } else {
+        // Brewed volume ("what went into the fermenter") — the cost basis for
+        // ingredients/labor/overhead/excise, since fermentation and packaging
+        // loss don't reduce what was actually spent. Reachable via
+        // fermentations.brew_day_id → brew_days.volume_into_fermenter; falls
+        // back to volume_from_fermenter (this run's own transfer volume), then
+        // to recipe.base_batch_size inside calculateTrueCostPerPint itself when
+        // neither is available.
+        if (ferm?.brew_day_id) {
+          const { data: brewDay, error: brewDayErr } = await supabase
+            .from('brew_days').select('volume_into_fermenter')
+            .eq('id', ferm.brew_day_id).maybeSingle()
+          if (brewDayErr) {
+            console.error('[PackagingRunDetailPage] brew_days fetch failed:', brewDayErr)
+          } else if (brewDay?.volume_into_fermenter != null) {
+            nextBrewedBarrels = parseFloat(brewDay.volume_into_fermenter) || null
+          }
+        }
+      }
+      if (!fermErr && ferm?.recipe_id) {
         // Fetch the same recipe fields RecipeDetailPage's Cost Calculator uses —
         // base_batch_size/base_batch_size_unit (not batch_size_value/batch_size_unit,
         // which don't exist), plus the labor/packaging/excise/margin fields
@@ -298,13 +318,18 @@ function PackagingRunDetail() {
                 variableOverheadPerBbl: breweryRow?.variable_overhead_per_bbl,
               }
 
-              nextCostModelBase = { recipe: recipeForCost, ingredientLines, breweryContext }
+              nextCostModelBase = { recipe: recipeForCost, ingredientLines, breweryContext, brewedBarrels: nextBrewedBarrels }
 
-              // Estimate against the best volume known so far: actual packaged volume
-              // once complete, otherwise the pre-packaging fermented volume. Mark
-              // Complete recomputes fresh against the true actual volume — see below.
-              const batchSize = parseFloat(r.total_volume_packaged) || parseFloat(r.volume_from_fermenter) || undefined
-              const result = calculateTrueCostPerPint(recipeForCost, ingredientLines, breweryContext, { batchSize })
+              // Cost basis = what was actually brewed (brew_days.volume_into_fermenter,
+              // falling back to this run's own volume_from_fermenter) — ingredients/
+              // labor/overhead/excise were spent on that volume regardless of any
+              // later fermentation or packaging loss. Packaged basis = the best
+              // packaged-volume estimate known so far (actual once complete,
+              // otherwise the pre-packaging fermented volume). Mark Complete
+              // recomputes both fresh against the true actual volumes — see below.
+              const costBasisBarrels = nextBrewedBarrels || parseFloat(r.volume_from_fermenter) || undefined
+              const packagedBarrels  = parseFloat(r.total_volume_packaged) || parseFloat(r.volume_from_fermenter) || undefined
+              const result = calculateTrueCostPerPint(recipeForCost, ingredientLines, breweryContext, { costBasisBarrels, packagedBarrels })
               if (result.trueCostPerPint > 0) setRecipeCostPerPint(result.trueCostPerPint)
               if (result.suggestedRetail > 0) setRecipeRetailPerPint(result.suggestedRetail)
             }
@@ -446,18 +471,32 @@ function PackagingRunDetail() {
       }
     }
 
-    // Recompute recipe cost fresh against the ACTUAL packaged volume (totalVolPackaged,
-    // just computed above from this batch's real actual_splits) rather than reusing
-    // recipeCostPerPint state, which was estimated at page-load time against
-    // total_volume_packaged/volume_from_fermenter before this completion's actuals
-    // were known — using the stale estimate here would save the wrong volume basis.
-    let finalCostPerPint = null
+    // Two independent cost figures — do NOT collapse these into one number:
+    //
+    // recipe_cost_per_pint = the planning baseline. Run-independent — cost basis and
+    // pints divisor both = recipe.base_batch_size (no opts), so it's "what this beer
+    // should cost per pint if everything goes to plan." Never overwritten here: it's
+    // a property of the recipe, not this run, and was already set (to this same
+    // recipe-only figure) when the packaging run was created — see FermentationPage's
+    // ready_to_package handler.
+    //
+    // actual_cost_per_pint = this run's realized cost. Cost basis = what was actually
+    // BREWED — brew_days.volume_into_fermenter via costModelBase.brewedBarrels, falling
+    // back to this run's own volume_from_fermenter — since fermentation and packaging
+    // loss don't reduce what was spent. Pints divisor = totalVolPackaged, just computed
+    // above from this batch's real actual_splits — the pints that actually survived.
+    //
+    // Their difference (actual − recipe) is the yield-loss cost variance Dashboard/
+    // BatchProfitability/CostSection display — meaningful again now that recipe_cost_per_pint
+    // stays fixed to the plan instead of being overwritten with a run-specific number.
+    let actualCostPerPint = null
     if (costModelBase) {
+      const costBasisBarrels = costModelBase.brewedBarrels || parseFloat(run.volume_from_fermenter) || undefined
       const result = calculateTrueCostPerPint(
         costModelBase.recipe, costModelBase.ingredientLines, costModelBase.breweryContext,
-        { batchSize: totalVolPackaged },
+        { costBasisBarrels, packagedBarrels: totalVolPackaged },
       )
-      if (result.trueCostPerPint > 0) finalCostPerPint = result.trueCostPerPint
+      if (result.trueCostPerPint > 0) actualCostPerPint = result.trueCostPerPint
     }
 
     // Step 3: update the packaging_run to complete and link the batch_package
@@ -467,9 +506,8 @@ function PackagingRunDetail() {
         status:               'complete',
         batch_package_id:     batchPackageId,
         total_volume_packaged: totalVolPackaged || null,
-        // Persist the full production cost (ingredients + packaging + labor + utilities + overhead)
-        // so DistributionPage can pull it from packaging_runs.recipe_cost_per_pint
-        ...(finalCostPerPint > 0 && { recipe_cost_per_pint: finalCostPerPint }),
+        // recipe_cost_per_pint is deliberately NOT written here — see comment above.
+        ...(actualCostPerPint > 0 && { actual_cost_per_pint: actualCostPerPint }),
       })
       .eq('id', run.id)
 
@@ -597,7 +635,7 @@ function PackagingRunDetail() {
 
       {/* ── Section 4: Cost Recalculation (only if recipe cost exists) ── */}
       {run.recipe_cost_per_pint != null && (
-        <CostSection run={run} />
+        <CostSection run={run} liveActualEstimate={recipeCostPerPint} />
       )}
 
       {/* ── Section 5: Quality Control ── */}
@@ -1604,19 +1642,14 @@ function YieldLossSection({ run, isReadOnly, saveField, setRun }) {
 
 // ── CostSection ────────────────────────────────────────────────────────────────
 
-// Section 4 — recipe estimated vs actual cost per pint (only shown when recipe cost exists)
-function CostSection({ run }) {
-  const unit = run.volume_unit || 'barrels'
-  const ppu  = pintsPerUnit(unit)
-
-  const volumeFrom   = parseFloat(run.volume_from_fermenter) || 0
-  const totalPkg     = parseFloat(run.total_volume_packaged) || 0
-  const recipeCost   = parseFloat(run.recipe_cost_per_pint) || 0
-
-  // Actual cost = (recipe_cost_per_pint × volume_from_fermenter × pints_per_unit) / (total_volume_packaged × pints_per_unit)
-  const totalProductionCost = recipeCost * (volumeFrom * ppu)
-  const computedActualCost  = totalPkg > 0 ? totalProductionCost / (totalPkg * ppu) : null
-  const actualCost          = run.actual_cost_per_pint ?? computedActualCost
+// Section 4 — recipe estimated (planning baseline) vs actual cost per pint (only shown
+// when recipe cost exists). liveActualEstimate is the parent's own two-basis cost-model
+// estimate (costBasis = brewed volume, packaged = best packaged-volume guess so far) —
+// used as a display-only fallback before this run has actually completed and persisted
+// actual_cost_per_pint. Once complete, run.actual_cost_per_pint is always used directly.
+function CostSection({ run, liveActualEstimate }) {
+  const recipeCost = parseFloat(run.recipe_cost_per_pint) || 0
+  const actualCost = run.actual_cost_per_pint ?? liveActualEstimate ?? null
 
   const diff = actualCost != null ? actualCost - recipeCost : null
   const yieldPct = run.packaging_yield_percentage
@@ -1663,8 +1696,11 @@ function CostSection({ run }) {
 
       {/* Explanation of calculation */}
       <div className="text-xs text-gray-400 leading-relaxed">
-        Calculation: Total production cost = recipe cost × (volume from fermenter × {ppu.toFixed(2)} pints/{unit.replace('s', '')}).
-        Actual cost per pint = total production cost ÷ (volume packaged × {ppu.toFixed(2)} pints/{unit.replace('s', '')}).
+        Recipe Estimated is the recipe's planning baseline — ingredients, labor, overhead,
+        excise and packaging at the recipe's own base batch size, independent of this run.
+        Actual re-runs that same cost model against this batch's real brewed volume, divided
+        across the pints that actually survived to be packaged — so fermentation and
+        packaging loss both raise the cost per surviving pint.
       </div>
     </section>
   )
